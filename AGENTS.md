@@ -195,6 +195,26 @@ iOS (Swift/SwiftUI)
   - Cognito user pool + JWKS URL per environment
   - Minimize mutable state; infra via looped-infra (Terraform/CDK optional)
 
+## Developer Quickstart
+
+- Prerequisites
+  - JDK 25 installed (Maven optional; use `./mvnw`)
+- Dev run (API)
+  - `./mvnw -q -pl apps/api -am spring-boot:run`
+  - Alternative: `./mvnw -q -f apps/api/pom.xml spring-boot:run`
+  - Health: `GET http://localhost:8080/health` → `ok`
+- Build & test
+  - Build all: `./mvnw -q -T 1C -DskipTests package`
+  - Run tests: `./mvnw -q -T 1C test`
+  - Package API: `./mvnw -q -pl apps/api -am package`
+  - Run JAR: `java -jar apps/api/target/looped-api-0.0.1-SNAPSHOT.jar`
+- Port & env
+  - Change port: `PORT=9090 ./mvnw -q -pl apps/api -am spring-boot:run`
+  - `.env` is for local conventions; production uses Secrets Manager/SSM
+- Maven run note
+  - Use the Maven Wrapper (`./mvnw`) to download the pinned Maven (3.9.11) on first run.
+  - Root POM (aggregator/parent) sets `spring-boot.run.skip=true`. API overrides to allow `spring-boot:run` when targeting `apps/api`.
+
 ## Roadmap (MVP → Later) and Ownership
 
 - MVP
@@ -327,4 +347,3 @@ CREATE TABLE devices (
   created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 ```
-

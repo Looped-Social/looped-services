@@ -14,8 +14,8 @@ build/
 out/
 .gradle/
 
-# Maven Wrapper / Gradle Wrapper binaries
-.mvn/
+# Maven Wrapper / Gradle Wrapper
+.mvn/wrapper/maven-wrapper.jar
 gradlew
 gradlew.bat
 
@@ -36,4 +36,3 @@ docker/volumes/
 node_modules/
 package-lock.json
 yarn.lock
-

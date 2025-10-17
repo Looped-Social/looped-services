@@ -22,7 +22,8 @@ Versions & core dependencies
 - Cloud: S3 + CloudFront, Cognito (JWT / JWKS), SQS (optional)
 
 Prerequisites
-- Install `JDK 25` and `Maven 3.9+`
+- Install `JDK 25`
+- Optional: install `Maven 3.9+` (or use the Maven Wrapper `./mvnw`)
 - Optional (local): Postgres and Redis; or point to dev instances via `.env`
 
 Configuration
@@ -31,14 +32,26 @@ Configuration
 - Health endpoint does not require DB/Redis
 
 Quick start
-- Run API (dev): `mvn -q -pl apps/api -am spring-boot:run`
-  - Alternative (module-only): `mvn -q -f apps/api/pom.xml spring-boot:run`
-- Build all modules: `mvn -q -T 1C -DskipTests package`
-- Run tests: `mvn -q -T 1C test`
+- Run API (dev): `./mvnw -q -pl apps/api -am spring-boot:run`
+  - Alternative (module-only): `./mvnw -q -f apps/api/pom.xml spring-boot:run`
+- Build all modules: `./mvnw -q -T 1C -DskipTests package`
+- Run tests: `./mvnw -q -T 1C test`
 - API URL: `http://localhost:8080` — health: `GET /health` → `ok`
 
+Maven run notes
+- Prefer the Maven Wrapper (`./mvnw`) to get the pinned Maven (3.9.11) automatically; only Java is required.
+- The root POM is an aggregator/parent without an application entrypoint, so it sets `spring-boot.run.skip=true`.
+- The API module overrides this with `spring-boot.run.skip=false`, letting `spring-boot:run` work when you target `apps/api`.
+
+Port and environment
+- Change port: `PORT=9090 ./mvnw -q -pl apps/api -am spring-boot:run` or `PORT=9090 java -jar apps/api/target/looped-api-0.0.1-SNAPSHOT.jar`.
+- The app reads env vars from your shell; `.env` is for local conventions only (not auto‑loaded by Maven).
+
+Install artifacts locally (optional)
+- `./mvnw -q -T 1C -DskipTests install` (installs module jars into your local Maven cache)
+
 Common tasks
-- Package API JAR: `mvn -q -pl apps/api -am package`
+- Package API JAR: `./mvnw -q -pl apps/api -am package`
 - Run packaged JAR: `java -jar apps/api/target/looped-api-0.0.1-SNAPSHOT.jar`
 - Clean: `mvn -q clean`
 
