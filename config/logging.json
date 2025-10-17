@@ -1,0 +1,15 @@
+{
+  "type": "structured-logging-template",
+  "format": "json",
+  "fields": {
+    "timestamp": "${timestamp}",
+    "level": "${level}",
+    "logger": "${logger}",
+    "message": "${message}",
+    "thread": "${thread}",
+    "request_id": "${mdc:request_id}",
+    "user_id": "${mdc:user_id}",
+    "trace_id": "${mdc:trace_id}"
+  }
+}
+

@@ -1,0 +1,44 @@
+spring:
+  application:
+    name: looped-api
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/looped}
+    username: ${DB_USERNAME:looped}
+    password: ${DB_PASSWORD:looped}
+    hikari:
+      maximum-pool-size: ${DB_POOL_SIZE:10}
+  jackson:
+    serialization:
+      WRITE_DATES_AS_TIMESTAMPS: false
+
+server:
+  port: ${PORT:8080}
+
+logging:
+  level:
+    root: INFO
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+
+s3:
+  bucket: ${S3_BUCKET:looped-dev-media}
+  region: ${AWS_REGION:us-east-1}
+
+cloudfront:
+  domain: ${CLOUDFRONT_DOMAIN:}
+
+cognito:
+  jwksUrl: ${COGNITO_JWKS_URL:}
+  audience: ${COGNITO_AUDIENCE:}
+  issuer: ${COGNITO_ISSUER:}
+
+redis:
+  url: ${REDIS_URL:redis://localhost:6379}
+
+sqs:
+  notifQueueUrl: ${SQS_NOTIF_QUEUE_URL:}
+
