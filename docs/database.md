@@ -1,328 +1,312 @@
-# Info on the database
+# **Looped Database Schema — Technical Overview**
 
-## DBML code
+*Last updated: MVP with principals, multi-scope verification, anon certs, analytics, settings, and enrollment sanctions.*
 
-Project looped {
-  database_type : 'PostgreSQL'
-}
+**Privacy first:** Anonymous content never stores a user→persona link. Certain tables intentionally have **no FKs** to preserve unlinkability.
 
-Enum membership_role { 
-member
-admin
-mod }
-Enum membership_status { 
-active
-suspended
-pending }
-Enum loop_role { member
-owner
-mod }
-Enum conversation_type { 
-dm
-group }
-Enum verification_method { 
-linkedin
-email
-hr 
-manual }
-Enum report_status { 
-OPEN
-REVIEWING
-RESOLVED
-REJECTED }
-Enum space_kind { 
-company
- sector
-global }
+---
 
+## **Big Picture**
 
-Table companies {
-  id uuid [pk]
-  name text [not null]
-  domain text [unique]                // consider lowercasing in app/migration
-  created_at timestamptz [default: `now()`]
-}
+* **Spaces → Loops → Posts/Comments**
 
-Table users {
-  id uuid [pk]
-  cognito_sub text [unique]           // OIDC subject from Cognito
-  handle text [unique]                // global pseudonymous handle (case-insensitive in app/migration)
-  display_name text
-  bio text
-  // MVP convenience pointer; do NOT use for auth. Use user_companies instead.
-  company_id uuid [ref: > companies.id]   // optional
-  created_at timestamptz [default: `now()`]
-  updated_at timestamptz [default: `now()`]
+  * A **space** is a container: `company | sector | global`.
 
-  Indexes {
-    (company_id)
-  }
-}
+  * Each space has **loops** (topic channels).
 
-// General container: company/sector/global
-Table spaces {
-  id uuid [pk]
-  kind space_kind [not null]               // company | sector | global
-  company_id uuid [ref: > companies.id]    // only when kind='company'
-  slug text                                // e.g., 'finance', 'all'
-  name text
-  created_at timestamptz [default: `now()`]
+  * **Posts** live in loops; **comments** on posts.
 
-  Indexes {
-    (kind, slug) [unique]                  // unique slugs within kind (sector/global)
-    (company_id)
-  }
+* **Principals (actor model)**
 
-  Note: 'For kind=company, company_id must be non-null; enforce via app or CHECK in migrations.'
-}
+  * A **principal** is either a **named user** or an **anonymous persona**.
 
-//////////////////////////////////////////////////////
-// MEMBERSHIP
-//////////////////////////////////////////////////////
+  * All “actor” features (likes, follows, saves, blocks) reference a **principal**, so anon can behave like a user **without DMs**.
 
-Table user_companies {                       // many-to-many: users ↔ companies
-  user_id uuid [not null, ref: > users.id]
-  company_id uuid [not null, ref: > companies.id]
-  role membership_role [default: 'member']
-  status membership_status [default: 'active']
-  joined_at timestamptz [default: `now()`]
+* **Verification & Scopes**
 
-  Indexes {
-    (user_id, company_id) [pk]
-    (company_id)
-  }
-}
+  * Users can be verified for **company/sector/space/global** via `verification_scopes`.
 
-//////////////////////////////////////////////////////
-// LOOPS & POSTS
-//////////////////////////////////////////////////////
+  * `verification_scope_implications` declares **auto-grants** (e.g., verify JPM ⇒ Finance space).
 
-Table loops {
-  id uuid [pk]
-  space_id uuid [not null, ref: > spaces.id]
-  slug text [not null]                      // e.g., 'interns', 'finance'
-  name text [not null]                      // human label
-  is_private boolean [default: false]
-  created_by uuid [ref: > users.id]
-  created_at timestamptz [default: `now()`]
+* **Anonymous Protocol**
 
-  Indexes {
-    (space_id, slug) [unique]               // unique per space
-  }
+  * Client generates an Ed25519 persona key.
 
-  Note: 'Decide ON DELETE for space: cascade loops or forbid; typically forbid deleting spaces in prod.'
-}
+  * Server issues a **blinded** certificate (scoped, \~365 days).
 
-Table user_loops {                           // many-to-many: users ↔ loops
-  user_id uuid [not null, ref: > users.id]
-  loop_id uuid [not null, ref: > loops.id]
-  role loop_role [default: 'member']         // member|owner|mod
-  joined_at timestamptz [default: `now()`]
+  * Anonymous posts/comments include proof fields (cert \+ signature).
 
-  Indexes {
-    (user_id, loop_id) [pk]
-    (loop_id)
-  }
+  * **Revocations** and **sanctions** control abuse without identity linkage.
 
-  Note: 'If a loop is deleted, ON DELETE CASCADE is reasonable here.'
-}
+  * Optional **encrypted backup** lets users reuse the same anonymous persona across devices (no user FK).
 
-Table posts {
-  id uuid [pk]
-  author_id uuid [not null, ref: > users.id]
-  loop_id uuid [not null, ref: > loops.id]   // posts live in loops; loop implies space
-  content text [not null]
-  media_asset_id uuid [ref: > media_assets.id]
-  likes_count int [default: 0]               // cached aggregate
-  comments_count int [default: 0]            // cached aggregate
-  created_at timestamptz [default: `now()`]
-  updated_at timestamptz [default: `now()`]
-  deleted_at timestamptz
+* **Settings & Analytics**
 
-  Indexes {
-    (loop_id, created_at, id)                // keyset pagination for loop feed
-  }
+  * `principal_settings` stores preferences/consent for both named and anon.
 
-  Note: 'For company feeds, join loop→space(kind=company) or denormalize if profiling demands.'
-}
+  * `post_impressions` and `post_metrics_daily` power “My analytics.”
 
-Table comments {
-  id uuid [pk]
-  post_id uuid [not null, ref: > posts.id]
-  author_id uuid [not null, ref: > users.id]
-  parent_comment_id uuid [ref: > comments.id] // null for top-level; supports threads
-  content text [not null]
-  media_asset_id uuid [ref: > media_assets.id]
-  likes_count int [default: 0]
-  created_at timestamptz [default: `now()`]
-  updated_at timestamptz [default: `now()`]
-  deleted_at timestamptz
+---
 
-  Indexes {
-    (post_id, created_at)
-    (parent_comment_id)
-  }
+## **Core Enums**
 
-  Note: 'Ensure parent belongs to same post in app/trigger; soft delete recommended.'
-}
+* Roles & membership: `membership_role`, `membership_status`, `loop_role`
 
-Table post_likes {
-  user_id uuid [not null, ref: > users.id]
-  post_id uuid [not null, ref: > posts.id]
-  created_at timestamptz [default: `now()`]
+* Messaging type: `conversation_type`
 
-  Indexes {
-    (user_id, post_id) [pk]                  // toggle-able like
-    (post_id)
-  }
-}
+* Verification: `verification_method`, `verification_scope_kind`
 
-Table comment_likes {
-  user_id uuid [not null, ref: > users.id]
-  comment_id uuid [not null, ref: > comments.id]
-  created_at timestamptz [default: `now()`]
+* Visibility/status: `profile_visibility`, `profile_status`
 
-  Indexes {
-    (user_id, comment_id) [pk]               // toggle-able like
-    (comment_id)
-  }
-}
+* **Actor kind:** `principal_kind { user, anon }`
 
-//////////////////////////////////////////////////////
-// MEDIA
-//////////////////////////////////////////////////////
+* Reporting: `report_status`
 
-Table media_assets {
-  id uuid [pk]
-  owner_id uuid [not null, ref: > users.id]
-  s3_key text [not null]                     // e.g., space/{id}/posts/{uuid}.jpg
-  mime_type text
-  width int
-  height int
-  duration_seconds int
-  created_at timestamptz [default: `now()`]
+* Space kind: `space_kind { company, sector, global }`
 
-  Indexes {
-    (owner_id, created_at)
-  }
-}
+* Sanctions: `sanction_status { active, expired }`
 
-//////////////////////////////////////////////////////
-// SOCIAL GRAPH
-//////////////////////////////////////////////////////
+---
 
-Table user_follows {
-  follower_id uuid [not null, ref: > users.id]   // the one who follows
-  followee_id uuid [not null, ref: > users.id]   // the one being followed
-  created_at timestamptz [default: `now()`]
+## **Key Tables & Why They Exist**
 
-  Indexes {
-    (follower_id, followee_id) [pk]
-    (followee_id)                                // "who follows this user?"
-  }
-}
+### **Identity & Actors**
 
-//////////////////////////////////////////////////////
-// MESSAGING
-//////////////////////////////////////////////////////
+* **`users`** — Named accounts (OIDC subject, handle).
 
-Table conversations {
-  id uuid [pk]
-  type conversation_type [not null]              // dm|group
-  created_by uuid [ref: > users.id]
-  title text                                     // for groups
-  created_at timestamptz [default: `now()`]
-}
+* **`anonymous_profiles`** — **Persona public keys** scoped to a company. **No FK to users** by design.
 
-Table conversation_participants {
-  conversation_id uuid [not null, ref: > conversations.id]
-  user_id uuid [not null, ref: > users.id]
-  role membership_role [default: 'member']       // member|admin (for groups)
-  joined_at timestamptz [default: `now()`]
-  last_read_message_id uuid                      // optional; if FK in SQL, use ON DELETE SET NULL
+* **`principals`** — The **actor** abstraction:
 
-  Indexes {
-    (conversation_id, user_id) [pk]
-    (user_id)
-  }
-}
+  * `kind=user` → links to `users.id`
 
-Table messages {
-  id uuid [pk]
-  conversation_id uuid [not null, ref: > conversations.id]
-  sender_id uuid [not null, ref: > users.id]
-  content text                                    // nullable if only media
-  media_asset_id uuid [ref: > media_assets.id]
-  created_at timestamptz [default: `now()`]
-  edited_at timestamptz
-  deleted_at timestamptz
+  * `kind=anon` → links to `anonymous_profiles.id`
 
-  Indexes {
-    (conversation_id, created_at, id)            // keyset pagination
-  }
-}
+  * All actor-driven features reference a `principal_id`.
 
-Table message_reads {                             // per-user read receipts
-  message_id uuid [not null, ref: > messages.id]
-  user_id uuid [not null, ref: > users.id]
-  read_at timestamptz [default: `now()`]
+### **Spaces & Membership**
 
-  Indexes {
-    (message_id, user_id) [pk]
-    (user_id, message_id)
-  }
-}
+* **`companies`, `company_profiles`** — Company identity & marketing fields.
 
-//////////////////////////////////////////////////////
-// TRUST & SAFETY / PLATFORM
-//////////////////////////////////////////////////////
+* **`spaces`** — Containers (`company | sector | global`), optional `company_id`.
 
-Table verifications {
-  user_id uuid [pk, ref: > users.id]
-  method verification_method [not null]         // linkedin|email|hr|manual
-  verified boolean [not null]
-  verified_at timestamptz
-  details jsonb                                 // optional non-PII audit crumbs
-  updated_at timestamptz [default: `now()`]
-}
+* **`loops`** — Channels within a space.
 
-Table reports {
-  id uuid [pk]
-  target_type text [not null]                   // post|user|comment|message
-  target_id uuid [not null]                     // validated app-side
-  reporter_id uuid [ref: > users.id]
-  reason text
-  status report_status [default: 'OPEN']        // OPEN|REVIEWING|RESOLVED|REJECTED
-  created_at timestamptz [default: `now()`]
-  updated_at timestamptz [default: `now()`]
+* **`user_companies`, `user_loops`** — Named membership (for UI/ACLs).
 
-  Indexes {
-    (status, created_at)
-  }
-}
+### **Content**
 
-Table devices {
-  id uuid [pk]
-  user_id uuid [not null, ref: > users.id]
-  apns_token text [not null]
-  platform text [default: 'ios']               // ios|android (later)
-  created_at timestamptz [default: `now()`]
+* **`posts`, `comments`** — Both store:
 
-  Indexes {
-    (user_id, apns_token) [unique]
-  }
-}
+  * `author_principal_id` (always),
 
-Table idempotency_keys {
-  id uuid [pk]
-  user_id uuid [not null, ref: > users.id]
-  endpoint text [not null]                     // API path
-  idempotency_key text [not null]
-  request_hash text
-  response_code int
-  created_at timestamptz [default: `now()`]
+  * (legacy) `author_id` for named back-compat,
 
-  Indexes {
-    (user_id, endpoint, idempotency_key) [unique]
-  }
-}
+  * **Anonymous proof fields** when `is_anon=true`:
+
+    * `anon_cert`, `anon_cert_kid`, `anon_sig`, `anon_company_id`,
+
+    * `anon_profile_id` *or* `anon_ephemeral_pubkey`.
+
+* **`media_assets`**, **`post_media`**, **`message_media`** — For anon content, **keep `owner_id` NULL** to avoid back-linking.
+
+### **Social Graph (principal-based)**
+
+* **`post_likes`, `comment_likes`** — `liker_principal_id` (user or anon).
+
+* **`principal_follows`** — principal↔principal follows (anon can follow/be followed).
+
+* **`principal_blocks`** — principal↔principal blocks.
+
+* **`principal_saved_posts`** — bookmarks/saves by principal.
+
+### **Messaging (users only)**
+
+* **`conversations`, `conversation_participants`, `messages`, `message_reads`** — DM/group chats restricted to **users** (anon cannot DM).
+
+### **Verification & Access**
+
+* **`verifications`** — Legacy per-user verified flag \+ method.
+
+* **`verification_scopes`** — **User** verified for `{kind, scope_id}`, with expiry and method.
+
+* **`verification_scope_implications`** — Declarative auto-grants: `(from_kind,id) ⇒ (to_kind,id)`.
+
+  * *No FKs* because targets span multiple tables; validate in code.
+
+### **Anonymous Safety & Portability**
+
+* **`anon_issuers`** — Public keys for the certificate issuer; rotation support.
+
+* **`anon_revocations`** — **Ban** by persona pubkey or cert fingerprint. *No user FK.*
+
+* **`anon_backup_blobs`** (optional) — Encrypted persona bundle by **blob\_id** (recovery code); stores only `salt` \+ `ciphertext`. *No user FK.*
+
+* **`anon_enrollment_sanctions`** — **Blocks new anon certs** at `/anon/enroll` for a named user **per scope** (company/sector/space/global). Does **not** map personas to users.
+
+### **Settings & Analytics**
+
+* **`principal_settings`** — Preferences/consents for named & anon.
+
+* **`post_impressions`** — Raw view events (nullable viewer principal).
+
+* **`post_metrics_daily`** — Aggregated daily metrics for dashboards.
+
+### **Platform/Ops**
+
+* **`reports`** — Trust & safety reports.
+
+* **`devices`** — Mobile devices for push.
+
+* **`idempotency_keys`** — **Do not** use on anon endpoints.
+
+---
+
+## **Privacy Guarantees in the Schema**
+
+* **No user→persona mapping** is stored anywhere.
+
+* Anonymous posts/comments have `author_id = NULL`; actor is `author_principal_id(kind=anon)`.
+
+* Proof fields (`anon_*`) let the server validate membership **without** identity.
+
+* **Media** for anon has `owner_id IS NULL` to prevent reverse lookups.
+
+* **Revocations** and **sanctions** operate on persona keys or named users at **enrollment time**, never by linking personas to users.
+
+---
+
+## **Invariants (enforce in code)**
+
+1. **Anon vs Named**
+
+   * `is_anon=false` ⇒ `author_principal_id.kind = 'user'` AND all `anon_*` NULL.
+
+   * `is_anon=true` ⇒ `author_principal_id.kind = 'anon'` AND  
+      (`anon_profile_id` **OR** `anon_ephemeral_pubkey`) present AND  
+      `anon_cert`, `anon_sig`, valid scope present.
+
+2. **Company scope match**
+
+   * If loop is in a `company` space, `posts.anon_company_id == spaces.company_id`.
+
+3. **Media neutrality**
+
+   * For anon content, `media_assets.owner_id IS NULL`.
+
+4. **Sanctions at enrollment only**
+
+   * `/anon/enroll` must deny issuance when an **active** `anon_enrollment_sanctions` row exists for `(user_id, scope_kind, scope_id)`.
+
+---
+
+## **Hot Paths & Example Queries**
+
+**Feed (loop):**
+
+ `SELECT p.*`  
+`FROM posts p`  
+`WHERE p.loop_id = $1`  
+`ORDER BY p.created_at DESC, p.id DESC`  
+`LIMIT $2;`
+
+* 
+
+**My Likes (current principal):**
+
+ `SELECT p.*`  
+`FROM post_likes pl`  
+`JOIN posts p ON p.id = pl.post_id`  
+`WHERE pl.liker_principal_id = $principal`  
+`ORDER BY pl.created_at DESC`  
+`LIMIT $n;`
+
+* 
+
+**My Saves (current principal):**
+
+ `SELECT p.*`  
+`FROM principal_saved_posts s`  
+`JOIN posts p ON p.id = s.post_id`  
+`WHERE s.saver_principal_id = $principal`  
+`ORDER BY s.created_at DESC`  
+`LIMIT $n;`
+
+* 
+
+**My Analytics (for posts by current principal):**
+
+ `SELECT m.*`  
+`FROM post_metrics_daily m`  
+`JOIN posts p ON p.id = m.post_id`  
+`WHERE p.author_principal_id = $principal`  
+`ORDER BY m.day DESC`  
+`LIMIT 60;`
+
+* 
+
+---
+
+## **Tables Without FKs (on purpose)**
+
+* **`anon_backup_blobs`** — no user FK (unlinkability).
+
+* **`anon_revocations`** — revoke by persona/cert; no user FK.
+
+* **`verification_scope_implications`** — polymorphic targets (`companies`/`spaces`) make FKs impractical; validate in code or with triggers.
+
+---
+
+## **Operational Notes**
+
+* **Anonymous endpoints**
+
+  * Don’t use `idempotency_keys`.
+
+  * Redact logs (no `user_id`, IPs, device IDs, headers).
+
+  * Do not log `anon_cert`, `anon_sig`, or `persona_pubkey` contents.
+
+* **Issuance & rotation**
+
+  * Maintain `anon_issuers` with `kid` and rotated keys.
+
+  * Validate cert `not_before/not_after` on every anon write.
+
+* **Aggregation**
+
+  * Insert raw impressions batched/streamed; roll up to `post_metrics_daily`.
+
+* **Migrations**
+
+  * Prefer additive changes (NULLable, defaults), backfill, then tighten constraints.
+
+---
+
+## **Common “How do I…?”**
+
+* **Let anons like/follow/save?**  
+   Use `principals` \+ `post_likes`, `principal_follows`, `principal_saved_posts` (all by `principal_id`).
+
+* **Stop a banned user from creating new anons?**
+
+  * Revoke current persona: `anon_revocations` (by pubkey).
+
+  * Block future anon issuance for that **named user & scope**: add row in `anon_enrollment_sanctions`. Checked only at `/anon/enroll`.
+
+* **Give Finance space access after company verification?**  
+   Add an implication in `verification_scope_implications`, or write both scope rows on verification.
+
+* **Sync anon across devices?**  
+   Enable **Encrypted Backup** via `anon_backup_blobs` (client-side AES-GCM with Argon2id).  
+   No user FK; restore with `blob_id + passphrase`.
+
+---
+
+## **Final Notes**
+
+* The schema is designed so **anonymous activity is fully functional** (post/comment/like/follow/save) while keeping **DMs named-only** and never storing an identity link.
+
+* Some tables (revocations, backups, implications) have **no FKs by design** for privacy or polymorphism; enforce integrity in the application layer.
+
+* If you see a stray line like `Ref: "anon_enrollment_sanctions"."id" < "anon_issuers"."public_key"` from a diagrammer export, **remove it**—there is no such FK.
