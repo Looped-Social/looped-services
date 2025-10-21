@@ -8,7 +8,7 @@ Goal: ship an iOS-first, workplace-verified social app quickly, on a stack that�
 TL;DR
 - Client: iOS (Swift/SwiftUI).
 - Backend: One Java Spring Boot API (controllers + business logic in one process).
-- Infra: ALB → ECS Fargate (Dockerized API), Neon Postgres, S3 + CloudFront, Cognito, ElastiCache Redis, optional SQS + worker for push.
+- Infra: ALB → ECS Fargate (Dockerized API), Neon Postgres, S3 + CloudFront, Firebase Auth, ElastiCache Redis, optional SQS + worker for push.
 - Realtime: start with polling (or SSE); add WebSockets later for chat/presence.
 - Privacy: store only verification facts; no PII in logs; JWT verified on every request.
 
@@ -17,7 +17,7 @@ iOS → ALB → ECS Fargate (Spring Boot API)
   ├─ Postgres (Neon now; Aurora later)
   ├─ Redis (ElastiCache) for cache/rate limits
   ├─ S3 + CloudFront for media via presigned URLs
-  ├─ Cognito (JWTs; verify via JWKS)
+  ├─ Firebase Auth (JWTs; verify via JWKS)
   └─ SQS (optional) → notif-worker → APNs
 
 Repos
@@ -44,7 +44,7 @@ Moderation: POST /v1/reports, GET /v1/reports, PUT /v1/reports/{id}/resolve
 Devices: POST /v1/devices
 
 Starter Schema (Postgres)
-users(id, cognito_id, handle, company_id, created_at)
+users(id, firebase_uid, handle, company_id, created_at)
 companies(id, name, domain, created_at)
 verifications(user_id, method, verified, verified_at) PK(user_id)
 posts(id, author_id, company_id, content, media_asset_id, reactions_count, created_at) + index (company_id, created_at desc)
@@ -54,7 +54,7 @@ reports(id, target_type, target_id, reporter_id, reason, status, created_at, upd
 devices(id, user_id, apns_token, platform, created_at)
 
 Security & Privacy
-- Verify Cognito JWT every request (JWKS)
+- Verify Firebase JWT every request (JWKS)
 - No PII in logs; structured JSON with request_id
 - Rate-limit by IP/user in Redis
 - Idempotency-Key for POST /v1/posts
@@ -72,7 +72,7 @@ Improvements adopted
 
 Rationale
 - ALB+ECS over API GW+Lambda (Java): avoids cold starts & DB pool pain
-- Cognito over custom auth: standards-based, fast to ship
+- Firebase over custom auth: standards-based, fast to ship
 - SQS over Kafka: simple, reliable, perfect for MVP async
 - Neon now, Aurora later: best DX now, easy consolidation later
 ---

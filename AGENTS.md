@@ -1,6 +1,6 @@
 # Looped Services — Agents & Runtime Guide
 
-Looped is an iOS‑first, workplace‑verified social app. The backend is a modular monolith built with Java 25 and Spring Boot 3.5.6, deployed on ECS Fargate behind an ALB. We use Neon Postgres (Aurora later), ElastiCache Redis, S3 + CloudFront for media, Cognito for auth, and optional SQS workers for push notifications (APNs). Start with simple polling/SSE for realtime; add WebSockets later. Privacy is a first‑class constraint: verify JWTs on every request, avoid PII in logs, and enforce idempotency and media guardrails. See docs/ARCHITECTURE.md for the authoritative Architecture Context.
+Looped is an iOS‑first, workplace‑verified social app. The backend is a modular monolith built with Java 25 and Spring Boot 3.5.6, deployed on ECS Fargate behind an ALB. We use Neon Postgres (Aurora later), ElastiCache Redis, S3 + CloudFront for media, Firebase Auth for authentication (JWT/JWKS), and optional SQS workers for push notifications (APNs). Start with simple polling/SSE for realtime; add WebSockets later. Privacy is a first‑class constraint: verify JWTs on every request, avoid PII in logs, and enforce idempotency and media guardrails. See docs/ARCHITECTURE.md for the authoritative Architecture Context.
 
 ## System Diagram
 
@@ -15,7 +15,7 @@ iOS (Swift/SwiftUI)
    | \     \        \            \             \
    |  \     \        \            \             \
    |   v     v        v            v             v
-   | [Postgres]  [Redis]  [S3 (media)]   [Cognito JWKS]   [SQS notif-events]
+   | [Postgres]  [Redis]  [S3 (media)]   [Firebase JWKS]   [SQS notif-events]
    |    |                    |                   |               |
    |    |                    |                   |               v
    |    |                    |                (JWT verify)   [notif-worker] -> APNs
@@ -42,7 +42,7 @@ iOS (Swift/SwiftUI)
 - Data stores
   - Postgres (Neon now, Aurora later), Redis (cache/rate limits/idempotency), S3 (+ CloudFront) for media.
 - Auth
-  - Cognito (JWTs, JWKS verification).
+  - Firebase Auth (JWTs, JWKS verification).
 - Queueing
   - SQS (+ DLQ) for async jobs (push now; feed/mod later).
 - Observability
@@ -63,7 +63,7 @@ iOS (Swift/SwiftUI)
 - Produces HTTP (API)
   - Sends Idempotency-Key for POST /v1/posts and POST /v1/devices
   - Sends APNs device token to POST /v1/devices
-  - Sends OAuth/JWT token in Authorization header (Cognito)
+  - Sends OAuth/JWT token in Authorization header (Firebase)
 - S3/CloudFront
   - Uploads media to S3 via presigned PUT/POST (keys issued by API)
   - Reads media via CloudFront path /media/*
@@ -74,7 +74,7 @@ iOS (Swift/SwiftUI)
 - Owns HTTP Endpoints
   - Full “API Surface (MVP)” in Appendix A
 - Consumes External
-  - Cognito JWKS (JWT verification)
+  - Firebase JWKS (JWT verification)
   - S3 (presigned upload; media callbacks)
   - SQS notif-events (producer) [optional in MVP]
 - Data access (Postgres)
@@ -142,8 +142,8 @@ iOS (Swift/SwiftUI)
   - Buckets: looped-media (example)
   - Keys: media/original/*, media/processed/*; callbacks validated via HMAC or presigned policy
   - CDN path: /media/* (immutable URLs; cache-control set)
-- Auth: Cognito
-  - Verify JWT via JWKS; map claims (sub→cognito_id, email→optional claim, groups/roles→future)
+- Auth: Firebase
+  - Verify JWT via JWKS; map claims (iss+sub → external identity; email optional)
 - Observability
   - CloudWatch Logs (JSON) with request_id, user_id (when present), trace_id
   - Metrics/Alarms on 5xx, latency, SQS age, DLQ depth
@@ -161,17 +161,17 @@ iOS (Swift/SwiftUI)
   - One or more notif-worker tasks; scale on queue depth/age
   - Max receive attempts → DLQ; alert on DLQ depth
 - Retries & Backoff
-  - HTTP client calls (S3/Cognito) use exponential backoff + jitter
+  - HTTP client calls (S3/JWKS provider) use exponential backoff + jitter
   - SQS handles retry; API avoids retrying on non‑retryable codes
 - Failure Modes
   - Redis down: degrade gracefully (disable cached paths, keep rate limits conservative)
   - S3/CloudFront issues: surface retriable errors to client
-  - Cognito unavailable: 503 for auth‑required endpoints
+  - JWKS provider unavailable: 503 for auth‑required endpoints (or rely on cached keys)
   - Postgres degraded: switch to read‑only where possible; protect with circuit breakers
 
 ## Security & Privacy Guardrails
 
-- Verify Cognito JWT on every request (JWKS); enforce audience/issuer; require TLS
+- Verify Firebase JWT on every request (JWKS); enforce audience/issuer; require TLS
 - No PII in logs; use structured JSON with request_id/trace_id; redact tokens/headers
 - Rate-limit by IP and user in Redis; defensive defaults on failure
 - Idempotency-Key required for POST /v1/posts and POST /v1/devices (store in Redis TTL)
@@ -190,9 +190,8 @@ iOS (Swift/SwiftUI)
 - Local Dev
   - `.env` loaded by Spring profiles; sample in looped-services/.env.example
   - Run Postgres/Redis locally or via containers; use dev S3 bucket
-- Staging/Prod
-  - Config from Secrets Manager / SSM; access via IAM role on tasks
-  - Cognito user pool + JWKS URL per environment
+ - Config from Secrets Manager / SSM; access via IAM role on tasks
+ - Firebase project + JWKS URL per environment
   - Minimize mutable state; infra via looped-infra (Terraform/CDK optional)
 
 ## Developer Quickstart
@@ -218,7 +217,7 @@ iOS (Swift/SwiftUI)
 ## Roadmap (MVP → Later) and Ownership
 
 - MVP
-  - Auth + JWT verification (Cognito)
+  - Auth + JWT verification (Firebase)
   - Verification flows (start/finish)
   - Feed read API + Post create/get/react with idempotency
   - Media presign + callback + CDN delivery
@@ -278,7 +277,7 @@ CREATE TABLE companies (
 -- users
 CREATE TABLE users (
   id            BIGSERIAL PRIMARY KEY,
-  cognito_id    TEXT NOT NULL UNIQUE,
+  firebase_uid  TEXT NOT NULL UNIQUE,
   handle        TEXT NOT NULL UNIQUE,
   company_id    BIGINT NOT NULL REFERENCES companies(id) ON DELETE RESTRICT,
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now()

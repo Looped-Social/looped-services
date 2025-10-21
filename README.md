@@ -2,7 +2,7 @@
 
 ## Summary
 - Backend for the Looped iOS app. Modular monolith with one API and optional workers. Simple now, scales later.
-- Stack: Java 25, Spring Boot 3.5.6, Maven 3.9+; Postgres (Neon → Aurora), Redis, S3 + CloudFront, Cognito, optional SQS workers.
+- Stack: Java 25, Spring Boot 3.5.6, Maven 3.9+; Postgres (Neon → Aurora), Redis, S3 + CloudFront, Firebase Auth (JWT/JWKS), optional SQS workers.
 
 ## Repo layout
 - `apps/api` — Spring Boot REST API (controllers + business logic)
@@ -19,7 +19,7 @@
 - Spring Boot: `3.5.6` (web, validation, actuator)
 - Build: Maven (root parent/aggregator)
 - Data: Postgres, Redis (ElastiCache later)
-- Cloud: S3 + CloudFront, Cognito (JWT / JWKS), SQS (optional)
+- Cloud: S3 + CloudFront, Firebase Auth (JWT / JWKS), SQS (optional)
 
 ## Prerequisites
 - Install `JDK 25`
@@ -30,6 +30,7 @@
 - Copy `.env.example` to `.env` and adjust values
 - Defaults in `apps/api/src/main/resources/application.yaml` are sane for local
 - Health endpoint does not require DB/Redis
+ - Auth (Firebase): set `AUTH_ISSUER`, `AUTH_AUDIENCE`, `AUTH_JWKS_URI` or use the Firebase defaults in `application.yaml`. iOS should send `Authorization: Bearer <Firebase ID token>`.
 
 ## Quick start
 - Run API (dev): `./mvnw -q -pl apps/api -am spring-boot:run`

@@ -2,7 +2,7 @@
  
 Goal
 - Ship the MVP backend iteratively with strict TDD: write tests first, implement minimal code to pass, keep boundaries clean, and verify locally with the Maven Wrapper.
-- Stack: Java 25, Spring Boot 3.5.6, Maven Wrapper; Postgres (Neon->Aurora later), Redis, S3+CloudFront, Cognito, optional SQS workers.
+- Stack: Java 25, Spring Boot 3.5.6, Maven Wrapper; Postgres (Neon->Aurora later), Redis, S3+CloudFront, Firebase Auth, optional SQS workers.
  
 How to run
 - Dev server (API): `./mvnw -q -pl apps/api -am spring-boot:run`
@@ -40,7 +40,7 @@ DoD
 Effort
 - ~2 hours (1 session)
  
-## Milestone 1 - Auth (Cognito JWT)
+## Milestone 1 - Auth (Firebase JWT)
 Scope
 - JWT verification via JWKS and `/v1/me` endpoint.
  
@@ -51,7 +51,7 @@ Tests first
 Implement
 - Spring Security OAuth2 Resource Server (JWT via JWKS)
 - `GET /v1/me` (minimal response using claims)
-- Config: `cognito.jwksUrl`, `cognito.issuer`, `cognito.audience`
+- Config: `auth.jwksUri`, `auth.issuer`, `auth.audience` (Firebase defaults provided)
  
 Verify
 - `./mvnw -q -pl apps/api -am test`
@@ -304,4 +304,3 @@ Notes
 - Front-load tests and domain logic; wire AWS resources in staging later
 - Use Testcontainers for DB/Redis once those features land; LocalStack for S3/SQS (optional)
 - Keep PRs small (1 milestone or sub-slice per PR); update docs and `.env.example` as you add features
-

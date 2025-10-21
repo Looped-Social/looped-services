@@ -310,3 +310,563 @@
 * Some tables (revocations, backups, implications) have **no FKs by design** for privacy or polymorphism; enforce integrity in the application layer.
 
 * If you see a stray line like `Ref: "anon_enrollment_sanctions"."id" < "anon_issuers"."public_key"` from a diagrammer export, **remove it**—there is no such FK.
+
+
+## DBML
+
+`
+Project looped {
+  database_type : 'PostgreSQL'
+}
+
+Enum membership_role { 
+member
+admin
+mod }
+
+Enum membership_status { 
+active
+suspended
+pending }
+
+Enum loop_role { 
+member
+owner
+mod }
+
+Enum conversation_type { 
+dm
+group }
+
+Enum verification_method { 
+linkedin
+email
+hr
+manual }
+
+Enum report_status { 
+OPEN
+REVIEWING
+RESOLVED
+REJECTED }
+
+Enum space_kind { 
+company
+sector
+global }
+
+Enum profile_visibility { 
+public
+private
+hidden }
+
+Enum profile_status { 
+unclaimed
+claimed
+suspended }
+
+Enum principal_kind { 
+user
+anon }
+
+Enum verification_scope_kind {
+company
+sector
+space
+global
+}
+
+Enum sanction_status {
+active
+expired
+}
+
+
+Table companies {
+  id uuid [pk]
+  name text [not null]
+  display_name text
+  slug text [unique]
+  domain text [unique]
+  created_at timestamptz [default: `now()`]
+
+  Indexes { (slug) [unique]
+  (domain) [unique] }
+}
+
+Table company_profiles {
+  company_id uuid [pk, ref: > companies.id]
+  bio text
+  location text
+  website text
+  logo_asset_id uuid [ref: > media_assets.id]
+  banner_asset_id uuid [ref: > media_assets.id]
+  twitter text
+  linkedin text
+  github text
+  visibility profile_visibility [default: 'public']
+  status profile_status [default: 'unclaimed']
+  created_by uuid [ref: > users.id]
+  claimed_at timestamptz
+  updated_at timestamptz [default: `now()`]
+
+  Indexes { (visibility)
+  (status) }
+}
+
+Table users {
+  id uuid [pk]
+  firebase_uid text [unique]
+  handle text [unique]          // store lowercase app-side
+  display_name text
+  bio text
+  company_id uuid [ref: > companies.id]   // optional convenience pointer
+  created_at timestamptz [default: `now()`]
+  updated_at timestamptz [default: `now()`]
+
+  Indexes { (company_id) }
+}
+
+// NEW — “actor” abstraction for user OR anon persona
+Table principals {
+  id uuid [pk]
+  kind principal_kind [not null]              // 'user' or 'anon'
+  user_id uuid [ref: > users.id]
+  anon_profile_id uuid [ref: > anonymous_profiles.id]
+  created_at timestamptz [default: `now()`]
+
+  Indexes { 
+  (kind)
+  (user_id)
+  (anon_profile_id) }
+
+  Note: 'Invariant: (kind=user) -> user_id NOT NULL AND anon_profile_id NULL; (kind=anon) -> anon_profile_id NOT NULL AND user_id NULL.'
+}
+
+// Spaces (company/sector/global containers)
+Table spaces {
+  id uuid [pk]
+  kind space_kind [not null]
+  company_id uuid [ref: > companies.id]       // only when kind='company'
+  slug text
+  name text
+  created_at timestamptz [default: `now()`]
+
+  Indexes { (kind, slug) [unique]
+  (company_id) }
+
+  Note: 'For kind=company, company_id must be non-null.'
+}
+
+// MEMBERSHIP
+Table user_companies {
+  user_id uuid [not null, ref: > users.id]
+  company_id uuid [not null, ref: > companies.id]
+  role membership_role [default: 'member']
+  status membership_status [default: 'active']
+  joined_at timestamptz [default: `now()`]
+
+  Indexes { (user_id, company_id) [pk]
+  (company_id) }
+}
+
+// LOOPS & POSTS
+Table loops {
+  id uuid [pk]
+  space_id uuid [not null, ref: > spaces.id]
+  slug text [not null]
+  name text [not null]
+  is_private boolean [default: false]
+  created_by uuid [ref: > users.id]
+  created_at timestamptz [default: `now()`]
+
+  Indexes { (space_id, slug) [unique] }
+}
+
+Table user_loops {
+  user_id uuid [not null, ref: > users.id]
+  loop_id uuid [not null, ref: > loops.id]
+  role loop_role [default: 'member']
+  joined_at timestamptz [default: `now()`]
+
+  Indexes { (user_id, loop_id) [pk]
+  (loop_id) }
+}
+
+// CHANGED — add author_principal_id; keep anon proof; keep author_id for compat (nullable)
+Table posts {
+  id uuid [pk]
+  // preferred author identifier:
+  author_principal_id uuid [not null, ref: > principals.id]   // NEW
+  // legacy (named only), keep nullable while migrating:
+  author_id uuid [ref: > users.id]
+  // anon persona reference (optional; if one-off, use anon_ephemeral_pubkey)
+  anon_profile_id uuid [ref: > anonymous_profiles.id]
+
+  loop_id uuid [not null, ref: > loops.id]
+  content text [not null]
+
+  // Anonymous verification material
+  is_anon boolean [default: false]
+  anon_company_id uuid [ref: > companies.id]
+  anon_cert bytea
+  anon_cert_kid text
+  anon_sig bytea
+  anon_ephemeral_pubkey bytea
+
+  likes_count int [default: 0]
+  comments_count int [default: 0]
+  created_at timestamptz [default: `now()`]
+  updated_at timestamptz [default: `now()`]
+  deleted_at timestamptz
+
+  Indexes {
+    (loop_id, created_at, id)
+    (is_anon, anon_company_id)
+    (anon_cert_kid)
+    (author_principal_id, created_at)
+  }
+
+  Note: 'App invariants:- is_anon=false ⇒ author_id NOT NULL OR author_principal_id(kind=user); anon_* NULL - is_anon=true  ⇒ author_id NULL; author_principal_id(kind=anon); (anon_profile_id OR anon_ephemeral_pubkey) NOT NULL; anon_cert+anon_sig+anon_company_id present.  - Company scope: if loop.space.kind = company -> anon_company_id = spaces.company_id.'
+}
+
+// CHANGED — add author_principal_id; keep anon proof
+Table comments {
+  id uuid [pk]
+  post_id uuid [not null, ref: > posts.id]
+
+  author_principal_id uuid [not null, ref: > principals.id]    // NEW
+  author_id uuid [ref: > users.id]                              // legacy (nullable during migration)
+  anon_profile_id uuid [ref: > anonymous_profiles.id]
+  is_anon boolean [default: false]
+  anon_company_id uuid [ref: > companies.id]
+  anon_cert bytea
+  anon_cert_kid text
+  anon_sig bytea
+  anon_ephemeral_pubkey bytea
+
+  parent_comment_id uuid [ref: > comments.id]
+  content text [not null]
+  media_asset_id uuid [ref: > media_assets.id]
+  likes_count int [default: 0]
+  created_at timestamptz [default: `now()`]
+  updated_at timestamptz [default: `now()`]
+  deleted_at timestamptz
+
+  Indexes {
+    (post_id, created_at)
+    (parent_comment_id)
+    (is_anon, anon_company_id)
+    (author_principal_id, created_at)
+  }
+}
+
+// CHANGED — like by principal (user or anon)
+Table post_likes {
+  liker_principal_id uuid [not null, ref: > principals.id]   // CHANGED
+  post_id uuid [not null, ref: > posts.id]
+  created_at timestamptz [default: `now()`]
+
+  Indexes { (liker_principal_id, post_id) [pk]
+   (post_id) }
+}
+
+// CHANGED — like by principal (user or anon)
+Table comment_likes {
+  liker_principal_id uuid [not null, ref: > principals.id]   // CHANGED
+  comment_id uuid [not null, ref: > comments.id]
+  created_at timestamptz [default: `now()`]
+
+  Indexes { (liker_principal_id, comment_id) [pk]
+   (comment_id) }
+}
+
+// NEW — follows (user↔user, anon↔user, anon↔anon)
+Table principal_follows {
+  follower_principal_id uuid [not null, ref: > principals.id]
+  followee_principal_id uuid [not null, ref: > principals.id]
+  created_at timestamptz [default: `now()`]
+
+  Indexes { (follower_principal_id, followee_principal_id) [pk]
+   (followee_principal_id) }
+}
+
+// NEW — blocks
+Table principal_blocks {
+  blocker_principal_id uuid [not null, ref: > principals.id]
+  blocked_principal_id uuid [not null, ref: > principals.id]
+  created_at timestamptz [default: `now()`]
+
+  Indexes { (blocker_principal_id, blocked_principal_id) [pk]
+  (blocked_principal_id) }
+}
+
+// MEDIA (unchanged aside from owner nullability)
+Table media_assets {
+  id uuid [pk]
+  owner_id uuid [ref: > users.id]               // NULL when attached to anon content
+  s3_key text [not null]
+  mime_type text
+  width int
+  height int
+  duration_seconds int
+  created_at timestamptz [default: `now()`]
+
+  Indexes { (owner_id, created_at) }
+  Note: 'For anonymous uploads, keep owner_id NULL (or service principal) to avoid media→user linkage.'
+}
+
+// MESSAGING — keep users-only (anon cannot DM)
+Table conversations {
+  id uuid [pk]
+  type conversation_type [not null]
+  created_by uuid [ref: > users.id]
+  title text
+  created_at timestamptz [default: `now()`]
+}
+
+Table conversation_participants {
+  conversation_id uuid [not null, ref: > conversations.id]
+  user_id uuid [not null, ref: > users.id]
+  role membership_role [default: 'member']
+  joined_at timestamptz [default: `now()`]
+  last_read_message_id uuid
+
+  Indexes { (conversation_id, user_id) [pk]
+  (user_id) }
+}
+
+Table messages {
+  id uuid [pk]
+  conversation_id uuid [not null, ref: > conversations.id]
+  sender_id uuid [not null, ref: > users.id]
+  content text
+  created_at timestamptz [default: `now()`]
+  edited_at timestamptz
+  deleted_at timestamptz
+
+  Indexes { (conversation_id, created_at, id) }
+}
+
+Table message_reads {
+  message_id uuid [not null, ref: > messages.id]
+  user_id uuid [not null, ref: > users.id]
+  read_at timestamptz [default: `now()`]
+
+  Indexes { (message_id, user_id) [pk]
+  (user_id, message_id) }
+}
+
+// ————————————————————————————————————————————————
+// TRUST, VERIFICATION, SETTINGS, ANALYTICS
+// ————————————————————————————————————————————————
+
+Table verifications {
+  user_id uuid [pk, ref: > users.id]
+  method verification_method [not null]
+  verified boolean [not null]
+  verified_at timestamptz
+  details jsonb
+  updated_at timestamptz [default: `now()`]
+}
+
+// NEW — multi-scope verification records (company/sector/space/global)
+Table verification_scopes {
+  id uuid [pk]
+  user_id uuid [not null, ref: > users.id]
+  scope_kind verification_scope_kind [not null]
+  scope_id uuid                                 // companies.id OR spaces.id (for sector/company/global rows)
+  method verification_method [not null]
+  verified boolean [not null]
+  verified_at timestamptz
+  expires_at timestamptz
+  details jsonb
+  updated_at timestamptz [default: `now()`]
+
+  Indexes { (user_id, scope_kind, scope_id) }
+  Note: 'For scope_kind=company -> scope_id=companies.id; for sector/global/company spaces -> scope_id=spaces.id.'
+}
+
+// NEW — declare automatic grants (e.g., verify company ⇒ auto grant sector Finance)
+Table verification_scope_implications {
+  id uuid [pk]
+  from_scope_kind verification_scope_kind [not null]
+  from_scope_id uuid [not null]
+  to_scope_kind verification_scope_kind [not null]
+  to_scope_id uuid [not null]
+
+  Indexes { (from_scope_kind, from_scope_id)
+  (to_scope_kind, to_scope_id) }
+  Note: 'E.g., (company, JPM.id) -> (space, FinanceSpace.id). Backend creates derived entries on verification.'
+}
+
+// NEW — settings per principal (user or anon)
+Table principal_settings {
+  principal_id uuid [pk, ref: > principals.id]
+  ui jsonb                  // theme, font size (optional to sync)
+  notifications jsonb       // per-channel prefs (app-side validated)
+  privacy jsonb             // safety toggles
+  tos_accepted_at timestamptz
+  privacy_accepted_at timestamptz
+  updated_at timestamptz [default: `now()`]
+}
+
+// NEW — saves / bookmarks
+Table principal_saved_posts {
+  saver_principal_id uuid [not null, ref: > principals.id]
+  post_id uuid [not null, ref: > posts.id]
+  created_at timestamptz [default: `now()`]
+
+  Indexes { (saver_principal_id, post_id) [pk]
+  (post_id) }
+}
+
+// NEW — analytics (raw impressions)
+Table post_impressions {
+  post_id uuid [not null, ref: > posts.id]
+  viewer_principal_id uuid [ref: > principals.id]  // NULL if not logged in
+  viewed_at timestamptz [default: `now()`]
+
+  Indexes { (post_id, viewed_at)
+  (viewer_principal_id, viewed_at) }
+}
+
+// NEW — analytics (daily aggregates)
+Table post_metrics_daily {
+  post_id uuid [not null, ref: > posts.id]
+  day date [not null]
+  views int [default: 0]
+  unique_viewers int [default: 0]
+  likes int [default: 0]
+  comments int [default: 0]
+
+  Indexes { (post_id, day) [pk] }
+}
+
+// REPORTING / DEVICES / IDEMPOTENCY (unchanged; remember: no idempotency on anon endpoints)
+Table reports {
+  id uuid [pk]
+  target_type text [not null]
+  target_id uuid [not null]
+  reporter_id uuid [ref: > users.id]
+  reason text
+  status report_status [default: 'OPEN']
+  created_at timestamptz [default: `now()`]
+  updated_at timestamptz [default: `now()`]
+
+  Indexes { (status, created_at) }
+}
+
+Table devices {
+  id uuid [pk]
+  user_id uuid [not null, ref: > users.id]
+  apns_token text [not null]
+  platform text [default: 'ios']
+  created_at timestamptz [default: `now()`]
+
+  Indexes { (user_id, apns_token) [unique] }
+}
+
+Table idempotency_keys {
+  id uuid [pk]
+  user_id uuid [not null, ref: > users.id]
+  endpoint text [not null]
+  idempotency_key text [not null]
+  request_hash text
+  response_code int
+  created_at timestamptz [default: `now()`]
+
+  Indexes { (user_id, endpoint, idempotency_key) [unique] }
+}
+
+// MEDIA RELNS
+Table post_media {
+  id uuid [pk]
+  post_id uuid [not null, ref: > posts.id]
+  media_asset_id uuid [not null, ref: > media_assets.id]
+  position int [default: 0]
+  created_at timestamptz [default: `now()`]
+
+  Indexes { (post_id, position) [unique]
+  (post_id, media_asset_id) [unique] }
+}
+
+Table message_media {
+  id uuid [pk]
+  message_id uuid [not null, ref: > messages.id]
+  media_asset_id uuid [not null, ref: > media_assets.id]
+  position int [default: 0]
+  created_at timestamptz [default: `now()`]
+
+  Indexes { (message_id, position) [unique]
+  (message_id, media_asset_id) [unique] }
+}
+
+// ANONYMOUS PERSONAS & CERTS (unchanged)
+Table anonymous_profiles {
+  id uuid [pk]
+  company_id uuid [not null, ref: > companies.id]
+  public_key bytea [unique, not null]
+  handle text
+  created_at timestamptz [default: `now()`]
+
+  Indexes { (company_id, handle) [unique]
+  (company_id) }
+  Note: 'No FK to users. Keys generated & stored client-side.'
+}
+
+Table anon_issuers {
+  id uuid [pk]
+  kid text [unique, not null]
+  alg text [not null]
+  public_key bytea [not null]
+  created_at timestamptz [default: `now()`]
+  rotated_at timestamptz
+}
+
+Table anon_revocations {
+  id uuid [pk]
+  persona_pubkey bytea
+  cert_fingerprint bytea
+  reason text
+  created_at timestamptz [default: `now()`]
+
+  Indexes { (persona_pubkey)
+  (cert_fingerprint) }
+  Note: 'Never store user_id here.'
+}
+
+// OPTIONAL — Encrypted persona backup blobs (no identity linkage)
+Table anon_backup_blobs {
+  blob_id uuid [pk]                             // shareable "Recovery Code" (non-secret)
+  salt bytea [not null]                         // for Argon2id
+  ciphertext bytea [not null]                   // AES-GCM; contains persona_priv/pub/cert
+  created_at timestamptz [default: `now()`]
+  expires_at timestamptz
+
+  Note: 'No user_id stored. Restore requires blob_id + user passphrase.'
+}
+
+
+
+Table anon_enrollment_sanctions {         // NEW — blocks new anon certs at /anon/enroll
+  id uuid [pk]
+  user_id uuid [not null, ref: > users.id]                // named account being sanctioned
+  scope_kind verification_scope_kind [not null]           // company | sector | space | global
+  scope_id uuid                                           // companies.id or spaces.id depending on kind (nullable if global)
+  status sanction_status [default: 'active']
+  reason text
+  imposed_by uuid [ref: > users.id]                       // moderator/admin who imposed it (optional)
+  imposed_at timestamptz [default: `now()`]
+  expires_at timestamptz                                  // null = indefinite
+
+  Indexes {
+    (user_id, scope_kind, scope_id, status)
+  }
+
+  Note: 'Evaluated ONLY at /anon/enroll. Does not create any user↔persona mapping.'
+}
+
+
+Ref: "anon_enrollment_sanctions"."id" < "anon_issuers"."public_key"
+`
