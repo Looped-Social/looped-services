@@ -10,6 +10,9 @@ spring:
   jackson:
     serialization:
       WRITE_DATES_AS_TIMESTAMPS: false
+  data:
+    redis:
+      url: ${redis.url}
 
 server:
   port: ${PORT:8080}
@@ -17,6 +20,8 @@ server:
 logging:
   level:
     root: INFO
+  pattern:
+    console: ''
 
 management:
   endpoints:
@@ -31,6 +36,11 @@ s3:
 cloudfront:
   domain: ${CLOUDFRONT_DOMAIN:}
 
+media:
+  maxImageBytes: ${MEDIA_MAX_IMAGE_BYTES:10485760}   # 10 MB
+  maxVideoBytes: ${MEDIA_MAX_VIDEO_BYTES:104857600}  # 100 MB
+  callbackSecret: ${MEDIA_CALLBACK_SECRET:}
+
 auth:
   # Firebase Auth defaults; override via env in each environment
   issuer: ${AUTH_ISSUER:https://securetoken.google.com/YOUR_FIREBASE_PROJECT_ID}
@@ -42,3 +52,11 @@ redis:
 
 sqs:
   notifQueueUrl: ${SQS_NOTIF_QUEUE_URL:}
+
+rateLimit:
+  perIp:
+    windowSeconds: ${RL_IP_WINDOW_SECONDS:60}
+    maxRequests: ${RL_IP_MAX_REQUESTS:120}
+  perUser:
+    windowSeconds: ${RL_USER_WINDOW_SECONDS:60}
+    maxRequests: ${RL_USER_MAX_REQUESTS:180}

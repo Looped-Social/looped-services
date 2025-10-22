@@ -30,7 +30,7 @@ iOS (Swift/SwiftUI)
 ## Agents & Responsibilities
 
 - iOS client (SwiftUI)
-  - Presents feed, posts, reactions, verification flows; uploads media via server‑issued presigned URLs; registers device tokens for push; polls/SSE for updates (WebSockets later).
+  - Presents feed, posts, likes, verification flows; uploads media via server‑issued presigned URLs; registers device tokens for push; polls/SSE for updates (WebSockets later).
 - API (Spring Boot on ECS Fargate behind ALB)
   - Owns REST endpoints, authentication/authorization, business logic, persistence, caching/rate limits, media presign + callbacks, moderation intake; enqueues push events to SQS (optional).
 - notif-worker (SQS → APNs) [MVP optional]
@@ -56,7 +56,7 @@ iOS (Swift/SwiftUI)
 - Consumes HTTP (API)
   - Auth: POST /v1/auth/login, GET /v1/me
   - Verification: POST /v1/verification/start, POST /v1/verification/finish
-  - Feed & Posts: GET /v1/feed?cursor=, POST /v1/posts, GET /v1/posts/{id}, POST /v1/posts/{id}/react
+  - Feed & Posts: GET /v1/feed?cursor=, POST /v1/posts, GET /v1/posts/{id}, POST /v1/posts/{id}/like
   - Media: POST /v1/media/presign, POST /v1/media/callback
   - Moderation: POST /v1/reports, GET /v1/reports, PUT /v1/reports/{id}/resolve
   - Devices: POST /v1/devices
@@ -78,7 +78,7 @@ iOS (Swift/SwiftUI)
   - S3 (presigned upload; media callbacks)
   - SQS notif-events (producer) [optional in MVP]
 - Data access (Postgres)
-  - Tables: users, companies, verifications, posts, reactions, media_assets, reports, devices
+  - Tables: users, companies, verifications, posts, likes, media_assets, reports, devices
 - Redis (ElastiCache)
   - Caching: post:{id}, feed:{user_id}:{cursor}
   - Rate limits: rl:ip:{ip}, rl:user:{user_id}
@@ -219,7 +219,7 @@ iOS (Swift/SwiftUI)
 - MVP
   - Auth + JWT verification (Firebase)
   - Verification flows (start/finish)
-  - Feed read API + Post create/get/react with idempotency
+  - Feed read API + Post create/get/like with idempotency
   - Media presign + callback + CDN delivery
   - Moderation submission + basic list/resolve
   - Device registration (idempotent)
@@ -252,7 +252,7 @@ iOS (Swift/SwiftUI)
   - GET /v1/feed?cursor=
   - POST /v1/posts
   - GET /v1/posts/{id}
-  - POST /v1/posts/{id}/react
+  - POST /v1/posts/{id}/like
 - Media
   - POST /v1/media/presign
   - POST /v1/media/callback
@@ -310,17 +310,16 @@ CREATE TABLE posts (
   company_id       BIGINT NOT NULL REFERENCES companies(id) ON DELETE RESTRICT,
   content          TEXT NOT NULL,
   media_asset_id   BIGINT REFERENCES media_assets(id) ON DELETE SET NULL,
-  reactions_count  INT NOT NULL DEFAULT 0,
+  likes_count  INT NOT NULL DEFAULT 0,
   created_at       TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX idx_posts_company_created_at_desc ON posts(company_id, created_at DESC);
 
--- reactions
-CREATE TABLE reactions (
+-- likes
+CREATE TABLE likes (
   id         BIGSERIAL PRIMARY KEY,
   user_id    BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   post_id    BIGINT NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
-  type       TEXT NOT NULL,                -- e.g., "like", "clap"
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE (user_id, post_id)
 );

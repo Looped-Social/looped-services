@@ -1,0 +1,49 @@
+{
+  "family": "looped-api",
+  "networkMode": "awsvpc",
+  "cpu": "512",
+  "memory": "1024",
+  "requiresCompatibilities": ["FARGATE"],
+  "runtimePlatform": {"cpuArchitecture": "X86_64", "operatingSystemFamily": "LINUX"},
+  "executionRoleArn": "arn:aws:iam::<acct>:role/ecsTaskExecutionRole",
+  "taskRoleArn": "arn:aws:iam::<acct>:role/loopedApiTaskRole",
+  "containerDefinitions": [
+    {
+      "name": "api",
+      "image": "<acct>.dkr.ecr.<region>.amazonaws.com/looped-api:<tag>",
+      "portMappings": [{"containerPort": 8080, "hostPort": 8080, "protocol": "tcp"}],
+      "essential": true,
+      "environment": [
+        {"name":"PORT","value":"8080"},
+        {"name":"AWS_REGION","value":"us-east-1"},
+        {"name":"S3_BUCKET","value":"<media-bucket>"},
+        {"name":"REDIS_URL","value":"redis://<redis-host>:6379"},
+        {"name":"CLOUDFRONT_DOMAIN","value":"<cloudfront-domain>"}
+      ],
+      "secrets": [
+        {"name":"DB_URL","valueFrom":"arn:aws:ssm:<region>:<acct>:parameter/looped/db/url"},
+        {"name":"DB_USERNAME","valueFrom":"arn:aws:secretsmanager:<region>:<acct>:secret:looped/db/username"},
+        {"name":"DB_PASSWORD","valueFrom":"arn:aws:secretsmanager:<region>:<acct>:secret:looped/db/password"},
+        {"name":"AUTH_ISSUER","valueFrom":"arn:aws:ssm:<region>:<acct>:parameter/looped/auth/issuer"},
+        {"name":"AUTH_AUDIENCE","valueFrom":"arn:aws:ssm:<region>:<acct>:parameter/looped/auth/audience"},
+        {"name":"AUTH_JWKS_URI","valueFrom":"arn:aws:ssm:<region>:<acct>:parameter/looped/auth/jwks_uri"},
+        {"name":"MEDIA_CALLBACK_SECRET","valueFrom":"arn:aws:secretsmanager:<region>:<acct>:secret:looped/media/callback-secret"}
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-region": "<region>",
+          "awslogs-group": "/ecs/looped-api",
+          "awslogs-stream-prefix": "api"
+        }
+      },
+      "healthCheck": {
+        "command": ["CMD-SHELL","wget -qO- http://127.0.0.1:8080/health || exit 1"],
+        "interval": 30,
+        "timeout": 5,
+        "retries": 3,
+        "startPeriod": 20
+      }
+    }
+  ]
+}

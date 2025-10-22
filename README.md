@@ -69,3 +69,64 @@
 ## Notes
 - Privacy first: verify JWTs every request, no PII in logs, enforce idempotency and media guardrails
 - Realtime: polling/SSE now; WebSockets later for chat/presence
+
+## Build + Run (Local)
+- Prereqs
+  - JDK 25
+  - Postgres running locally (Homebrew or Docker)
+  - Redis optional for local (required for post idempotency and rate limits)
+  - Docker optional for running tests (Testcontainers)
+- Compile only (skip tests)
+  - `./mvnw -q -pl apps/api -am -DskipTests package`
+- Run tests (requires Docker for Testcontainers)
+  - `./mvnw -q -pl apps/api -am test`
+- Start API (dev)
+  - Ensure DB envs match your local Postgres (defaults in `.env.example`)
+  - `./mvnw -q -pl apps/api -am spring-boot:run`
+- Quick sanity check
+  - Health: `curl http://localhost:8080/health` → `ok`
+  - Protected route: `curl -i http://localhost:8080/v1/me` → `401` without a token
+  - With a Firebase ID token: `curl -H "Authorization: Bearer <ID_TOKEN>" http://localhost:8080/v1/me`
+
+## Docker (build and run)
+- Build image (API only): `docker build -t looped-api:dev -f apps/api/Dockerfile .`
+- Run locally:
+  - `docker run --rm -p 8080:8080 \
+      -e PORT=8080 \
+      -e DB_URL=jdbc:postgresql://host.docker.internal:5432/looped \
+      -e DB_USERNAME=looped -e DB_PASSWORD=looped \
+      -e AUTH_ISSUER=https://securetoken.google.com/<project-id> \
+      -e AUTH_AUDIENCE=<project-id> \
+      -e AUTH_JWKS_URI=https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com \
+      -e REDIS_URL=redis://host.docker.internal:6379 \
+      -e S3_BUCKET=looped-dev-media -e AWS_REGION=us-east-1 \
+      looped-api:dev`
+- Healthcheck: container exposes `GET /health` on port `$PORT`.
+
+## Local vs Production
+- Config source
+  - Local: env vars (e.g., copy `.env.example` and export in your shell)
+  - Prod: SSM Parameter Store / Secrets Manager mapped into task env vars
+- Identity (Firebase Auth)
+  - Same verification path; set `AUTH_ISSUER`, `AUTH_AUDIENCE`, `AUTH_JWKS_URI`
+- Data stores
+  - Local: Postgres (localhost), optional Redis (localhost)
+  - Prod: Neon/Aurora Postgres, ElastiCache Redis
+- Media
+  - Local: presign requires AWS creds in your shell; writes to your dev S3 bucket
+  - Prod: task IAM role signs S3 requests; CloudFront domain configured
+- Networking
+  - Local: direct HTTP on `localhost:8080`
+  - Prod: ALB (HTTPS) → ECS task (HTTP 8080); health checks on `/health`
+- Observability
+  - Local: JSON logs to console; X-Request-Id header echoed per request
+  - Prod: logs to CloudWatch; set alarms on 5xx/latency; rate limits enforced via Redis
+
+## Deploy (ECS Fargate quick notes)
+- Build and push to ECR: tag `looped-api:<sha>`; set repository in ECR.
+- Task definition env vars: `DB_URL`, `DB_USERNAME`, `DB_PASSWORD` (or use Secrets Manager), `AUTH_*`, `REDIS_URL`, `S3_BUCKET`, `AWS_REGION`, `CLOUDFRONT_DOMAIN`, `MEDIA_*`.
+- ALB target group health check: path `/health`, interval 30s.
+- IAM task role: allow S3 PutObject for the media bucket (prefix `media/original/*`).
+- Secrets: prefer SSM/Secrets Manager and reference via task definition; app reads from env.
+
+For a full checklist and sample task definition, see: `docs/deploy/ecs-fargate.md` and `deploy/ecs-taskdef.sample.json`.

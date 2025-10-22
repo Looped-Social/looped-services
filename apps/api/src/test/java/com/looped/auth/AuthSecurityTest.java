@@ -1,5 +1,6 @@
 package com.looped.auth;
 
+import com.looped.support.PostgresTestBase;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -15,7 +16,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         "auth.jwksUri=https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com"
 })
 @AutoConfigureMockMvc
-class AuthSecurityTest {
+@org.springframework.context.annotation.Import(TestSecurityConfig.class)
+class AuthSecurityTest extends PostgresTestBase {
 
     @Autowired
     MockMvc mockMvc;
@@ -30,4 +32,3 @@ class AuthSecurityTest {
         mockMvc.perform(get("/v1/me")).andExpect(status().isUnauthorized());
     }
 }
-

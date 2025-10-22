@@ -38,7 +38,7 @@ docs/
 Minimal Endpoints (MVP)
 Auth: POST /v1/auth/login, GET /v1/me
 Verification: POST /v1/verification/start, POST /v1/verification/finish
-Feed & Posts: GET /v1/feed?cursor=, POST /v1/posts, GET /v1/posts/{id}, POST /v1/posts/{id}/react
+Feed & Posts: GET /v1/feed?cursor=, POST /v1/posts, GET /v1/posts/{id}, POST /v1/posts/{id}/like
 Media: POST /v1/media/presign, POST /v1/media/callback
 Moderation: POST /v1/reports, GET /v1/reports, PUT /v1/reports/{id}/resolve
 Devices: POST /v1/devices
@@ -47,8 +47,8 @@ Starter Schema (Postgres)
 users(id, firebase_uid, handle, company_id, created_at)
 companies(id, name, domain, created_at)
 verifications(user_id, method, verified, verified_at) PK(user_id)
-posts(id, author_id, company_id, content, media_asset_id, reactions_count, created_at) + index (company_id, created_at desc)
-reactions(id, user_id, post_id, type, created_at) unique (user_id, post_id)
+posts(id, author_id, company_id, content, media_asset_id, likes_count, created_at) + index (company_id, created_at desc)
+likes(id, user_id, post_id, created_at) unique (user_id, post_id)
 media_assets(id, owner_id, s3_key, mime_type, width, height, duration_seconds, created_at)
 reports(id, target_type, target_id, reporter_id, reason, status, created_at, updated_at)
 devices(id, user_id, apns_token, platform, created_at)

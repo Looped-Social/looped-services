@@ -94,7 +94,7 @@ Tests first
  
 Implement
 - Entities/repos: `posts`, ref to `media_assets` (nullable)
-- Controller/service; validation; defaults (reactions_count=0)
+- Controller/service; validation; defaults (likes_count=0)
  
 Verify
 - `./mvnw -q -pl apps/api -am test`
@@ -126,22 +126,22 @@ DoD
 Effort
 - ~4 hours (2 sessions)
  
-## Milestone 5 - Reactions
+## Milestone 5 - Likes
 Scope
 - React to post; uniqueness per user/post.
  
 Tests first
-- Second `POST /v1/posts/{id}/react` is no-op; counts stay correct
+- Second `POST /v1/posts/{id}/like` is no-op; counts stay correct
  
 Implement
-- `reactions` unique `(user_id, post_id)`
-- Service updates `reactions_count`
+- `likes` unique `(user_id, post_id)`
+- Service updates `likes_count`
  
 Verify
 - `./mvnw -q -pl apps/api -am test`
  
 DoD
-- Idempotent reactions; consistent counts
+- Idempotent likes; consistent counts
  
 Effort
 - ~3 hours (2 sessions)
@@ -291,7 +291,7 @@ Week-by-week (core track)
 - Week 1: M0 (foundation) + start M1 (auth)
 - Week 2: Finish M1 + M2 (devices)
 - Week 3: M3 (posts) + start M4 (feed)
-- Week 4: Finish M4 + M5 (reactions)
+- Week 4: Finish M4 + M5 (likes)
 - Week 5: M6 (media)
 - Week 6: M7 (moderation) + M8 (rate limits/logging)
 - Week 7: M11 (CI) + M12 (staging prep)
