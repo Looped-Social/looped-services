@@ -75,4 +75,23 @@ class MeIntegrationTest extends PostgresTestBase {
                 .andExpect(jsonPath("$.provisioned").value(true))
                 .andExpect(jsonPath("$.user.handle").value("alice"));
     }
+
+    @Test
+    void me_includes_verification_status_when_present() throws Exception {
+        long companyId = jdbc.queryForObject(
+                "INSERT INTO companies(name, domain) VALUES ('AcmeV', 'acmev.com') RETURNING id",
+                Long.class);
+        jdbc.update("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?)",
+                "uid-verify-me", "anna", companyId);
+        // mark verified via direct insert to verifications
+        jdbc.update("INSERT INTO verifications(user_id, method, verified, verified_at) SELECT id, 'email', true, now() FROM users WHERE firebase_uid=?",
+                "uid-verify-me");
+
+        String t = token("uid-verify-me");
+        mockMvc.perform(get("/v1/me").header("Authorization", "Bearer " + t))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.provisioned").value(true))
+                .andExpect(jsonPath("$.user.verification.verified").value(true))
+                .andExpect(jsonPath("$.user.verification.method").value("email"));
+    }
 }

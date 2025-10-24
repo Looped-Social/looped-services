@@ -130,6 +130,29 @@ Notes
   - Compose: `docker compose down`
   - Individual containers: `docker rm -f looped-pg looped-redis`
 
+## API — Verification
+
+- Start verification
+  - `POST /v1/verification/start` with JSON `{ "method": "email" | "video" | "thirdparty" }`
+  - email: server generates a 6‑digit code and stores it in Redis with TTL. In dev, the response includes `dev_code` when `verification.echo-code=true`.
+  - video: response includes `instructions`. Upload a short video via `/v1/media/presign` (content-type `video/mp4`) and then call `finish` with `mediaKey`.
+  - thirdparty: response includes `session_id` (stored in Redis). Complete provider flow client‑side, then call `finish` with `token`.
+
+- Complete verification
+  - `POST /v1/verification/finish`
+    - email: `{ "method":"email", "code":"123456" }`
+    - video: `{ "method":"video", "mediaKey":"media/original/<uuid>" }`
+    - thirdparty: `{ "method":"thirdparty", "token":"provider-token" }`
+  - Response: `{ "verified": true }` on success; `403` with `{ "error":"invalid_code" }` for bad email codes.
+
+- Me endpoint includes verification block when present
+  - `GET /v1/me` →
+    - `{"provisioned": true, "user": { "id": ..., "handle": "...", "company_id": ..., "verification": { "method": "email|video|thirdparty", "verified": true|false, "verified_at": "..." }}}`
+
+- Config (application.yaml)
+  - `verification.echo-code` (default `true` in dev). Set `VERIFICATION_ECHO_CODE=false` in prod so codes aren’t echoed.
+  - `verification.code-ttl-seconds` (default `600`).
+
 ## Docker (build and run)
 - Build image (API only): `docker build -t looped-api:dev -f apps/api/Dockerfile .`
 - Run locally:

@@ -1,6 +1,7 @@
 package com.looped.posts;
 
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Size;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -37,24 +38,38 @@ public class PostsController {
             ));
             case OK -> new ResponseEntity<>(Map.of("id", res.id(), "content", body.content(), "media_asset_id", body.mediaAssetId()),
                     res.created() ? HttpStatus.CREATED : HttpStatus.OK);
+            default -> ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
+                    "error", "unexpected_status",
+                    "message", "Unexpected status for create"
+            ));
         };
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<?> get(@PathVariable("id") long id) {
-        var p = postsService.get(id);
-        if (p.isEmpty()) return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
-        var row = p.get();
-        return ResponseEntity.ok(Map.of(
-                "id", row.id,
-                "author_id", row.authorId,
-                "company_id", row.companyId,
-                "content", row.content,
-                "media_asset_id", row.mediaAssetId,
-                "likes_count", row.likesCount,
-                "created_at", row.createdAt
-        ));
+    public ResponseEntity<?> get(@AuthenticationPrincipal Jwt jwt, @PathVariable("id") long id) {
+        var res = postsService.getScoped(jwt.getSubject(), id);
+        return switch (res.status()) {
+            case USER_NOT_PROVISIONED -> ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "user_not_provisioned"));
+            case NOT_FOUND -> ResponseEntity.status(HttpStatus.NOT_FOUND).build();
+            case FORBIDDEN -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "forbidden"));
+            case OK -> {
+                var row = res.post();
+                yield ResponseEntity.ok(Map.of(
+                        "id", row.id,
+                        "author_id", row.authorId,
+                        "company_id", row.companyId,
+                        "content", row.content,
+                        "media_asset_id", row.mediaAssetId,
+                        "likes_count", row.likesCount,
+                        "created_at", row.createdAt
+                ));
+            }
+            default -> ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
+                    "error", "unexpected_status",
+                    "message", "Unexpected status for get"
+            ));
+        };
     }
 
-    public record CreateRequest(@NotBlank String content, Long mediaAssetId) {}
+    public record CreateRequest(@NotBlank @Size(max = 1000) String content, Long mediaAssetId) {}
 }

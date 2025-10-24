@@ -86,4 +86,18 @@ class LikesIntegrationTest extends PostgresTestBase {
                         .header("Authorization", auth))
                 .andExpect(status().isNotFound());
     }
+
+    @Test
+    void like_forbidden_cross_company() throws Exception {
+        long acme = jdbc.queryForObject("INSERT INTO companies(name, domain) VALUES ('Acme3','acme3.com') RETURNING id", Long.class);
+        long beta = jdbc.queryForObject("INSERT INTO companies(name, domain) VALUES ('Beta3','beta3.com') RETURNING id", Long.class);
+        jdbc.update("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?)", "uid-like-a", "amy", acme);
+        jdbc.update("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?)", "uid-like-b", "ben", beta);
+        long author = jdbc.queryForObject("SELECT id FROM users WHERE firebase_uid=?", Long.class, "uid-like-a");
+        long postId = jdbc.queryForObject("INSERT INTO posts(author_id, company_id, content) VALUES (?,?,?) RETURNING id", Long.class, author, acme, "hello");
+
+        String auth = "Bearer " + token("uid-like-b");
+        mockMvc.perform(post("/v1/posts/" + postId + "/like").header("Authorization", auth))
+                .andExpect(status().isForbidden());
+    }
 }

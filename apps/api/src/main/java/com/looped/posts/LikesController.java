@@ -32,6 +32,10 @@ public class LikesController {
                     "error", "not_found",
                     "message", "Post not found"
             ));
+            case FORBIDDEN -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
+                    "error", "forbidden",
+                    "message", "Cross-company access denied"
+            ));
             case OK -> new ResponseEntity<>(Map.of(
                     "post_id", postId,
                     "likes_count", res.likesCount()

@@ -43,6 +43,20 @@ Media: POST /v1/media/presign, POST /v1/media/callback
 Moderation: POST /v1/reports, GET /v1/reports, PUT /v1/reports/{id}/resolve
 Devices: POST /v1/devices
 
+Verification flows (details)
+- Methods: `email`, `video`, `thirdparty`. Persist status in `verifications` table (`user_id` PK) with `method`, `verified`, `verified_at`.
+- Email
+  - Start: API generates a 6‑digit code and stores it in Redis (TTL). In dev, response includes `dev_code` when `verification.echo-code=true`.
+  - Finish: API validates `code` from Redis and marks verified on success.
+- Video
+  - Start: API returns instructions; client uploads short video via `/v1/media/presign` (content-type `video/mp4`).
+  - Finish: API accepts `mediaKey` and marks verified (manual review assumed for MVP; mod-worker later).
+- Third‑party
+  - Start: API issues a `session_id` (Redis TTL). Client completes external flow.
+  - Finish: API calls pluggable `ThirdPartyVerifier` to validate a `token` for the `session_id`, then marks verified.
+- Me response
+  - `GET /v1/me` includes `user.verification = { method, verified, verified_at }` when present.
+
 Starter Schema (Postgres)
 users(id, firebase_uid, handle, company_id, created_at)
 companies(id, name, domain, created_at)
@@ -59,6 +73,7 @@ Security & Privacy
 - Rate-limit by IP/user in Redis
 - Idempotency-Key for POST /v1/posts
 - Media guardrails at presign (content-type, size) + bucket policy
+- Email verification code echoing only in dev; set `verification.echo-code=false` in prod. Never log codes or tokens.
 - Seed data only in dev/staging; hash passwords even for fakes
 
 Realtime

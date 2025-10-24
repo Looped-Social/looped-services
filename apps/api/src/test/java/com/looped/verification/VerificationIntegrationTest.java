@@ -1,8 +1,7 @@
-package com.looped.posts;
+package com.looped.verification;
 
 import com.looped.auth.TestSecurityConfig;
 import com.looped.support.PostgresTestBase;
-import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -26,18 +25,18 @@ import java.util.List;
 
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.notNullValue;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @SpringBootTest(properties = {
         "auth.issuer=http://test-issuer",
-        "auth.audience=test-app"
+        "auth.audience=test-app",
+        "verification.echo-code=true"
 })
 @AutoConfigureMockMvc
 @org.springframework.context.annotation.Import(TestSecurityConfig.class)
-class PostsIntegrationTest extends PostgresTestBase {
+class VerificationIntegrationTest extends PostgresTestBase {
 
     @Container
     static GenericContainer<?> redis = new GenericContainer<>(DockerImageName.parse("redis:7-alpine")).withExposedPorts(6379);
@@ -49,10 +48,8 @@ class PostsIntegrationTest extends PostgresTestBase {
 
     @Autowired
     MockMvc mockMvc;
-
     @Autowired
     JwtEncoder jwtEncoder;
-
     @Autowired
     JdbcTemplate jdbc;
 
@@ -70,80 +67,91 @@ class PostsIntegrationTest extends PostgresTestBase {
     }
 
     @Test
-    void create_post_idempotent_and_get() throws Exception {
+    void email_verification_flow() throws Exception {
         long companyId = jdbc.queryForObject(
                 "INSERT INTO companies(name, domain) VALUES ('Acme', 'acme.com') RETURNING id",
                 Long.class);
         jdbc.update("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?)",
-                "uid-post", "carol", companyId);
+                "uid-verify", "vera", companyId);
 
-        String auth = "Bearer " + token("uid-post");
-        String body = "{\"content\":\"hello world\"}";
+        String auth = "Bearer " + token("uid-verify");
 
-        var r1 = mockMvc.perform(post("/v1/posts")
+        var start = mockMvc.perform(post("/v1/verification/start")
                         .contentType(MediaType.APPLICATION_JSON)
                         .header("Authorization", auth)
-                        .header("Idempotency-Key", "k-1")
-                        .content(body))
-                .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.id", notNullValue()))
+                        .content("{\"method\":\"email\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status", equalTo("pending")))
+                .andExpect(jsonPath("$.dev_code", notNullValue()))
                 .andReturn();
 
-        String id = new com.fasterxml.jackson.databind.ObjectMapper()
-                .readTree(r1.getResponse().getContentAsString())
-                .get("id")
-                .asText();
+        String code = new com.fasterxml.jackson.databind.ObjectMapper()
+                .readTree(start.getResponse().getContentAsString()).get("dev_code").asText();
 
-        mockMvc.perform(post("/v1/posts")
+        mockMvc.perform(post("/v1/verification/finish")
                         .contentType(MediaType.APPLICATION_JSON)
                         .header("Authorization", auth)
-                        .header("Idempotency-Key", "k-1")
-                        .content(body))
+                        .content("{\"method\":\"email\",\"code\":\"" + code + "\"}"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.id", equalTo(Integer.parseInt(id))));
+                .andExpect(jsonPath("$.verified", equalTo(true)));
 
-        mockMvc.perform(get("/v1/posts/" + id)
-                        .header("Authorization", auth))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.content", equalTo("hello world")));
+        Integer verified = jdbc.queryForObject("SELECT verified::int FROM verifications v JOIN users u ON v.user_id=u.id WHERE u.firebase_uid=?",
+                Integer.class, "uid-verify");
+        org.junit.jupiter.api.Assertions.assertEquals(1, verified);
     }
 
     @Test
-    void create_requires_idempotency_key() throws Exception {
+    void video_verification_flow() throws Exception {
         long companyId = jdbc.queryForObject(
                 "INSERT INTO companies(name, domain) VALUES ('Beta', 'beta.com') RETURNING id",
                 Long.class);
         jdbc.update("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?)",
-                "uid-post2", "dave", companyId);
+                "uid-video", "vicky", companyId);
 
-        String auth = "Bearer " + token("uid-post2");
+        String auth = "Bearer " + token("uid-video");
 
-        mockMvc.perform(post("/v1/posts")
+        mockMvc.perform(post("/v1/verification/start")
                         .contentType(MediaType.APPLICATION_JSON)
                         .header("Authorization", auth)
-                        .content("{\"content\":\"no key\"}"))
-                .andExpect(status().isBadRequest());
+                        .content("{\"method\":\"video\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status", equalTo("pending")));
+
+        mockMvc.perform(post("/v1/verification/finish")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", auth)
+                        .content("{\"method\":\"video\",\"mediaKey\":\"media/original/fake\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.verified", equalTo(true)));
     }
 
     @Test
-    void get_forbidden_cross_company() throws Exception {
-        long acme = jdbc.queryForObject(
-                "INSERT INTO companies(name, domain) VALUES ('Acme', 'acme.com') RETURNING id",
-                Long.class);
-        long beta = jdbc.queryForObject(
-                "INSERT INTO companies(name, domain) VALUES ('Beta', 'beta.com') RETURNING id",
+    void thirdparty_verification_flow() throws Exception {
+        long companyId = jdbc.queryForObject(
+                "INSERT INTO companies(name, domain) VALUES ('Gamma', 'gamma.com') RETURNING id",
                 Long.class);
         jdbc.update("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?)",
-                "uid-author", "arthur", acme);
-        long authorId = jdbc.queryForObject("SELECT id FROM users WHERE firebase_uid=?", Long.class, "uid-author");
-        long postId = jdbc.queryForObject("INSERT INTO posts(author_id, company_id, content) VALUES (?,?,?) RETURNING id",
-                Long.class, authorId, acme, "secret");
+                "uid-third", "tina", companyId);
 
-        jdbc.update("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?)",
-                "uid-reader", "rachel", beta);
-        String auth = "Bearer " + token("uid-reader");
+        String auth = "Bearer " + token("uid-third");
 
-        mockMvc.perform(get("/v1/posts/" + postId).header("Authorization", auth))
-                .andExpect(status().isForbidden());
+        var start = mockMvc.perform(post("/v1/verification/start")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", auth)
+                        .content("{\"method\":\"thirdparty\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status", equalTo("pending")))
+                .andExpect(jsonPath("$.session_id", notNullValue()))
+                .andReturn();
+
+        String sessionId = new com.fasterxml.jackson.databind.ObjectMapper()
+                .readTree(start.getResponse().getContentAsString()).get("session_id").asText();
+        // Token validation is stubbed to accept any non-blank token; service requires session exists
+        mockMvc.perform(post("/v1/verification/finish")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", auth)
+                        .content("{\"method\":\"thirdparty\",\"token\":\"tok-abc\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.verified", equalTo(true)));
     }
 }

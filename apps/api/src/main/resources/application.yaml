@@ -60,3 +60,7 @@ rate-limit:
   per-user:
     window-seconds: ${RL_USER_WINDOW_SECONDS:60}
     max-requests: ${RL_USER_MAX_REQUESTS:180}
+
+verification:
+  echo-code: ${VERIFICATION_ECHO_CODE:true}
+  code-ttl-seconds: ${VERIFICATION_CODE_TTL_SECONDS:600}

@@ -30,11 +30,15 @@ public class RateLimiter {
         long windowAgo = now - windowSeconds * 1000L;
         // Use ZSET as sliding window: add now, remove older than window, count
         String nowStr = Long.toString(now);
-        redis.opsForZSet().add(key, nowStr, now);
-        redis.opsForZSet().removeRangeByScore(key, 0, windowAgo);
-        Long count = redis.opsForZSet().zCard(key);
-        redis.expire(key, windowSeconds, TimeUnit.SECONDS);
-        return count != null && count <= max;
+        try {
+            redis.opsForZSet().add(key, nowStr, now);
+            redis.opsForZSet().removeRangeByScore(key, 0, windowAgo);
+            Long count = redis.opsForZSet().zCard(key);
+            redis.expire(key, windowSeconds, TimeUnit.SECONDS);
+            return count != null && count <= max;
+        } catch (RuntimeException e) {
+            // Redis unavailable: degrade gracefully (allow request)
+            return true;
+        }
     }
 }
-
