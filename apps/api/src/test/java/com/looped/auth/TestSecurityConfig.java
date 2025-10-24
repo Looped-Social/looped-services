@@ -39,7 +39,7 @@ public class TestSecurityConfig {
 
     @Bean
     @Primary
-    public JwtDecoder jwtDecoder(
+    public JwtDecoder testJwtDecoder(
             KeyPair keyPair,
             @Value("${auth.issuer}") String issuer,
             @Value("${auth.audience}") String audience

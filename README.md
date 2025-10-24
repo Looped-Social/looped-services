@@ -33,11 +33,27 @@
  - Auth (Firebase): set `AUTH_ISSUER`, `AUTH_AUDIENCE`, `AUTH_JWKS_URI` or use the Firebase defaults in `application.yaml`. iOS should send `Authorization: Bearer <Firebase ID token>`.
 
 ## Quick start
+- Start dependencies
+  - Option A — Docker Compose (recommended):
+    - `docker compose up -d` (uses `docker-compose.yml`)
+  - Option B — individual containers:
+    - Postgres: `docker run --rm --name looped-pg -e POSTGRES_DB=looped -e POSTGRES_USER=looped -e POSTGRES_PASSWORD=looped -p 5432:5432 -d postgres:16`
+    - Redis: `docker run --rm --name looped-redis -p 6379:6379 -d redis:7-alpine`
 - Run API (dev): `./mvnw -q -pl apps/api -am spring-boot:run`
   - Alternative (module-only): `./mvnw -q -f apps/api/pom.xml spring-boot:run`
 - Build all modules: `./mvnw -q -T 1C -DskipTests package`
-- Run tests: `./mvnw -q -T 1C test`
+- Run tests (requires Docker for Testcontainers): `./mvnw -q -T 1C test`
 - API URL: `http://localhost:8080` — health: `GET /health` → `ok`
+
+### Makefile shortcuts
+- Start deps: `make up`
+- Start only Postgres: `make database` (aliases: `make db`, `make datbase`)
+- Dev run: `make dev`
+- Tests: `make test` (Docker required)
+- Build: `make build`
+- Run JAR: `make jar` (after build)
+- Logs: `make logs`
+- Stop deps: `make down`
 
 ## Maven run notes
 - Prefer the Maven Wrapper (`./mvnw`) to get the pinned Maven (3.9.11) automatically; only Java is required.
@@ -82,11 +98,37 @@
   - `./mvnw -q -pl apps/api -am test`
 - Start API (dev)
   - Ensure DB envs match your local Postgres (defaults in `.env.example`)
+  - Start Postgres & Redis via Docker (see Quick start) or point to your own instances
   - `./mvnw -q -pl apps/api -am spring-boot:run`
 - Quick sanity check
   - Health: `curl http://localhost:8080/health` → `ok`
   - Protected route: `curl -i http://localhost:8080/v1/me` → `401` without a token
   - With a Firebase ID token: `curl -H "Authorization: Bearer <ID_TOKEN>" http://localhost:8080/v1/me`
+
+## Verification Checklist
+- Dependencies up
+  - If using compose: `docker compose ps` shows both services healthy
+  - Postgres running: `psql -h localhost -U looped -d looped -c "select 1"` (password `looped`)
+  - Redis running: `redis-cli -h localhost -p 6379 ping` → `PONG`
+- Dev server
+  - Start: `./mvnw -q -pl apps/api -am spring-boot:run`
+  - Health: `curl http://localhost:8080/health` → `ok`
+  - Auth sanity: `curl -i http://localhost:8080/v1/me` → `401`
+- Tests
+  - Run: `./mvnw -q -T 1C test` (Docker required for Testcontainers Postgres/Redis)
+  - Expect all tests to pass; failures usually indicate missing Docker or low resources
+- Build artifacts
+  - Build (skip tests): `./mvnw -q -pl apps/api -am -DskipTests package`
+  - JAR present: `ls apps/api/target/looped-api-0.0.1-SNAPSHOT.jar`
+  - Run JAR: `java -jar apps/api/target/looped-api-0.0.1-SNAPSHOT.jar` and repeat health check
+
+Notes
+- To run without DB for a quick boot (health only):
+  - `./mvnw -q -pl apps/api -am -Dspring.flyway.enabled=false -Dspring.datasource.hikari.initialization-fail-timeout=-1 spring-boot:run`
+  - Endpoints that touch the DB/Redis still require those services running.
+- Stop dependencies
+  - Compose: `docker compose down`
+  - Individual containers: `docker rm -f looped-pg looped-redis`
 
 ## Docker (build and run)
 - Build image (API only): `docker build -t looped-api:dev -f apps/api/Dockerfile .`
