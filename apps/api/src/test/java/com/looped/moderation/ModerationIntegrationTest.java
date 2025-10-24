@@ -8,7 +8,7 @@ import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMock
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.security.oauth2.jose.jws.JwsHeader;
+import org.springframework.security.oauth2.jwt.JwsHeader;
 import org.springframework.security.oauth2.jose.jws.SignatureAlgorithm;
 import org.springframework.security.oauth2.jwt.JwtClaimsSet;
 import org.springframework.security.oauth2.jwt.JwtEncoder;
@@ -67,7 +67,10 @@ class ModerationIntegrationTest extends PostgresTestBase {
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.id", notNullValue()))
                 .andReturn();
-        String id = r1.getResponse().getContentAsString().replaceAll(".*\"id\":(\d+).*", "$1");
+        String id = new com.fasterxml.jackson.databind.ObjectMapper()
+                .readTree(r1.getResponse().getContentAsString())
+                .get("id")
+                .asText();
 
         mockMvc.perform(get("/v1/reports")
                         .header("Authorization", auth))
@@ -86,4 +89,3 @@ class ModerationIntegrationTest extends PostgresTestBase {
                 .andExpect(jsonPath("$.items[0].status", equalTo("resolved")));
     }
 }
-

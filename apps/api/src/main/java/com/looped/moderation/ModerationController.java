@@ -41,7 +41,7 @@ public class ModerationController {
                     "error", "user_not_provisioned"
             ));
         }
-        List<Map<String, Object>> items = res.items().stream().map(r -> Map.of(
+        List<Map<String, Object>> items = res.items().stream().map(r -> Map.<String, Object>of(
                 "id", r.id,
                 "target_type", r.targetType,
                 "target_id", r.targetId,
@@ -66,4 +66,3 @@ public class ModerationController {
 
     public record CreateRequest(@NotBlank String targetType, @NotNull Long targetId, @NotBlank String reason) {}
 }
-

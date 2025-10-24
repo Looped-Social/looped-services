@@ -53,10 +53,10 @@ redis:
 sqs:
   notifQueueUrl: ${SQS_NOTIF_QUEUE_URL:}
 
-rateLimit:
-  perIp:
-    windowSeconds: ${RL_IP_WINDOW_SECONDS:60}
-    maxRequests: ${RL_IP_MAX_REQUESTS:120}
-  perUser:
-    windowSeconds: ${RL_USER_WINDOW_SECONDS:60}
-    maxRequests: ${RL_USER_MAX_REQUESTS:180}
+rate-limit:
+  per-ip:
+    window-seconds: ${RL_IP_WINDOW_SECONDS:60}
+    max-requests: ${RL_IP_MAX_REQUESTS:120}
+  per-user:
+    window-seconds: ${RL_USER_WINDOW_SECONDS:60}
+    max-requests: ${RL_USER_MAX_REQUESTS:180}

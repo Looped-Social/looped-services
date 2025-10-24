@@ -36,7 +36,7 @@ public class FeedController {
                     "message", "Complete onboarding before reading feed"
             ));
         }
-        List<Map<String, Object>> items = res.items().stream().map(p -> Map.of(
+        List<Map<String, Object>> items = res.items().stream().map(p -> Map.<String, Object>of(
                 "id", p.id,
                 "author_id", p.authorId,
                 "company_id", p.companyId,

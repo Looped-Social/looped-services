@@ -15,7 +15,7 @@ import java.io.IOException;
 import java.util.Map;
 
 @Component
-@Order(Ordered.LOW)
+@Order(Ordered.LOWEST_PRECEDENCE)
 public class RateLimitingFilter extends OncePerRequestFilter {
     private final RateLimiter limiter;
 
@@ -51,4 +51,3 @@ public class RateLimitingFilter extends OncePerRequestFilter {
         return request.getRemoteAddr();
     }
 }
-

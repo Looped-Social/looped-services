@@ -4,7 +4,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.context.annotation.Configuration;
 
 @Configuration
-@ConfigurationProperties(prefix = "rateLimit")
+@ConfigurationProperties(prefix = "rate-limit")
 public class RateLimitProperties {
     private Window perIp = new Window();
     private Window perUser = new Window();
@@ -23,4 +23,3 @@ public class RateLimitProperties {
         public void setMaxRequests(int maxRequests) { this.maxRequests = maxRequests; }
     }
 }
-
