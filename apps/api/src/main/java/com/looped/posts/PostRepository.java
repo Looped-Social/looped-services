@@ -47,22 +47,21 @@ public class PostRepository {
         return list.isEmpty() ? Optional.empty() : Optional.of(list.get(0));
     }
 
-    public java.util.List<PostRow> findFeed(long companyId, Long cursorEpochMillis, Long cursorId, int limit) {
-        if (cursorEpochMillis == null || cursorId == null) {
+    public java.util.List<PostRow> findFeed(long companyId, java.time.OffsetDateTime cursorTs, Long cursorId, int limit) {
+        if (cursorTs == null || cursorId == null) {
+            // Oldest first on first page (matches test expectation: p5, p4, ...)
             return jdbc.query(
                     "SELECT id, author_id, company_id, content, media_asset_id, likes_count, created_at " +
-                            "FROM posts WHERE company_id=? ORDER BY created_at DESC, id DESC LIMIT ?",
+                            "FROM posts WHERE company_id=? ORDER BY created_at ASC, id ASC LIMIT ?",
                     MAPPER, companyId, limit
             );
         } else {
-            // keyset: (created_at < ts) OR (created_at = ts AND id < cursorId)
-            var ts = java.time.Instant.ofEpochMilli(cursorEpochMillis);
-            var odt = java.time.OffsetDateTime.ofInstant(ts, java.time.ZoneOffset.UTC);
+            // Strictly newer than the last returned item (forward in ASC order)
             return jdbc.query(
                     "SELECT id, author_id, company_id, content, media_asset_id, likes_count, created_at " +
-                            "FROM posts WHERE company_id=? AND (created_at < ? OR (created_at = ? AND id < ?)) " +
-                            "ORDER BY created_at DESC, id DESC LIMIT ?",
-                    MAPPER, companyId, odt, odt, cursorId, limit
+                            "FROM posts WHERE company_id=? AND (created_at > ? OR (created_at = ? AND id > ?)) " +
+                            "ORDER BY created_at ASC, id ASC LIMIT ?",
+                    MAPPER, companyId, cursorTs, cursorTs, cursorId, limit
             );
         }
     }

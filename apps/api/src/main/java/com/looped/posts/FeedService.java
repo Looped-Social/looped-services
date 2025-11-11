@@ -23,18 +23,18 @@ public class FeedService {
             return FeedResult.userNotProvisioned();
         }
         long companyId = u.get().companyId;
-        Long cEpoch = null, cId = null;
+        java.time.OffsetDateTime cTs = null; Long cId = null;
         if (cursor != null && !cursor.isBlank()) {
             try {
                 var c = Pagination.decode(cursor);
-                cEpoch = c.epochMillis();
+                cTs = c.timestamp();
                 cId = c.id();
             } catch (IllegalArgumentException ignored) {
                 // treat as no cursor
             }
         }
 
-        var list = posts.findFeed(companyId, cEpoch, cId, limit);
+        var list = posts.findFeed(companyId, cTs, cId, limit);
         String next = null;
         if (list.size() == limit) {
             var last = list.get(list.size() - 1);
@@ -49,4 +49,3 @@ public class FeedService {
         static FeedResult userNotProvisioned() { return new FeedResult(Status.USER_NOT_PROVISIONED, List.of(), null); }
     }
 }
-

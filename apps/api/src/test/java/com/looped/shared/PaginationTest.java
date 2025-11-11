@@ -14,8 +14,7 @@ class PaginationTest {
         long id = 12345L;
         String c = Pagination.encode(ts, id);
         var d = Pagination.decode(c);
-        assertThat(d.epochMillis()).isEqualTo(ts.toInstant().toEpochMilli());
+        assertThat(d.timestamp()).isEqualTo(ts);
         assertThat(d.id()).isEqualTo(id);
     }
 }
-

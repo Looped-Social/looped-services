@@ -48,9 +48,11 @@ public class FeedController {
             m.put("created_at", p.createdAt);
             return m;
         }).toList();
-        return ResponseEntity.ok(Map.of(
-                "items", items,
-                "next_cursor", res.nextCursor()
-        ));
+        java.util.Map<String, Object> out = new java.util.HashMap<>();
+        out.put("items", items);
+        if (res.nextCursor() != null) {
+            out.put("next_cursor", res.nextCursor());
+        }
+        return ResponseEntity.ok(out);
     }
 }

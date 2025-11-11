@@ -36,8 +36,14 @@ public class PostsController {
                     "error", "idempotency_in_flight",
                     "message", "A request with this Idempotency-Key is in flight"
             ));
-            case OK -> new ResponseEntity<>(Map.of("id", res.id(), "content", body.content(), "media_asset_id", body.mediaAssetId()),
-                    res.created() ? HttpStatus.CREATED : HttpStatus.OK);
+            case OK -> {
+                java.util.Map<String, Object> out = new java.util.HashMap<>();
+                out.put("id", res.id());
+                out.put("content", body.content());
+                // media_asset_id may be null; HashMap permits nulls, Map.of does not
+                out.put("media_asset_id", body.mediaAssetId());
+                yield new ResponseEntity<>(out, res.created() ? HttpStatus.CREATED : HttpStatus.OK);
+            }
             default -> ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
                     "error", "unexpected_status",
                     "message", "Unexpected status for create"
@@ -54,15 +60,16 @@ public class PostsController {
             case FORBIDDEN -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "forbidden"));
             case OK -> {
                 var row = res.post();
-                yield ResponseEntity.ok(Map.of(
-                        "id", row.id,
-                        "author_id", row.authorId,
-                        "company_id", row.companyId,
-                        "content", row.content,
-                        "media_asset_id", row.mediaAssetId,
-                        "likes_count", row.likesCount,
-                        "created_at", row.createdAt
-                ));
+                java.util.Map<String, Object> out = new java.util.HashMap<>();
+                out.put("id", row.id);
+                out.put("author_id", row.authorId);
+                out.put("company_id", row.companyId);
+                out.put("content", row.content);
+                // Allow null optional fields
+                out.put("media_asset_id", row.mediaAssetId);
+                out.put("likes_count", row.likesCount);
+                out.put("created_at", row.createdAt);
+                yield ResponseEntity.ok(out);
             }
             default -> ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
                     "error", "unexpected_status",
