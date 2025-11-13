@@ -58,19 +58,7 @@ public class PostsController {
             case USER_NOT_PROVISIONED -> ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "user_not_provisioned"));
             case NOT_FOUND -> ResponseEntity.status(HttpStatus.NOT_FOUND).build();
             case FORBIDDEN -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "forbidden"));
-            case OK -> {
-                var row = res.post();
-                java.util.Map<String, Object> out = new java.util.HashMap<>();
-                out.put("id", row.id);
-                out.put("author_id", row.authorId);
-                out.put("company_id", row.companyId);
-                out.put("content", row.content);
-                // Allow null optional fields
-                out.put("media_asset_id", row.mediaAssetId);
-                out.put("likes_count", row.likesCount);
-                out.put("created_at", row.createdAt);
-                yield ResponseEntity.ok(out);
-            }
+            case OK -> ResponseEntity.ok(PostPayloads.from(res.post()));
             default -> ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
                     "error", "unexpected_status",
                     "message", "Unexpected status for get"

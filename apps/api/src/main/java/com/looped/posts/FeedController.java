@@ -36,18 +36,9 @@ public class FeedController {
                     "message", "Complete onboarding before reading feed"
             ));
         }
-        List<Map<String, Object>> items = res.items().stream().map(p -> {
-            java.util.Map<String, Object> m = new java.util.HashMap<>();
-            m.put("id", p.id);
-            m.put("author_id", p.authorId);
-            m.put("company_id", p.companyId);
-            m.put("content", p.content);
-            // Allow nulls for optional fields (HashMap permits null values; Map.of does not)
-            m.put("media_asset_id", p.mediaAssetId);
-            m.put("likes_count", p.likesCount);
-            m.put("created_at", p.createdAt);
-            return m;
-        }).toList();
+        List<Map<String, Object>> items = res.items().stream()
+                .map(PostPayloads::from)
+                .toList();
         java.util.Map<String, Object> out = new java.util.HashMap<>();
         out.put("items", items);
         if (res.nextCursor() != null) {

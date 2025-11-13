@@ -57,6 +57,8 @@ iOS (Swift/SwiftUI)
   - Auth: POST /v1/auth/login, GET /v1/me
   - Verification: POST /v1/verification/start, POST /v1/verification/finish
   - Feed & Posts: GET /v1/feed?cursor=, POST /v1/posts, GET /v1/posts/{id}, POST /v1/posts/{id}/like
+  - Profiles: GET /v1/users/{id}, GET /v1/users/{id}/posts
+  - Collections: GET /v1/posts/liked, GET /v1/posts/saved, POST /v1/posts/{id}/save, DELETE /v1/posts/{id}/save
   - Media: POST /v1/media/presign, POST /v1/media/callback
   - Moderation: POST /v1/reports, GET /v1/reports, PUT /v1/reports/{id}/resolve
   - Devices: POST /v1/devices
@@ -78,7 +80,7 @@ iOS (Swift/SwiftUI)
   - S3 (presigned upload; media callbacks)
   - SQS notif-events (producer) [optional in MVP]
 - Data access (Postgres)
-  - Tables: users, companies, verifications, posts, likes, media_assets, reports, devices
+  - Tables: users, companies, verifications, posts, likes, saved_posts, media_assets, reports, devices
 - Redis (ElastiCache)
   - Caching: post:{id}, feed:{user_id}:{cursor}
   - Rate limits: rl:ip:{ip}, rl:user:{user_id}
@@ -260,6 +262,14 @@ iOS (Swift/SwiftUI)
   - POST /v1/reports
   - GET /v1/reports
   - PUT /v1/reports/{id}/resolve
+- Profiles
+  - GET /v1/users/{id}
+  - GET /v1/users/{id}/posts
+- Collections
+  - GET /v1/posts/liked
+  - GET /v1/posts/saved
+  - POST /v1/posts/{id}/save
+  - DELETE /v1/posts/{id}/save
 - Devices
   - POST /v1/devices
 
@@ -317,6 +327,15 @@ CREATE INDEX idx_posts_company_created_at_desc ON posts(company_id, created_at D
 
 -- likes
 CREATE TABLE likes (
+  id         BIGSERIAL PRIMARY KEY,
+  user_id    BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  post_id    BIGINT NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (user_id, post_id)
+);
+
+-- saved_posts
+CREATE TABLE saved_posts (
   id         BIGSERIAL PRIMARY KEY,
   user_id    BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   post_id    BIGINT NOT NULL REFERENCES posts(id) ON DELETE CASCADE,

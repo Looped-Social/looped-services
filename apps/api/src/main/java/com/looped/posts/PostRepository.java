@@ -66,6 +66,23 @@ public class PostRepository {
         }
     }
 
+    public java.util.List<PostRow> findByAuthor(long authorId, java.time.OffsetDateTime cursorTs, Long cursorId, int limit) {
+        if (cursorTs == null || cursorId == null) {
+            return jdbc.query(
+                    "SELECT id, author_id, company_id, content, media_asset_id, likes_count, created_at " +
+                            "FROM posts WHERE author_id=? ORDER BY created_at ASC, id ASC LIMIT ?",
+                    MAPPER, authorId, limit
+            );
+        } else {
+            return jdbc.query(
+                    "SELECT id, author_id, company_id, content, media_asset_id, likes_count, created_at " +
+                            "FROM posts WHERE author_id=? AND (created_at > ? OR (created_at = ? AND id > ?)) " +
+                            "ORDER BY created_at ASC, id ASC LIMIT ?",
+                    MAPPER, authorId, cursorTs, cursorTs, cursorId, limit
+            );
+        }
+    }
+
     public static class PostRow {
         public long id;
         public long authorId;

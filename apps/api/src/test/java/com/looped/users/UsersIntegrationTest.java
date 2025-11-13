@@ -1,0 +1,121 @@
+package com.looped.users;
+
+import com.looped.auth.TestSecurityConfig;
+import com.looped.support.PostgresTestBase;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.security.oauth2.jwt.JwsHeader;
+import org.springframework.security.oauth2.jose.jws.SignatureAlgorithm;
+import org.springframework.security.oauth2.jwt.JwtClaimsSet;
+import org.springframework.security.oauth2.jwt.JwtEncoder;
+import org.springframework.security.oauth2.jwt.JwtEncoderParameters;
+import org.springframework.test.web.servlet.MockMvc;
+
+import java.sql.Timestamp;
+import java.time.Instant;
+import java.util.List;
+
+import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.hasSize;
+import static org.hamcrest.Matchers.notNullValue;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+@SpringBootTest(properties = {
+        "auth.issuer=http://test-issuer",
+        "auth.audience=test-app"
+})
+@AutoConfigureMockMvc
+@org.springframework.context.annotation.Import(TestSecurityConfig.class)
+class UsersIntegrationTest extends PostgresTestBase {
+
+    @Autowired
+    MockMvc mockMvc;
+    @Autowired
+    JwtEncoder jwtEncoder;
+    @Autowired
+    JdbcTemplate jdbc;
+
+    private String token(String sub) {
+        Instant now = Instant.now();
+        JwtClaimsSet claims = JwtClaimsSet.builder()
+                .issuer("http://test-issuer")
+                .issuedAt(now)
+                .expiresAt(now.plusSeconds(3600))
+                .subject(sub)
+                .audience(List.of("test-app"))
+                .build();
+        JwsHeader header = JwsHeader.with(SignatureAlgorithm.RS256).build();
+        return jwtEncoder.encode(JwtEncoderParameters.from(header, claims)).getTokenValue();
+    }
+
+    @Test
+    void profile_returns_same_company_user() throws Exception {
+        long acmeId = jdbc.queryForObject("INSERT INTO companies(name, domain) VALUES ('Acme','acme.com') RETURNING id", Long.class);
+        long actorId = jdbc.queryForObject("INSERT INTO users(firebase_uid, handle, company_id) VALUES ('uid-actor','alex',?) RETURNING id", Long.class, acmeId);
+        long targetId = jdbc.queryForObject("INSERT INTO users(firebase_uid, handle, company_id) VALUES ('uid-target','taylor',?) RETURNING id", Long.class, acmeId);
+        jdbc.update("INSERT INTO verifications(user_id, method, verified, verified_at) VALUES (?,?,true, now())",
+                targetId, "email");
+
+        mockMvc.perform(get("/v1/users/" + targetId)
+                        .header("Authorization", "Bearer " + token("uid-actor"))
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id", equalTo((int) targetId)))
+                .andExpect(jsonPath("$.handle", equalTo("taylor")))
+                .andExpect(jsonPath("$.company_id", equalTo((int) acmeId)))
+                .andExpect(jsonPath("$.verification.method", equalTo("email")))
+                .andExpect(jsonPath("$.verification.verified", equalTo(true)));
+    }
+
+    @Test
+    void user_posts_paginate_in_order() throws Exception {
+        long acmeId = jdbc.queryForObject("INSERT INTO companies(name, domain) VALUES ('Acme','acme.com') RETURNING id", Long.class);
+        long actorId = jdbc.queryForObject("INSERT INTO users(firebase_uid, handle, company_id) VALUES ('uid-actor','alex',?) RETURNING id", Long.class, acmeId);
+        long targetId = jdbc.queryForObject("INSERT INTO users(firebase_uid, handle, company_id) VALUES ('uid-target','taylor',?) RETURNING id", Long.class, acmeId);
+
+        Instant base = Instant.now();
+        for (int i = 1; i <= 3; i++) {
+            jdbc.update(
+                    "INSERT INTO posts(author_id, company_id, content, created_at) VALUES (?,?,?,?)",
+                    targetId, acmeId, "post-" + i, Timestamp.from(base.minusSeconds(30L * i))
+            );
+        }
+
+        var firstPage = mockMvc.perform(get("/v1/users/" + targetId + "/posts?limit=2")
+                        .header("Authorization", "Bearer " + token("uid-actor")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items", hasSize(2)))
+                .andExpect(jsonPath("$.items[0].content", equalTo("post-3")))
+                .andExpect(jsonPath("$.items[1].content", equalTo("post-2")))
+                .andExpect(jsonPath("$.next_cursor", notNullValue()))
+                .andReturn();
+
+        String cursor = firstPage.getResponse().getContentAsString().replaceAll(".*\"next_cursor\":\"([^\"]+)\".*", "$1");
+
+        mockMvc.perform(get("/v1/users/" + targetId + "/posts?cursor=" + cursor)
+                        .header("Authorization", "Bearer " + token("uid-actor")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items", hasSize(1)))
+                .andExpect(jsonPath("$.items[0].content", equalTo("post-1")))
+                .andExpect(jsonPath("$.next_cursor").doesNotExist());
+    }
+
+    @Test
+    void cross_company_profile_forbidden() throws Exception {
+        long acmeId = jdbc.queryForObject("INSERT INTO companies(name, domain) VALUES ('Acme','acme.com') RETURNING id", Long.class);
+        long otherId = jdbc.queryForObject("INSERT INTO companies(name, domain) VALUES ('Other','other.com') RETURNING id", Long.class);
+        long actorId = jdbc.queryForObject("INSERT INTO users(firebase_uid, handle, company_id) VALUES ('uid-actor','alex',?) RETURNING id", Long.class, acmeId);
+        long targetId = jdbc.queryForObject("INSERT INTO users(firebase_uid, handle, company_id) VALUES ('uid-target','taylor',?) RETURNING id", Long.class, otherId);
+
+        mockMvc.perform(get("/v1/users/" + targetId)
+                        .header("Authorization", "Bearer " + token("uid-actor")))
+                .andExpect(status().isForbidden());
+    }
+}
+
