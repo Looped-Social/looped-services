@@ -1,7 +1,7 @@
 package com.looped.auth;
 
-import com.looped.users.UserRepository;
-import com.looped.verification.VerificationRepository;
+import com.looped.users.UserPayloads;
+import com.looped.users.UsersService;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -13,12 +13,10 @@ import java.util.Map;
 @RestController
 public class MeController {
 
-    private final UserRepository users;
-    private final VerificationRepository verifications;
+    private final UsersService users;
 
-    public MeController(UserRepository users, VerificationRepository verifications) {
+    public MeController(UsersService users) {
         this.users = users;
-        this.verifications = verifications;
     }
 
     @GetMapping("/v1/me")
@@ -32,26 +30,13 @@ public class MeController {
             resp.put("email", email);
         }
 
-        var existing = users.findByFirebaseUid(jwt.getSubject());
-        if (existing.isPresent()) {
-            var u = existing.get();
-            resp.put("provisioned", true);
-            Map<String, Object> user = new HashMap<>();
-            user.put("id", u.id);
-            if (u.handle != null) user.put("handle", u.handle);
-            if (u.companyId != null) user.put("company_id", u.companyId);
-            var v = verifications.findByUserId(u.id);
-            if (v.isPresent()) {
-                Map<String, Object> verification = new HashMap<>();
-                verification.put("method", v.get().method);
-                verification.put("verified", v.get().verified);
-                verification.put("verified_at", v.get().verifiedAt);
-                user.put("verification", verification);
-            }
-            resp.put("user", user);
-        } else {
+        var profile = users.currentProfile(jwt.getSubject());
+        if (profile.isEmpty()) {
             resp.put("provisioned", false);
+            return resp;
         }
+        resp.put("provisioned", true);
+        resp.put("user", UserPayloads.fromProfile(profile.get()));
         return resp;
     }
 }

@@ -28,6 +28,8 @@ public class PostRepository {
             long media = rs.getLong("media_asset_id");
             p.mediaAssetId = rs.wasNull() ? null : media;
             p.likesCount = rs.getInt("likes_count");
+            p.commentsCount = rs.getInt("comments_count");
+            p.shareCount = rs.getInt("share_count");
             p.createdAt = rs.getObject("created_at", OffsetDateTime.class);
             return p;
         }
@@ -43,7 +45,7 @@ public class PostRepository {
     }
 
     public Optional<PostRow> findById(Long id) {
-        var list = jdbc.query("SELECT id, author_id, company_id, content, media_asset_id, likes_count, created_at FROM posts WHERE id=?", MAPPER, id);
+        var list = jdbc.query("SELECT id, author_id, company_id, content, media_asset_id, likes_count, comments_count, share_count, created_at FROM posts WHERE id=?", MAPPER, id);
         return list.isEmpty() ? Optional.empty() : Optional.of(list.get(0));
     }
 
@@ -51,14 +53,14 @@ public class PostRepository {
         if (cursorTs == null || cursorId == null) {
             // Oldest first on first page (matches test expectation: p5, p4, ...)
             return jdbc.query(
-                    "SELECT id, author_id, company_id, content, media_asset_id, likes_count, created_at " +
+                    "SELECT id, author_id, company_id, content, media_asset_id, likes_count, comments_count, share_count, created_at " +
                             "FROM posts WHERE company_id=? ORDER BY created_at ASC, id ASC LIMIT ?",
                     MAPPER, companyId, limit
             );
         } else {
             // Strictly newer than the last returned item (forward in ASC order)
             return jdbc.query(
-                    "SELECT id, author_id, company_id, content, media_asset_id, likes_count, created_at " +
+                    "SELECT id, author_id, company_id, content, media_asset_id, likes_count, comments_count, share_count, created_at " +
                             "FROM posts WHERE company_id=? AND (created_at > ? OR (created_at = ? AND id > ?)) " +
                             "ORDER BY created_at ASC, id ASC LIMIT ?",
                     MAPPER, companyId, cursorTs, cursorTs, cursorId, limit
@@ -69,13 +71,13 @@ public class PostRepository {
     public java.util.List<PostRow> findByAuthor(long authorId, java.time.OffsetDateTime cursorTs, Long cursorId, int limit) {
         if (cursorTs == null || cursorId == null) {
             return jdbc.query(
-                    "SELECT id, author_id, company_id, content, media_asset_id, likes_count, created_at " +
+                    "SELECT id, author_id, company_id, content, media_asset_id, likes_count, comments_count, share_count, created_at " +
                             "FROM posts WHERE author_id=? ORDER BY created_at ASC, id ASC LIMIT ?",
                     MAPPER, authorId, limit
             );
         } else {
             return jdbc.query(
-                    "SELECT id, author_id, company_id, content, media_asset_id, likes_count, created_at " +
+                    "SELECT id, author_id, company_id, content, media_asset_id, likes_count, comments_count, share_count, created_at " +
                             "FROM posts WHERE author_id=? AND (created_at > ? OR (created_at = ? AND id > ?)) " +
                             "ORDER BY created_at ASC, id ASC LIMIT ?",
                     MAPPER, authorId, cursorTs, cursorTs, cursorId, limit
@@ -90,6 +92,8 @@ public class PostRepository {
         public String content;
         public Long mediaAssetId;
         public int likesCount;
+        public int commentsCount;
+        public int shareCount;
         public OffsetDateTime createdAt;
     }
 }

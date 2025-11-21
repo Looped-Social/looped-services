@@ -42,7 +42,7 @@ public class LikesRepository {
     }
 
     private static final String BASE_QUERY = "SELECT " +
-            "p.id AS post_id, p.author_id, p.company_id, p.content, p.media_asset_id, p.likes_count, p.created_at AS post_created_at, " +
+            "p.id AS post_id, p.author_id, p.company_id, p.content, p.media_asset_id, p.likes_count, p.comments_count, p.share_count, p.created_at AS post_created_at, " +
             "l.created_at AS liked_created_at " +
             "FROM likes l JOIN posts p ON p.id = l.post_id";
 
@@ -57,6 +57,8 @@ public class LikesRepository {
             long media = rs.getLong("media_asset_id");
             post.mediaAssetId = rs.wasNull() ? null : media;
             post.likesCount = rs.getInt("likes_count");
+            post.commentsCount = rs.getInt("comments_count");
+            post.shareCount = rs.getInt("share_count");
             post.createdAt = rs.getObject("post_created_at", OffsetDateTime.class);
 
             LikedPostRow row = new LikedPostRow();
