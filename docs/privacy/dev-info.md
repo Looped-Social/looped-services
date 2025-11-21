@@ -151,6 +151,7 @@ This is the “no foot-guns” reference for privacy-safe anon with full actor f
 
 ## **Settings**
 
+hello
 * Read/write `principal_settings` for the **current principal** (user or anon).
 
 * Disable push/email for anon principals in UI; still store consent timestamps.
