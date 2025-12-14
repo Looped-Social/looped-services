@@ -85,6 +85,10 @@ public class PostRepository {
         }
     }
 
+    public void incrementCommentsCount(long postId) {
+        jdbc.update("UPDATE posts SET comments_count = comments_count + 1 WHERE id = ?", postId);
+    }
+
     public static class PostRow {
         public long id;
         public long authorId;
