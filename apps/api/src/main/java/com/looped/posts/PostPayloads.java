@@ -19,4 +19,10 @@ public final class PostPayloads {
         out.put("created_at", row.createdAt);
         return out;
     }
+
+    public static Map<String, Object> fromSaved(PostRepository.PostRow row, boolean isSaved) {
+        Map<String, Object> out = from(row);
+        out.put("is_saved", isSaved);
+        return out;
+    }
 }

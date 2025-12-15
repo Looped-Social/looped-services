@@ -98,6 +98,32 @@ public class CommentsService {
         return RepliesResult.ok(rows, next);
     }
 
+    public RepliesResult userReplies(String firebaseUid, long targetUserId, String cursor, int limit) {
+        var actor = users.findByFirebaseUid(firebaseUid);
+        if (actor.isEmpty() || actor.get().companyId == null) return RepliesResult.userNotProvisioned();
+
+        var target = users.findById(targetUserId);
+        if (target.isEmpty()) return RepliesResult.userNotFound();
+        if (!actor.get().companyId.equals(target.get().companyId)) return RepliesResult.forbidden();
+
+        OffsetDateTime cTs = null; Long cId = null;
+        if (cursor != null && !cursor.isBlank()) {
+            try {
+                var decoded = Pagination.decode(cursor);
+                cTs = decoded.timestamp();
+                cId = decoded.id();
+            } catch (IllegalArgumentException ignored) {}
+        }
+
+        var rows = comments.findByUserWithView(targetUserId, actor.get().id, actor.get().companyId, cTs, cId, limit);
+        String next = null;
+        if (rows.size() == limit) {
+            var last = rows.get(rows.size() - 1).comment;
+            next = Pagination.encode(last.createdAt, last.id);
+        }
+        return RepliesResult.ok(rows, next);
+    }
+
     @Transactional
     public LikeResult like(String firebaseUid, long commentId) {
         var actor = users.findByFirebaseUid(firebaseUid);
@@ -119,7 +145,7 @@ public class CommentsService {
         return LikeResult.ok(created, view.comment.likesCount, view.likedByCreator, view.viewerLiked);
     }
 
-    public enum Status { OK, USER_NOT_PROVISIONED, POST_NOT_FOUND, COMMENT_NOT_FOUND, FORBIDDEN, INVALID_PARENT }
+    public enum Status { OK, USER_NOT_PROVISIONED, POST_NOT_FOUND, COMMENT_NOT_FOUND, USER_NOT_FOUND, FORBIDDEN, INVALID_PARENT }
 
     public record ListResult(Status status, List<CommentsRepository.CommentViewRow> comments, String nextCursor) {
         static ListResult ok(List<CommentsRepository.CommentViewRow> comments, String nextCursor) { return new ListResult(Status.OK, comments, nextCursor); }
@@ -141,6 +167,7 @@ public class CommentsService {
         static RepliesResult ok(List<CommentsRepository.CommentViewRow> comments, String nextCursor) { return new RepliesResult(Status.OK, comments, nextCursor); }
         static RepliesResult userNotProvisioned() { return new RepliesResult(Status.USER_NOT_PROVISIONED, List.of(), null); }
         static RepliesResult commentNotFound() { return new RepliesResult(Status.COMMENT_NOT_FOUND, List.of(), null); }
+        static RepliesResult userNotFound() { return new RepliesResult(Status.USER_NOT_FOUND, List.of(), null); }
         static RepliesResult forbidden() { return new RepliesResult(Status.FORBIDDEN, List.of(), null); }
     }
 

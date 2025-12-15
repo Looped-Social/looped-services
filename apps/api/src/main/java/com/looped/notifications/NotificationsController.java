@@ -27,28 +27,32 @@ public class NotificationsController {
     ) {
         int lim = Math.max(1, Math.min(limit, 100));
         var res = service.list(jwt.getSubject(), cursor, lim);
-        return switch (res.status()) {
-            case USER_NOT_PROVISIONED -> ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "user_not_provisioned"));
-            case OK -> {
-                List<Map<String, Object>> items = res.notifications().stream().map(this::toPayload).toList();
-                Map<String, Object> body = new HashMap<>();
-                body.put("items", items);
-                if (res.nextCursor() != null) body.put("next_cursor", res.nextCursor());
-                yield ResponseEntity.ok(body);
-            }
-            default -> ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
-        };
+        if (res.status() == NotificationService.Status.USER_NOT_PROVISIONED) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "user_not_provisioned"));
+        }
+        if (res.status() != NotificationService.Status.OK) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+        List<Map<String, Object>> items = res.notifications().stream().map(this::toPayload).toList();
+        Map<String, Object> body = new HashMap<>();
+        body.put("items", items);
+        if (res.nextCursor() != null) body.put("next_cursor", res.nextCursor());
+        return ResponseEntity.ok(body);
     }
 
     @PostMapping("/{id}/read")
     public ResponseEntity<?> markRead(@AuthenticationPrincipal Jwt jwt, @PathVariable("id") long id) {
         var res = service.markRead(jwt.getSubject(), id);
-        return switch (res.status()) {
-            case USER_NOT_PROVISIONED -> ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "user_not_provisioned"));
-            case FORBIDDEN -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "forbidden"));
-            case NOT_FOUND -> ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "not_found"));
-            case OK -> ResponseEntity.ok(Map.of("read", true));
-        };
+        if (res.status() == NotificationService.Status.USER_NOT_PROVISIONED) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "user_not_provisioned"));
+        }
+        if (res.status() == NotificationService.Status.FORBIDDEN) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "forbidden"));
+        }
+        if (res.status() == NotificationService.Status.NOT_FOUND) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "not_found"));
+        }
+        return ResponseEntity.ok(Map.of("read", true));
     }
 
     private Map<String, Object> toPayload(NotificationRepository.NotificationRow row) {

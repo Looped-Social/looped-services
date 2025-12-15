@@ -27,22 +27,19 @@ public class DevicesController {
     ) {
         // Idempotency-Key reserved for future Redis implementation; functional idempotency by unique apns_token
         var result = service.register(jwt.getSubject(), body.apnsToken(), body.platform());
-        return switch (result.status()) {
-            case USER_NOT_PROVISIONED -> ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
+        if (result.status() == DeviceService.Status.USER_NOT_PROVISIONED) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
                     "error", "user_not_provisioned",
                     "message", "Complete onboarding before registering a device"
             ));
-            case OK -> {
-                var resp = Map.of(
-                        "id", result.id(),
-                        "apns_token", body.apnsToken(),
-                        "platform", body.platform()
-                );
-                yield new ResponseEntity<>(resp, result.created() ? HttpStatus.CREATED : HttpStatus.OK);
-            }
-        };
+        }
+        var resp = Map.of(
+                "id", result.id(),
+                "apns_token", body.apnsToken(),
+                "platform", body.platform()
+        );
+        return new ResponseEntity<>(resp, result.created() ? HttpStatus.CREATED : HttpStatus.OK);
     }
 
     public record RegisterRequest(@NotBlank String apnsToken, @NotBlank String platform) {}
 }
-

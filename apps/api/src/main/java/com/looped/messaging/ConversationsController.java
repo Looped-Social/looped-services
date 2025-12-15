@@ -29,30 +29,34 @@ public class ConversationsController {
     ) {
         int lim = Math.max(1, Math.min(limit, 100));
         var res = service.list(jwt.getSubject(), cursor, lim);
-        return switch (res.status()) {
-            case USER_NOT_PROVISIONED -> ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "user_not_provisioned"));
-            case OK -> {
-                Map<String, Object> body = new HashMap<>();
-                body.put("items", res.items());
-                if (res.nextCursor() != null) body.put("next_cursor", res.nextCursor());
-                yield ResponseEntity.ok(body);
-            }
-            default -> ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
-        };
+        if (res.status() == ConversationService.Status.USER_NOT_PROVISIONED) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "user_not_provisioned"));
+        }
+        if (res.status() != ConversationService.Status.OK) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+        Map<String, Object> body = new HashMap<>();
+        body.put("items", res.items());
+        if (res.nextCursor() != null) body.put("next_cursor", res.nextCursor());
+        return ResponseEntity.ok(body);
     }
 
     @PostMapping
     public ResponseEntity<?> start(
             @AuthenticationPrincipal Jwt jwt,
-            @Validated @RequestBody StartRequest body
+        @Validated @RequestBody StartRequest body
     ) {
         var res = service.start(jwt.getSubject(), body.participantUserId());
-        return switch (res.status()) {
-            case USER_NOT_PROVISIONED -> ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "user_not_provisioned"));
-            case NOT_FOUND -> ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "not_found"));
-            case FORBIDDEN -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "forbidden"));
-            case OK -> ResponseEntity.status(HttpStatus.CREATED).body(res.conversation());
-        };
+        if (res.status() == ConversationService.Status.USER_NOT_PROVISIONED) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "user_not_provisioned"));
+        }
+        if (res.status() == ConversationService.Status.NOT_FOUND) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "not_found"));
+        }
+        if (res.status() == ConversationService.Status.FORBIDDEN) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "forbidden"));
+        }
+        return ResponseEntity.status(HttpStatus.CREATED).body(res.conversation());
     }
 
     @GetMapping("/{id}/messages")
@@ -64,33 +68,39 @@ public class ConversationsController {
     ) {
         int lim = Math.max(1, Math.min(limit, 200));
         var res = service.messages(jwt.getSubject(), id, cursor, lim);
-        return switch (res.status()) {
-            case USER_NOT_PROVISIONED -> ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "user_not_provisioned"));
-            case FORBIDDEN -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "forbidden"));
-            case NOT_FOUND -> ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "not_found"));
-            case OK -> {
-                List<Map<String, Object>> items = res.messages().stream().map(this::toMessage).toList();
-                Map<String, Object> body = new HashMap<>();
-                body.put("items", items);
-                if (res.nextCursor() != null) body.put("next_cursor", res.nextCursor());
-                yield ResponseEntity.ok(body);
-            }
-        };
+        if (res.status() == ConversationService.Status.USER_NOT_PROVISIONED) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "user_not_provisioned"));
+        }
+        if (res.status() == ConversationService.Status.FORBIDDEN) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "forbidden"));
+        }
+        if (res.status() == ConversationService.Status.NOT_FOUND) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "not_found"));
+        }
+        List<Map<String, Object>> items = res.messages().stream().map(this::toMessage).toList();
+        Map<String, Object> body = new HashMap<>();
+        body.put("items", items);
+        if (res.nextCursor() != null) body.put("next_cursor", res.nextCursor());
+        return ResponseEntity.ok(body);
     }
 
     @PostMapping("/{id}/messages")
     public ResponseEntity<?> send(
             @AuthenticationPrincipal Jwt jwt,
             @PathVariable("id") long id,
-            @Validated @RequestBody SendRequest body
+        @Validated @RequestBody SendRequest body
     ) {
         var res = service.send(jwt.getSubject(), id, body.content(), body.attachments());
-        return switch (res.status()) {
-            case USER_NOT_PROVISIONED -> ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "user_not_provisioned"));
-            case FORBIDDEN -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "forbidden"));
-            case NOT_FOUND -> ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "not_found"));
-            case OK -> ResponseEntity.status(HttpStatus.CREATED).body(toMessage(res.message()));
-        };
+        if (res.status() == ConversationService.Status.USER_NOT_PROVISIONED) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "user_not_provisioned"));
+        }
+        if (res.status() == ConversationService.Status.FORBIDDEN) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "forbidden"));
+        }
+        if (res.status() == ConversationService.Status.NOT_FOUND) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "not_found"));
+        }
+        return ResponseEntity.status(HttpStatus.CREATED).body(toMessage(res.message()));
     }
 
     private Map<String, Object> toMessage(ConversationRepository.MessageRow row) {

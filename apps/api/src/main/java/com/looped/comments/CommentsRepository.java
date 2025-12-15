@@ -137,6 +137,30 @@ public class CommentsRepository {
         return list.isEmpty() ? Optional.empty() : Optional.of(list.get(0));
     }
 
+    public List<CommentViewRow> findByUserWithView(long targetUserId, long viewerId, long companyId, OffsetDateTime cursorTs, Long cursorId, int limit) {
+        String sql = """
+                SELECT c.id, c.post_id, c.user_id, c.company_id, c.content, c.parent_id, c.likes_count, c.created_at,
+                       u.handle, u.display_name, u.is_anonymous, u.company_id AS user_company_id, u.profile_image_url,
+                       CASE WHEN cv.user_id IS NULL THEN false ELSE true END AS viewer_liked,
+                       CASE WHEN cc.user_id IS NULL THEN false ELSE true END AS liked_by_creator
+                FROM comments c
+                JOIN users u ON u.id = c.user_id
+                JOIN posts p ON p.id = c.post_id
+                LEFT JOIN comment_likes cv ON cv.comment_id = c.id AND cv.user_id = ?
+                LEFT JOIN comment_likes cc ON cc.comment_id = c.id AND cc.user_id = p.author_id
+                WHERE c.user_id = ? AND c.company_id = ? AND p.company_id = ?
+                """;
+        Object[] params;
+        if (cursorTs == null || cursorId == null) {
+            sql += "ORDER BY c.created_at DESC, c.id DESC LIMIT ?";
+            params = new Object[]{viewerId, targetUserId, companyId, companyId, limit};
+        } else {
+            sql += "AND (c.created_at < ? OR (c.created_at = ? AND c.id < ?)) ORDER BY c.created_at DESC, c.id DESC LIMIT ?";
+            params = new Object[]{viewerId, targetUserId, companyId, companyId, cursorTs, cursorTs, cursorId, limit};
+        }
+        return jdbc.query(sql, this::mapViewRow, params);
+    }
+
     public boolean insertLikeIfAbsent(long commentId, long userId) {
         int rows = jdbc.update(
                 "INSERT INTO comment_likes(comment_id, user_id) VALUES (?,?) ON CONFLICT (comment_id, user_id) DO NOTHING",

@@ -122,5 +122,28 @@ class PostCollectionsIntegrationTest extends PostgresTestBase {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items", hasSize(0)));
     }
-}
 
+    @Test
+    void saved_posts_by_user_endpoint_orders_newest_first() throws Exception {
+        long companyId = jdbc.queryForObject("INSERT INTO companies(name, domain) VALUES ('Acme','acme.com') RETURNING id", Long.class);
+        long userId = jdbc.queryForObject("INSERT INTO users(firebase_uid, handle, company_id) VALUES ('uid-save-user','alex',?) RETURNING id", Long.class, companyId);
+        long author = jdbc.queryForObject("INSERT INTO users(firebase_uid, handle, company_id) VALUES ('uid-author-user','taylor',?) RETURNING id", Long.class, companyId);
+
+        Instant base = Instant.now();
+        long postOld = jdbc.queryForObject("INSERT INTO posts(author_id, company_id, content, created_at) VALUES (?,?,?,?) RETURNING id",
+                Long.class, author, companyId, "old", Timestamp.from(base.minusSeconds(60)));
+        long postNew = jdbc.queryForObject("INSERT INTO posts(author_id, company_id, content, created_at) VALUES (?,?,?,?) RETURNING id",
+                Long.class, author, companyId, "new", Timestamp.from(base.minusSeconds(10)));
+
+        jdbc.update("INSERT INTO saved_posts(user_id, post_id, created_at) VALUES (?,?,?)", userId, postOld, Timestamp.from(base.minusSeconds(5)));
+        jdbc.update("INSERT INTO saved_posts(user_id, post_id, created_at) VALUES (?,?,?)", userId, postNew, Timestamp.from(base.minusSeconds(2)));
+
+        mockMvc.perform(get("/v1/users/" + userId + "/posts/saved")
+                        .header("Authorization", "Bearer " + token("uid-save-user")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items", hasSize(2)))
+                .andExpect(jsonPath("$.items[0].content", equalTo("new")))
+                .andExpect(jsonPath("$.items[0].is_saved").value(true))
+                .andExpect(jsonPath("$.items[1].content", equalTo("old")));
+    }
+}

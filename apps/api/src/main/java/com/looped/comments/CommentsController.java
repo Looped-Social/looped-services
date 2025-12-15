@@ -73,6 +73,10 @@ public class CommentsController {
                     "error", "parent_not_found",
                     "message", "Parent comment not found"
             ));
+            case USER_NOT_FOUND -> ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of(
+                    "error", "user_not_found",
+                    "message", "User not found"
+            ));
             case INVALID_PARENT -> ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of(
                     "error", "invalid_parent",
                     "message", "Parent comment must belong to the same post"

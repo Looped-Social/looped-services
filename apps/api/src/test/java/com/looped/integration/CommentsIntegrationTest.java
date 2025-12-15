@@ -19,6 +19,8 @@ import org.springframework.test.web.servlet.MockMvc;
 import java.time.Instant;
 import java.util.List;
 
+import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.hasSize;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -40,6 +42,8 @@ class CommentsIntegrationTest extends PostgresTestBase {
 
     @Autowired
     JdbcTemplate jdbc;
+
+    private final ObjectMapper mapper = new ObjectMapper();
 
     private String token(String sub) {
         Instant now = Instant.now();
@@ -66,8 +70,6 @@ class CommentsIntegrationTest extends PostgresTestBase {
 
         String commenterAuth = "Bearer " + token("uid-commenter");
         String authorAuth = "Bearer " + token("uid-author");
-        ObjectMapper mapper = new ObjectMapper();
-
         var createResp = mockMvc.perform(post("/v1/posts/" + postId + "/comments")
                         .header("Authorization", commenterAuth)
                         .contentType(MediaType.APPLICATION_JSON)
@@ -118,5 +120,41 @@ class CommentsIntegrationTest extends PostgresTestBase {
                 .andExpect(jsonPath("$.items[0].likes_count").value(1))
                 .andExpect(jsonPath("$.items[0].user_liked").value(false))
                 .andExpect(jsonPath("$.items[0].liked_by_creator").value(true));
+    }
+
+    @Test
+    void user_replies_endpoint_lists_desc() throws Exception {
+        long companyId = jdbc.queryForObject("INSERT INTO companies(name, domain) VALUES ('RepliesCo','replies.co') RETURNING id", Long.class);
+        long userId = jdbc.queryForObject("INSERT INTO users(firebase_uid, handle, company_id, display_name) VALUES (?,?,?,?) RETURNING id",
+                Long.class, "uid-r1", "replyuser", companyId, "Replier");
+        long authorId = jdbc.queryForObject("INSERT INTO users(firebase_uid, handle, company_id, display_name) VALUES (?,?,?,?) RETURNING id",
+                Long.class, "uid-author-r1", "author", companyId, "Author");
+        long postId = jdbc.queryForObject("INSERT INTO posts(author_id, company_id, content) VALUES (?,?,?) RETURNING id",
+                Long.class, authorId, companyId, "post");
+
+        String auth = "Bearer " + token("uid-r1");
+        String authorAuth = "Bearer " + token("uid-author-r1");
+
+        var c1 = mockMvc.perform(post("/v1/posts/" + postId + "/comments")
+                        .header("Authorization", auth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"content\":\"first\"}"))
+                .andExpect(status().isCreated())
+                .andReturn();
+        long comment1 = mapper.readTree(c1.getResponse().getContentAsString()).get("id").asLong();
+
+        mockMvc.perform(post("/v1/posts/" + postId + "/comments")
+                        .header("Authorization", auth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"content\":\"second\",\"parentId\":" + comment1 + "}"))
+                .andExpect(status().isCreated());
+
+        mockMvc.perform(get("/v1/users/" + userId + "/replies")
+                        .header("Authorization", authorAuth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items", hasSize(2)))
+                .andExpect(jsonPath("$.items[0].content").value("second"))
+                .andExpect(jsonPath("$.items[0].parent_id").value((int) comment1))
+                .andExpect(jsonPath("$.items[1].content").value("first"));
     }
 }

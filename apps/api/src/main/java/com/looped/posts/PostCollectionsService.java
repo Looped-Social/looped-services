@@ -52,6 +52,25 @@ public class PostCollectionsService {
         return ListResult.ok(posts, next);
     }
 
+    public ListResult savedForUser(String firebaseUid, long targetUserId, String cursor, int limit) {
+        var actor = provisionedUser(firebaseUid);
+        if (actor.isEmpty()) return ListResult.userNotProvisioned();
+
+        var target = users.findById(targetUserId);
+        if (target.isEmpty()) return ListResult.notFound();
+        if (!actor.get().companyId.equals(target.get().companyId)) return ListResult.forbidden();
+
+        var cursorParts = decodeCursor(cursor);
+        var rows = savedPosts.findSavedPosts(targetUserId, actor.get().companyId, cursorParts.timestamp, cursorParts.postId, limit);
+        String next = null;
+        if (rows.size() == limit) {
+            var last = rows.get(rows.size() - 1);
+            next = Pagination.encode(last.savedAt, last.post.id);
+        }
+        List<PostRepository.PostRow> posts = rows.stream().map(r -> r.post).toList();
+        return ListResult.ok(posts, next);
+    }
+
     public SaveResult save(String firebaseUid, long postId) {
         var actor = provisionedUser(firebaseUid);
         if (actor.isEmpty()) return SaveResult.userNotProvisioned();
@@ -101,6 +120,8 @@ public class PostCollectionsService {
     public record ListResult(Status status, List<PostRepository.PostRow> posts, String nextCursor) {
         static ListResult ok(List<PostRepository.PostRow> posts, String next) { return new ListResult(Status.OK, posts, next); }
         static ListResult userNotProvisioned() { return new ListResult(Status.USER_NOT_PROVISIONED, List.of(), null); }
+        static ListResult notFound() { return new ListResult(Status.NOT_FOUND, List.of(), null); }
+        static ListResult forbidden() { return new ListResult(Status.FORBIDDEN, List.of(), null); }
     }
 
     public record SaveResult(Status status, boolean saved, boolean changed) {
@@ -110,4 +131,3 @@ public class PostCollectionsService {
         static SaveResult forbidden(boolean saved) { return new SaveResult(Status.FORBIDDEN, saved, false); }
     }
 }
-
