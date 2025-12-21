@@ -49,6 +49,20 @@ public class HashtagsRepository {
         );
     }
 
+    public long upsert(long companyId, String name) {
+        Long id = jdbc.query(
+                "INSERT INTO hashtags(company_id, name, usage_count) VALUES (?,?,1) " +
+                        "ON CONFLICT (company_id, name) DO UPDATE SET usage_count = hashtags.usage_count + 1 " +
+                        "RETURNING id",
+                rs -> rs.next() ? rs.getLong(1) : null,
+                companyId, name
+        );
+        if (id == null) {
+            throw new IllegalStateException("Failed to upsert hashtag");
+        }
+        return id;
+    }
+
     public static class HashtagRow {
         public long id;
         public long companyId;

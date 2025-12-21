@@ -34,7 +34,7 @@ public abstract class PostgresTestBase {
                     "principal_follows, principal_saved_posts, post_likes, follows, saved_posts, likes, " +
                     "conversation_participants, conversations, channel_members, channels, posts, devices, reports, media_assets, " +
                     "anon_enrollment_sanctions, anon_backup_blobs, anon_revocations, anon_issuers, anon_handle_counters, anonymous_profiles, " +
-                    "principals, verifications, hashtags, community_verifications, community_follows, communities, user_loops, loops, users, companies " +
+                    "principals, verifications, hashtag_posts, hashtags, community_verifications, community_follows, communities, user_loops, loops, users, companies " +
                     "RESTART IDENTITY CASCADE");
         }
     }

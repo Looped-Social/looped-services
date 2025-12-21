@@ -32,4 +32,19 @@ public final class PostPayloads {
         out.put("is_saved", isSaved);
         return out;
     }
+
+    public static Map<String, Object> trending(PostRepository.TrendingRow row) {
+        Map<String, Object> out = from(row);
+        out.put("community_name", row.communityName);
+        out.put("community_kind", row.communityKind);
+        out.put("title", titleFromContent(row.content));
+        return out;
+    }
+
+    private static String titleFromContent(String content) {
+        if (content == null) return "";
+        String normalized = content.trim().replaceAll("\\s+", " ");
+        if (normalized.length() <= 80) return normalized;
+        return normalized.substring(0, 77) + "...";
+    }
 }

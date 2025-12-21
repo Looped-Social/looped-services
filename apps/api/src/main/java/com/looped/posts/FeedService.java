@@ -71,6 +71,21 @@ public class FeedService {
         return FeedResult.ok(list, next);
     }
 
+    public TrendingResult trending(String firebaseUid, int limit, Long communityId) {
+        var u = users.findByFirebaseUid(firebaseUid);
+        if (u.isEmpty()) {
+            return TrendingResult.userNotProvisioned();
+        }
+        if (communityId != null) {
+            var community = communities.findById(communityId);
+            if (community.isEmpty()) return TrendingResult.communityNotFound();
+        }
+        OffsetDateTime asOf = OffsetDateTime.now();
+        OffsetDateTime since = asOf.minusDays(3);
+        var list = posts.findTrendingWithMedia(asOf, since, communityId, limit);
+        return TrendingResult.ok(list);
+    }
+
     private long popularityScore(PostRepository.PostRow row, OffsetDateTime asOf) {
         long base = (row.likesCount * 2L + row.commentsCount + row.shareCount) * 1000L;
         long ageHours = java.time.Duration.between(row.createdAt, asOf).toHours();
@@ -82,5 +97,11 @@ public class FeedService {
         static FeedResult ok(List<PostRepository.PostRow> items, String next) { return new FeedResult(Status.OK, items, next); }
         static FeedResult userNotProvisioned() { return new FeedResult(Status.USER_NOT_PROVISIONED, List.of(), null); }
         static FeedResult communityNotFound() { return new FeedResult(Status.COMMUNITY_NOT_FOUND, List.of(), null); }
+    }
+
+    public record TrendingResult(Status status, List<PostRepository.TrendingRow> items) {
+        static TrendingResult ok(List<PostRepository.TrendingRow> items) { return new TrendingResult(Status.OK, items); }
+        static TrendingResult userNotProvisioned() { return new TrendingResult(Status.USER_NOT_PROVISIONED, List.of()); }
+        static TrendingResult communityNotFound() { return new TrendingResult(Status.COMMUNITY_NOT_FOUND, List.of()); }
     }
 }

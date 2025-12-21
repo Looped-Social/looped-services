@@ -156,10 +156,56 @@ public class PostRepository {
             return jdbc.query(
                     BASE_SELECT + "WHERE p.author_principal_id=? AND (p.author_id IS NULL OR u.id IS NOT NULL) " +
                             "AND (p.created_at > ? OR (p.created_at = ? AND p.id > ?)) " +
-                            "ORDER BY p.created_at ASC, p.id ASC LIMIT ?",
-                    MAPPER, authorPrincipalId, cursorTs, cursorTs, cursorId, limit
+                        "ORDER BY p.created_at ASC, p.id ASC LIMIT ?",
+                MAPPER, authorPrincipalId, cursorTs, cursorTs, cursorId, limit
             );
         }
+    }
+
+    public java.util.List<PostRow> findByHashtag(long companyId, String name, java.time.OffsetDateTime cursorTs, Long cursorId, int limit) {
+        String base = BASE_SELECT +
+                "JOIN hashtag_posts hp ON hp.post_id = p.id " +
+                "JOIN hashtags h ON h.id = hp.hashtag_id " +
+                "WHERE h.company_id = ? AND h.name = ? AND (p.author_id IS NULL OR u.id IS NOT NULL) ";
+        if (cursorTs == null || cursorId == null) {
+            return jdbc.query(
+                    base + "ORDER BY p.created_at ASC, p.id ASC LIMIT ?",
+                    MAPPER, companyId, name, limit
+            );
+        }
+        return jdbc.query(
+                base + "AND (p.created_at > ? OR (p.created_at = ? AND p.id > ?)) " +
+                        "ORDER BY p.created_at ASC, p.id ASC LIMIT ?",
+                MAPPER, companyId, name, cursorTs, cursorTs, cursorId, limit
+        );
+    }
+
+    public java.util.List<TrendingRow> findTrendingWithMedia(java.time.OffsetDateTime asOf, java.time.OffsetDateTime since, Long communityId, int limit) {
+        String scoreExpr = "((p.likes_count * 2 + p.comments_count + p.share_count) * 1000 - " +
+                "FLOOR(EXTRACT(EPOCH FROM (?::timestamptz - p.created_at)) / 3600))";
+        String base = "SELECT p.id, p.author_id, p.author_principal_id, p.is_anon, p.anon_profile_id, p.anon_company_id, " +
+                "p.company_id, p.community_id, p.content, p.media_asset_id, p.likes_count, p.comments_count, p.share_count, p.created_at, " +
+                "COALESCE(u.handle, ap.handle) AS author_handle, u.display_name AS author_display_name, " +
+                "u.profile_image_url AS author_profile_image_url, " +
+                "CASE WHEN p.is_anon THEN true ELSE COALESCE(u.is_anonymous, false) END AS author_is_anonymous, " +
+                "c.name AS community_name, c.kind AS community_kind, " +
+                scoreExpr + " AS score FROM posts p " +
+                "JOIN communities c ON c.id = p.community_id " +
+                "LEFT JOIN users u ON u.id = p.author_id AND u.deleted_at IS NULL " +
+                "LEFT JOIN anonymous_profiles ap ON ap.id = p.anon_profile_id " +
+                "WHERE p.media_asset_id IS NOT NULL AND p.created_at >= ? AND (p.author_id IS NULL OR u.id IS NOT NULL) ";
+        if (communityId != null) {
+            base += "AND p.community_id = ? ";
+        }
+        base += "ORDER BY score DESC, p.created_at DESC, p.id DESC LIMIT ?";
+
+        Object[] params;
+        if (communityId != null) {
+            params = new Object[]{asOf, since, communityId, limit};
+        } else {
+            params = new Object[]{asOf, since, limit};
+        }
+        return jdbc.query(base, TRENDING_MAPPER, params);
     }
 
     public void incrementCommentsCount(long postId) {
@@ -186,4 +232,42 @@ public class PostRepository {
         public String authorProfileImageUrl;
         public boolean authorIsAnonymous;
     }
+
+    public static class TrendingRow extends PostRow {
+        public String communityName;
+        public String communityKind;
+    }
+
+    private static final RowMapper<TrendingRow> TRENDING_MAPPER = new RowMapper<>() {
+        @Override
+        public TrendingRow mapRow(ResultSet rs, int rowNum) throws SQLException {
+            TrendingRow p = new TrendingRow();
+            p.id = rs.getLong("id");
+            long authorId = rs.getLong("author_id");
+            p.authorId = rs.wasNull() ? null : authorId;
+            p.authorPrincipalId = rs.getLong("author_principal_id");
+            p.isAnon = rs.getBoolean("is_anon");
+            long anonProfile = rs.getLong("anon_profile_id");
+            p.anonProfileId = rs.wasNull() ? null : anonProfile;
+            long anonCompany = rs.getLong("anon_company_id");
+            p.anonCompanyId = rs.wasNull() ? null : anonCompany;
+            p.companyId = rs.getLong("company_id");
+            long community = rs.getLong("community_id");
+            p.communityId = rs.wasNull() ? null : community;
+            p.content = rs.getString("content");
+            long media = rs.getLong("media_asset_id");
+            p.mediaAssetId = rs.wasNull() ? null : media;
+            p.likesCount = rs.getInt("likes_count");
+            p.commentsCount = rs.getInt("comments_count");
+            p.shareCount = rs.getInt("share_count");
+            p.createdAt = rs.getObject("created_at", OffsetDateTime.class);
+            p.authorHandle = rs.getString("author_handle");
+            p.authorDisplayName = rs.getString("author_display_name");
+            p.authorProfileImageUrl = rs.getString("author_profile_image_url");
+            p.authorIsAnonymous = rs.getBoolean("author_is_anonymous");
+            p.communityName = rs.getString("community_name");
+            p.communityKind = rs.getString("community_kind");
+            return p;
+        }
+    };
 }

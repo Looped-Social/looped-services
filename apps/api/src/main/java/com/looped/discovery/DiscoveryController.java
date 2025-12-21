@@ -1,11 +1,13 @@
 package com.looped.discovery;
 
 import com.looped.communities.CommunitiesRepository;
+import com.looped.posts.PostPayloads;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -85,6 +87,34 @@ public class DiscoveryController {
             ));
             case OK -> {
                 List<Map<String, Object>> items = res.items().stream().map(this::hashtagPayload).toList();
+                Map<String, Object> body = new HashMap<>();
+                body.put("items", items);
+                if (res.nextCursor() != null) body.put("next_cursor", res.nextCursor());
+                yield ResponseEntity.ok(body);
+            }
+        };
+    }
+
+    @GetMapping("/hashtags/{name}/posts")
+    public ResponseEntity<?> hashtagPosts(
+            @AuthenticationPrincipal Jwt jwt,
+            @PathVariable("name") String name,
+            @RequestParam(value = "cursor", required = false) String cursor,
+            @RequestParam(value = "limit", required = false, defaultValue = "20") int limit
+    ) {
+        int lim = Math.max(1, Math.min(limit, 100));
+        var res = service.postsByHashtag(jwt.getSubject(), name, cursor, lim);
+        return switch (res.status()) {
+            case USER_NOT_PROVISIONED -> ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
+                    "error", "user_not_provisioned",
+                    "message", "Complete onboarding before viewing hashtag posts"
+            ));
+            case INVALID_QUERY -> ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of(
+                    "error", "invalid_hashtag",
+                    "message", "Hashtag is invalid"
+            ));
+            case OK -> {
+                List<Map<String, Object>> items = res.posts().stream().map(PostPayloads::from).toList();
                 Map<String, Object> body = new HashMap<>();
                 body.put("items", items);
                 if (res.nextCursor() != null) body.put("next_cursor", res.nextCursor());

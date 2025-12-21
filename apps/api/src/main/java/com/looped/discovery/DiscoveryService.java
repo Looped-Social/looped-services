@@ -2,6 +2,7 @@ package com.looped.discovery;
 
 import com.looped.shared.Pagination;
 import com.looped.communities.CommunitiesRepository;
+import com.looped.posts.PostRepository;
 import com.looped.users.UserRepository;
 import org.springframework.stereotype.Service;
 
@@ -12,11 +13,13 @@ import java.util.List;
 public class DiscoveryService {
     private final CommunitiesRepository communities;
     private final HashtagsRepository hashtags;
+    private final PostRepository posts;
     private final UserRepository users;
 
-    public DiscoveryService(CommunitiesRepository communities, HashtagsRepository hashtags, UserRepository users) {
+    public DiscoveryService(CommunitiesRepository communities, HashtagsRepository hashtags, PostRepository posts, UserRepository users) {
         this.communities = communities;
         this.hashtags = hashtags;
+        this.posts = posts;
         this.users = users;
     }
 
@@ -60,7 +63,30 @@ public class DiscoveryService {
         return HashtagSearchResult.ok(rows, next);
     }
 
+    public HashtagPostsResult postsByHashtag(String firebaseUid, String name, String cursor, int limit) {
+        var actor = users.findByFirebaseUid(firebaseUid);
+        if (actor.isEmpty() || actor.get().companyId == null) return HashtagPostsResult.userNotProvisioned();
+        String normalized = HashtagParser.normalize(name);
+        if (normalized == null) return HashtagPostsResult.invalidQuery();
+        OffsetDateTime cTs = null; Long cId = null;
+        if (cursor != null && !cursor.isBlank()) {
+            try {
+                var decoded = Pagination.decode(cursor);
+                cTs = decoded.timestamp();
+                cId = decoded.id();
+            } catch (IllegalArgumentException ignored) {}
+        }
+        var rows = posts.findByHashtag(actor.get().companyId, normalized, cTs, cId, limit);
+        String next = null;
+        if (rows.size() == limit) {
+            var last = rows.get(rows.size() - 1);
+            next = Pagination.encode(last.createdAt, last.id);
+        }
+        return HashtagPostsResult.ok(rows, next);
+    }
+
     public enum Status { OK, USER_NOT_PROVISIONED }
+    public enum HashtagPostsStatus { OK, USER_NOT_PROVISIONED, INVALID_QUERY }
 
     public record CommunitySearchResult(Status status, List<CommunitiesRepository.CommunityRow> items, String nextCursor) {
         static CommunitySearchResult ok(List<CommunitiesRepository.CommunityRow> items, String next) { return new CommunitySearchResult(Status.OK, items, next); }
@@ -70,5 +96,11 @@ public class DiscoveryService {
     public record HashtagSearchResult(Status status, List<HashtagsRepository.HashtagRow> items, String nextCursor) {
         static HashtagSearchResult ok(List<HashtagsRepository.HashtagRow> items, String next) { return new HashtagSearchResult(Status.OK, items, next); }
         static HashtagSearchResult userNotProvisioned() { return new HashtagSearchResult(Status.USER_NOT_PROVISIONED, List.of(), null); }
+    }
+
+    public record HashtagPostsResult(HashtagPostsStatus status, List<PostRepository.PostRow> posts, String nextCursor) {
+        static HashtagPostsResult ok(List<PostRepository.PostRow> posts, String next) { return new HashtagPostsResult(HashtagPostsStatus.OK, posts, next); }
+        static HashtagPostsResult userNotProvisioned() { return new HashtagPostsResult(HashtagPostsStatus.USER_NOT_PROVISIONED, List.of(), null); }
+        static HashtagPostsResult invalidQuery() { return new HashtagPostsResult(HashtagPostsStatus.INVALID_QUERY, List.of(), null); }
     }
 }

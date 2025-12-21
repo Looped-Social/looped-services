@@ -59,4 +59,32 @@ public class FeedController {
         }
         return ResponseEntity.ok(out);
     }
+
+    @GetMapping("/trending")
+    public ResponseEntity<?> trending(
+            @AuthenticationPrincipal Jwt jwt,
+            @RequestParam(value = "limit", required = false, defaultValue = "3") int limit,
+            @RequestParam(value = "communityId", required = false) Long communityId,
+            @RequestParam(value = "community_id", required = false) Long communityIdAlt
+    ) {
+        int lim = Math.max(1, Math.min(limit, 10));
+        Long resolvedCommunityId = communityId != null ? communityId : communityIdAlt;
+        var res = feedService.trending(jwt.getSubject(), lim, resolvedCommunityId);
+        if (res.status() == FeedService.Status.USER_NOT_PROVISIONED) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
+                    "error", "user_not_provisioned",
+                    "message", "Complete onboarding before viewing trending posts"
+            ));
+        }
+        if (res.status() == FeedService.Status.COMMUNITY_NOT_FOUND) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of(
+                    "error", "community_not_found",
+                    "message", "Community not found"
+            ));
+        }
+        List<Map<String, Object>> items = res.items().stream()
+                .map(PostPayloads::trending)
+                .toList();
+        return ResponseEntity.ok(Map.of("items", items));
+    }
 }

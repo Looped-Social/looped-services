@@ -3,6 +3,9 @@ package com.looped.posts;
 import com.looped.anon.AnonProofService;
 import com.looped.communities.CommunitiesRepository;
 import com.looped.communities.CommunityVerificationsRepository;
+import com.looped.discovery.HashtagParser;
+import com.looped.discovery.HashtagPostsRepository;
+import com.looped.discovery.HashtagsRepository;
 import com.looped.media.MediaRepository;
 import com.looped.principals.PrincipalRepository;
 import com.looped.users.UserRepository;
@@ -24,6 +27,8 @@ public class PostsService {
     private final MediaRepository media;
     private final StringRedisTemplate redis;
     private final AnonProofService anonProofs;
+    private final HashtagsRepository hashtags;
+    private final HashtagPostsRepository hashtagPosts;
 
     public PostsService(PostRepository posts,
                         UserRepository users,
@@ -32,7 +37,9 @@ public class PostsService {
                         CommunityVerificationsRepository communityVerifications,
                         MediaRepository media,
                         StringRedisTemplate redis,
-                        AnonProofService anonProofs) {
+                        AnonProofService anonProofs,
+                        HashtagsRepository hashtags,
+                        HashtagPostsRepository hashtagPosts) {
         this.posts = posts;
         this.users = users;
         this.principals = principals;
@@ -41,6 +48,8 @@ public class PostsService {
         this.media = media;
         this.redis = redis;
         this.anonProofs = anonProofs;
+        this.hashtags = hashtags;
+        this.hashtagPosts = hashtagPosts;
     }
 
     public CreateResult create(String firebaseUid, String idempotencyKey, String content, Long mediaAssetId, Long communityId,
@@ -86,6 +95,7 @@ public class PostsService {
 
             var p = posts.insert(null, verified.actor().principalId(), companyId, communityId, content, mediaAssetId,
                     true, anonProfileId, effectiveCompanyId, certBytes, anonCertKid, sigBytes, null);
+            indexHashtags(p.id, effectiveCompanyId, content);
             return CreateResult.ok(p.id, true);
         }
 
@@ -117,6 +127,7 @@ public class PostsService {
         try {
             var p = posts.insert(userId, principal.id, companyId, communityId, content, mediaAssetId,
                     false, null, null, null, null, null, null);
+            indexHashtags(p.id, companyId, content);
             if (useIdem) {
                 try {
                     redis.opsForValue().set(redisKey, Long.toString(p.id), Duration.ofHours(24));
@@ -146,6 +157,15 @@ public class PostsService {
     private boolean mediaOwnerIsNull(long mediaAssetId) {
         Long ownerId = media.findOwnerId(mediaAssetId);
         return ownerId == null;
+    }
+
+    private void indexHashtags(long postId, long companyId, String content) {
+        var tags = HashtagParser.extract(content);
+        if (tags.isEmpty()) return;
+        for (String tag : tags) {
+            long hashtagId = hashtags.upsert(companyId, tag);
+            hashtagPosts.attach(hashtagId, postId);
+        }
     }
 
     public record GetResult(Status status, PostRepository.PostRow post) {
