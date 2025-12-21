@@ -29,6 +29,8 @@ public class AnonController {
     private final AnonEnrollmentSanctionsRepository sanctions;
     private final AnonIssuerService issuer;
     private final AnonBackupRepository backups;
+    private final AnonProofService proofs;
+    private final AnonRevocationsRepository revocations;
 
     public AnonController(UserRepository users,
                           VerificationRepository verifications,
@@ -36,7 +38,9 @@ public class AnonController {
                           PrincipalRepository principals,
                           AnonEnrollmentSanctionsRepository sanctions,
                           AnonIssuerService issuer,
-                          AnonBackupRepository backups) {
+                          AnonBackupRepository backups,
+                          AnonProofService proofs,
+                          AnonRevocationsRepository revocations) {
         this.users = users;
         this.verifications = verifications;
         this.profiles = profiles;
@@ -44,6 +48,8 @@ public class AnonController {
         this.sanctions = sanctions;
         this.issuer = issuer;
         this.backups = backups;
+        this.proofs = proofs;
+        this.revocations = revocations;
     }
 
     @PostMapping("/enroll")
@@ -142,6 +148,17 @@ public class AnonController {
         return new ResponseEntity<>(Map.of("status", "ok"), HttpStatus.CREATED);
     }
 
+    @GetMapping("/issuer")
+    public ResponseEntity<?> issuer() {
+        Map<String, Object> out = Map.of(
+                "kid", issuer.kid(),
+                "alg", "RSABSSA",
+                "public_key_pem", issuer.publicKeyPem(),
+                "expires_at", issuer.expiresAt()
+        );
+        return ResponseEntity.ok(out);
+    }
+
     @GetMapping("/backup/{blobId}")
     public ResponseEntity<?> getBackup(@PathVariable("blobId") UUID blobId) {
         var row = backups.find(blobId);
@@ -155,6 +172,37 @@ public class AnonController {
         return ResponseEntity.ok(out);
     }
 
+    @PostMapping("/reset")
+    public ResponseEntity<?> reset(@AuthenticationPrincipal Jwt jwt) {
+        var user = users.findByFirebaseUid(jwt.getSubject());
+        if (user.isEmpty() || user.get().companyId == null) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
+                    "error", "user_not_provisioned",
+                    "message", "Complete onboarding before resetting anonymous enrollment"
+            ));
+        }
+        boolean cleared = sanctions.clearActive(user.get().id, "company", user.get().companyId, "reset");
+        return ResponseEntity.ok(Map.of("reset", true, "cleared", cleared));
+    }
+
+    @PostMapping("/revoke")
+    public ResponseEntity<?> revoke(@Valid @RequestBody RevokeRequest body) {
+        var proof = new AnonProofService.AnonActionProof(body.anonProfileId(), body.anonCert(), body.anonCertKid(), body.anonSig());
+        var verified = proofs.verifyAction(proof, "revoke", body.anonProfileId());
+        if (verified.status() == AnonProofService.Status.NOT_FOUND) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "not_found"));
+        }
+        if (verified.status() == AnonProofService.Status.INVALID_CERT || verified.status() == AnonProofService.Status.INVALID_SIGNATURE) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "invalid_anon_proof"));
+        }
+        if (verified.status() == AnonProofService.Status.REVOKED) {
+            return ResponseEntity.ok(Map.of("revoked", true, "already_revoked", true));
+        }
+
+        revocations.revokeByPubkey(verified.actor().personaPubkey(), "self_revoke");
+        return ResponseEntity.ok(Map.of("revoked", true));
+    }
+
     public record EnrollRequest(
             @NotBlank String personaPubkey,
             @NotBlank String blindedMessage
@@ -165,5 +213,12 @@ public class AnonController {
             @NotBlank String salt,
             @NotBlank String ciphertext,
             OffsetDateTime expiresAt
+    ) {}
+
+    public record RevokeRequest(
+            @NotNull Long anonProfileId,
+            @NotBlank String anonCert,
+            @NotBlank String anonCertKid,
+            @NotBlank String anonSig
     ) {}
 }

@@ -34,6 +34,20 @@ Want the **same** “Anonymous” identity on iPhone/iPad/Web? Use **Anonymous B
 
 * On another device, enter the **Recovery Code \+ passphrase** to restore the same anonymous identity.
 
+## **Enrollment & Rotation (client)**
+
+**Issuer key**  
+Call `GET /anon/issuer` to fetch the issuer **public key PEM** (`public_key_pem`) and `kid`. The client uses this key to blind the certificate request.
+
+**Enroll**  
+Use `POST /anon/enroll` with `personaPubkey` and `blindedMessage` to receive `anon_profile_id`, `handle`, `anon_cert_kid`, and `blinded_signature`. Unblind the signature on device and store it as `anon_cert`.
+
+**Rotate anonymous identity (new persona)**  
+To create a new anonymous account (one‑per‑user), do:
+1) `POST /anon/revoke` with anon proof (no JWT) to revoke the old persona.
+2) `POST /anon/reset` (JWT required) to clear enrollment sanction.
+3) `POST /anon/enroll` with a **new** persona key + blinded message.
+
 ## **What we don’t do**
 
 * We don’t store any link between your named account and your anonymous persona.

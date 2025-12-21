@@ -35,6 +35,7 @@ public class SecurityConfig {
             .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(authz -> authz
                 .requestMatchers("/health", "/actuator/health", "/actuator/info").permitAll()
+                .requestMatchers("/anon/issuer", "/anon/revoke").permitAll()
                 .requestMatchers("/v1/**", "/anon/**").authenticated()
                 .anyRequest().permitAll()
             )

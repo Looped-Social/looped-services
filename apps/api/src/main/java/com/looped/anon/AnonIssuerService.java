@@ -54,6 +54,13 @@ public class AnonIssuerService {
         return publicKey;
     }
 
+    public String publicKeyPem() {
+        if (props.getPublicKeyPem() != null && !props.getPublicKeyPem().isBlank()) {
+            return props.getPublicKeyPem();
+        }
+        return PemKeyUtils.encodePublicKeyPem(publicKey);
+    }
+
     public OffsetDateTime expiresAt() {
         return expiresAt;
     }

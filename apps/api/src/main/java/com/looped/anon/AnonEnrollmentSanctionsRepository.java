@@ -28,4 +28,14 @@ public class AnonEnrollmentSanctionsRepository {
                 userId, scopeKind, scopeId, reason
         );
     }
+
+    public boolean clearActive(long userId, String scopeKind, Long scopeId, String reason) {
+        int rows = jdbc.update(
+                "UPDATE anon_enrollment_sanctions SET status = 'cleared', reason = ? " +
+                        "WHERE user_id = ? AND scope_kind = ? AND " +
+                        "((? IS NULL AND scope_id IS NULL) OR scope_id = ?) AND status = 'active'",
+                reason, userId, scopeKind, scopeId, scopeId
+        );
+        return rows > 0;
+    }
 }

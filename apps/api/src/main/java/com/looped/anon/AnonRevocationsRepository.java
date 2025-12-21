@@ -18,4 +18,13 @@ public class AnonRevocationsRepository {
         );
         return count != null && count > 0;
     }
+
+    public boolean revokeByPubkey(byte[] pubkey, String reason) {
+        int rows = jdbc.update(
+                "INSERT INTO anon_revocations(persona_pubkey, reason) " +
+                        "SELECT ?, ? WHERE NOT EXISTS (SELECT 1 FROM anon_revocations WHERE persona_pubkey = ?)",
+                pubkey, reason, pubkey
+        );
+        return rows > 0;
+    }
 }

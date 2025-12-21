@@ -53,6 +53,21 @@ This is the “no foot-guns” reference for privacy-safe anon with full actor f
 **Do:** verify named user has a valid `verification_scopes` record (or base `verifications`) for requested scope; issue blinded cert; no durable mapping; short-TTL issuance limit.  
  **Don’t:** log request bodies or user IDs; no idempotency records.
 
+### **`/anon/issuer`**
+
+**Do:** expose issuer **public key PEM** (X.509 SubjectPublicKeyInfo) + `kid` so the client can blind.  
+**Don’t:** expose private key or user-linked metadata.
+
+### **`/anon/reset`**
+
+**Do:** clear the enrollment sanction so a verified user can enroll a **new** anon persona.  
+**Don’t:** link user → anon profile. Server cannot prove old persona was revoked; client should call `/anon/revoke` separately.
+
+### **`/anon/revoke`**
+
+**Do:** verify anon proof (`anon_cert` + `anon_sig`) and add the persona pubkey to `anon_revocations`.  
+**Don’t:** delete old posts; revocation only blocks future actions.
+
 ### **`/posts` (anon)**
 
 **Do:**
