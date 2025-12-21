@@ -60,10 +60,14 @@ class ExtendedEndpointsIntegrationTest extends PostgresTestBase {
                 Long.class, "uid-profile", "acmeuser", companyId, "Old");
         long followerId = jdbc.queryForObject("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?) RETURNING id",
                 Long.class, "uid-follower", "sidekick", companyId);
-        jdbc.update("INSERT INTO follows(follower_id, followee_id) VALUES (?,?)", followerId, userId);
-        long post1 = jdbc.queryForObject("INSERT INTO posts(author_id, company_id, content) VALUES (?,?,?) RETURNING id",
-                Long.class, userId, companyId, "first");
-        jdbc.update("INSERT INTO posts(author_id, company_id, content) VALUES (?,?,?)", userId, companyId, "second");
+        long userPrincipal = jdbc.queryForObject("INSERT INTO principals(kind, user_id) VALUES ('user', ?) RETURNING id",
+                Long.class, userId);
+        long followerPrincipal = jdbc.queryForObject("INSERT INTO principals(kind, user_id) VALUES ('user', ?) RETURNING id",
+                Long.class, followerId);
+        jdbc.update("INSERT INTO principal_follows(follower_principal_id, followee_principal_id) VALUES (?,?)", followerPrincipal, userPrincipal);
+        long post1 = jdbc.queryForObject("INSERT INTO posts(author_id, author_principal_id, company_id, content) VALUES (?,?,?,?) RETURNING id",
+                Long.class, userId, userPrincipal, companyId, "first");
+        jdbc.update("INSERT INTO posts(author_id, author_principal_id, company_id, content) VALUES (?,?,?,?)", userId, userPrincipal, companyId, "second");
         jdbc.update("INSERT INTO comments(post_id, user_id, company_id, content) VALUES (?,?,?,?)", post1, userId, companyId, "first-comment");
 
         String auth = "Bearer " + token("uid-profile");

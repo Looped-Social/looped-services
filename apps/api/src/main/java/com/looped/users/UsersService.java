@@ -210,4 +210,27 @@ public class UsersService {
         static PostsResult notFound() { return new PostsResult(Status.NOT_FOUND, List.of(), null); }
         static PostsResult forbidden() { return new PostsResult(Status.FORBIDDEN, List.of(), null); }
     }
+
+    public DeleteResult deleteMe(String firebaseUid, DeleteMode mode) {
+        var userOpt = users.findByFirebaseUidIncludingDeleted(firebaseUid);
+        if (userOpt.isEmpty()) {
+            return DeleteResult.ok();
+        }
+        var user = userOpt.get();
+        if (mode == DeleteMode.SOFT) {
+            if (user.deletedAt != null) return DeleteResult.ok();
+            users.softDelete(user.id, user.id);
+            return DeleteResult.ok();
+        }
+        users.hardDelete(user.id);
+        return DeleteResult.ok();
+    }
+
+    public enum DeleteMode { HARD, SOFT }
+
+    public enum DeleteStatus { OK }
+
+    public record DeleteResult(DeleteStatus status) {
+        static DeleteResult ok() { return new DeleteResult(DeleteStatus.OK); }
+    }
 }

@@ -50,6 +50,14 @@ public class LoopsRepository {
         );
     }
 
+    public java.util.Optional<LoopRow> findById(long id) {
+        var list = jdbc.query(
+                "SELECT id, company_id, name, description, member_count, created_at FROM loops WHERE id = ?",
+                MAPPER, id
+        );
+        return list.isEmpty() ? java.util.Optional.empty() : java.util.Optional.of(list.get(0));
+    }
+
     public static class LoopRow {
         public long id;
         public long companyId;

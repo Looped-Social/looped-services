@@ -8,6 +8,7 @@ import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -68,8 +69,9 @@ public class PostCollectionsController {
     }
 
     @PostMapping("/{postId}/save")
-    public ResponseEntity<?> save(@AuthenticationPrincipal Jwt jwt, @PathVariable("postId") long postId) {
-        var res = service.save(jwt.getSubject(), postId);
+    public ResponseEntity<?> save(@AuthenticationPrincipal Jwt jwt, @PathVariable("postId") long postId,
+                                  @RequestBody(required = false) SaveRequest body) {
+        var res = service.save(jwt.getSubject(), postId, body == null ? null : body.toAnonProof());
         return switch (res.status()) {
             case USER_NOT_PROVISIONED -> ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
                     "error", "user_not_provisioned",
@@ -79,9 +81,9 @@ public class PostCollectionsController {
                     "error", "not_found",
                     "message", "Post not found"
             ));
-            case FORBIDDEN -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
-                    "error", "forbidden",
-                    "message", "Cross-company access denied"
+            case INVALID_SIGNATURE -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
+                    "error", "invalid_anon_proof",
+                    "message", "Invalid anonymous proof"
             ));
             case OK -> new ResponseEntity<>(Map.of(
                     "post_id", postId,
@@ -91,8 +93,9 @@ public class PostCollectionsController {
     }
 
     @DeleteMapping("/{postId}/save")
-    public ResponseEntity<?> unsave(@AuthenticationPrincipal Jwt jwt, @PathVariable("postId") long postId) {
-        var res = service.unsave(jwt.getSubject(), postId);
+    public ResponseEntity<?> unsave(@AuthenticationPrincipal Jwt jwt, @PathVariable("postId") long postId,
+                                    @RequestBody(required = false) SaveRequest body) {
+        var res = service.unsave(jwt.getSubject(), postId, body == null ? null : body.toAnonProof());
         return switch (res.status()) {
             case USER_NOT_PROVISIONED -> ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
                     "error", "user_not_provisioned",
@@ -102,15 +105,22 @@ public class PostCollectionsController {
                     "error", "not_found",
                     "message", "Post not found"
             ));
-            case FORBIDDEN -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
-                    "error", "forbidden",
-                    "message", "Cross-company access denied"
+            case INVALID_SIGNATURE -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
+                    "error", "invalid_anon_proof",
+                    "message", "Invalid anonymous proof"
             ));
             case OK -> ResponseEntity.ok(Map.of(
                     "post_id", postId,
                     "saved", false
             ));
         };
+    }
+
+    public record SaveRequest(Boolean asAnon, Long anonProfileId, String anonCert, String anonCertKid, String anonSig) {
+        com.looped.anon.AnonProofService.AnonActionProof toAnonProof() {
+            if (asAnon == null || !asAnon) return null;
+            return new com.looped.anon.AnonProofService.AnonActionProof(anonProfileId, anonCert, anonCertKid, anonSig);
+        }
     }
 
     private Map<String, Object> toListPayload(List<PostRepository.PostRow> posts, String nextCursor, boolean isSaved) {

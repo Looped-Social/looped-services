@@ -1,5 +1,6 @@
 package com.looped.discovery;
 
+import com.looped.communities.CommunitiesRepository;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -22,8 +23,8 @@ public class DiscoveryController {
         this.service = service;
     }
 
-    @GetMapping("/loops/search")
-    public ResponseEntity<?> searchLoops(
+    @GetMapping("/communities/search")
+    public ResponseEntity<?> searchCommunities(
             @AuthenticationPrincipal Jwt jwt,
             @RequestParam("query") String query,
             @RequestParam(value = "cursor", required = false) String cursor,
@@ -36,20 +37,30 @@ public class DiscoveryController {
             ));
         }
         int lim = Math.max(1, Math.min(limit, 100));
-        var res = service.searchLoops(jwt.getSubject(), query, cursor, lim);
+        var res = service.searchCommunities(jwt.getSubject(), query, cursor, lim);
         return switch (res.status()) {
             case USER_NOT_PROVISIONED -> ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
                     "error", "user_not_provisioned",
-                    "message", "Complete onboarding before searching loops"
+                    "message", "Complete onboarding before searching communities"
             ));
             case OK -> {
-                List<Map<String, Object>> items = res.items().stream().map(this::loopPayload).toList();
+                List<Map<String, Object>> items = res.items().stream().map(this::communityPayload).toList();
                 Map<String, Object> body = new HashMap<>();
                 body.put("items", items);
                 if (res.nextCursor() != null) body.put("next_cursor", res.nextCursor());
                 yield ResponseEntity.ok(body);
             }
         };
+    }
+
+    @GetMapping("/loops/search")
+    public ResponseEntity<?> searchLoops(
+            @AuthenticationPrincipal Jwt jwt,
+            @RequestParam("query") String query,
+            @RequestParam(value = "cursor", required = false) String cursor,
+            @RequestParam(value = "limit", required = false, defaultValue = "20") int limit
+    ) {
+        return searchCommunities(jwt, query, cursor, limit);
     }
 
     @GetMapping("/hashtags/search")
@@ -82,9 +93,10 @@ public class DiscoveryController {
         };
     }
 
-    private Map<String, Object> loopPayload(LoopsRepository.LoopRow row) {
+    private Map<String, Object> communityPayload(CommunitiesRepository.CommunityRow row) {
         Map<String, Object> map = new HashMap<>();
         map.put("id", row.id);
+        map.put("kind", row.kind);
         map.put("name", row.name);
         map.put("description", row.description);
         map.put("member_count", row.memberCount);

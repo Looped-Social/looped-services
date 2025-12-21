@@ -72,53 +72,53 @@ public class CommentsRepository {
         return findById(id).orElseThrow();
     }
 
-    public List<CommentViewRow> findByPost(long postId, long viewerId, long postAuthorId, long companyId, OffsetDateTime cursorTs, Long cursorId, int limit) {
+    public List<CommentViewRow> findByPost(long postId, long viewerId, Long postAuthorId, OffsetDateTime cursorTs, Long cursorId, int limit) {
         String sql = """
                 SELECT c.id, c.post_id, c.user_id, c.company_id, c.content, c.parent_id, c.likes_count, c.created_at,
                        u.handle, u.display_name, u.is_anonymous, u.company_id AS user_company_id, u.profile_image_url,
                        CASE WHEN cv.user_id IS NULL THEN false ELSE true END AS viewer_liked,
                        CASE WHEN cc.user_id IS NULL THEN false ELSE true END AS liked_by_creator
                 FROM comments c
-                JOIN users u ON u.id = c.user_id
+                JOIN users u ON u.id = c.user_id AND u.deleted_at IS NULL
                 LEFT JOIN comment_likes cv ON cv.comment_id = c.id AND cv.user_id = ?
                 LEFT JOIN comment_likes cc ON cc.comment_id = c.id AND cc.user_id = ?
-                WHERE c.post_id = ? AND c.company_id = ?
+                WHERE c.post_id = ?
                 """;
         Object[] params;
         if (cursorTs == null || cursorId == null) {
             sql += "ORDER BY c.created_at ASC, c.id ASC LIMIT ?";
-            params = new Object[]{viewerId, postAuthorId, postId, companyId, limit};
+            params = new Object[]{viewerId, postAuthorId, postId, limit};
         } else {
             sql += "AND (c.created_at > ? OR (c.created_at = ? AND c.id > ?)) ORDER BY c.created_at ASC, c.id ASC LIMIT ?";
-            params = new Object[]{viewerId, postAuthorId, postId, companyId, cursorTs, cursorTs, cursorId, limit};
+            params = new Object[]{viewerId, postAuthorId, postId, cursorTs, cursorTs, cursorId, limit};
         }
         return jdbc.query(sql, this::mapViewRow, params);
     }
 
-    public List<CommentViewRow> findReplies(long postId, long parentCommentId, long viewerId, long postAuthorId, long companyId, OffsetDateTime cursorTs, Long cursorId, int limit) {
+    public List<CommentViewRow> findReplies(long postId, long parentCommentId, long viewerId, Long postAuthorId, OffsetDateTime cursorTs, Long cursorId, int limit) {
         String sql = """
                 SELECT c.id, c.post_id, c.user_id, c.company_id, c.content, c.parent_id, c.likes_count, c.created_at,
                        u.handle, u.display_name, u.is_anonymous, u.company_id AS user_company_id, u.profile_image_url,
                        CASE WHEN cv.user_id IS NULL THEN false ELSE true END AS viewer_liked,
                        CASE WHEN cc.user_id IS NULL THEN false ELSE true END AS liked_by_creator
                 FROM comments c
-                JOIN users u ON u.id = c.user_id
+                JOIN users u ON u.id = c.user_id AND u.deleted_at IS NULL
                 LEFT JOIN comment_likes cv ON cv.comment_id = c.id AND cv.user_id = ?
                 LEFT JOIN comment_likes cc ON cc.comment_id = c.id AND cc.user_id = ?
-                WHERE c.parent_id = ? AND c.post_id = ? AND c.company_id = ?
+                WHERE c.parent_id = ? AND c.post_id = ?
                 """;
         Object[] params;
         if (cursorTs == null || cursorId == null) {
             sql += "ORDER BY c.created_at ASC, c.id ASC LIMIT ?";
-            params = new Object[]{viewerId, postAuthorId, parentCommentId, postId, companyId, limit};
+            params = new Object[]{viewerId, postAuthorId, parentCommentId, postId, limit};
         } else {
             sql += "AND (c.created_at > ? OR (c.created_at = ? AND c.id > ?)) ORDER BY c.created_at ASC, c.id ASC LIMIT ?";
-            params = new Object[]{viewerId, postAuthorId, parentCommentId, postId, companyId, cursorTs, cursorTs, cursorId, limit};
+            params = new Object[]{viewerId, postAuthorId, parentCommentId, postId, cursorTs, cursorTs, cursorId, limit};
         }
         return jdbc.query(sql, this::mapViewRow, params);
     }
 
-    public Optional<CommentViewRow> findViewById(long id, long viewerId, long postAuthorId, long companyId) {
+    public Optional<CommentViewRow> findViewById(long id, long viewerId, Long postAuthorId) {
         var list = jdbc.query(
                 """
                         SELECT c.id, c.post_id, c.user_id, c.company_id, c.content, c.parent_id, c.likes_count, c.created_at,
@@ -126,37 +126,37 @@ public class CommentsRepository {
                                CASE WHEN cv.user_id IS NULL THEN false ELSE true END AS viewer_liked,
                                CASE WHEN cc.user_id IS NULL THEN false ELSE true END AS liked_by_creator
                         FROM comments c
-                        JOIN users u ON u.id = c.user_id
+                        JOIN users u ON u.id = c.user_id AND u.deleted_at IS NULL
                         LEFT JOIN comment_likes cv ON cv.comment_id = c.id AND cv.user_id = ?
                         LEFT JOIN comment_likes cc ON cc.comment_id = c.id AND cc.user_id = ?
-                        WHERE c.id = ? AND c.company_id = ?
+                        WHERE c.id = ?
                         """,
                 this::mapViewRow,
-                viewerId, postAuthorId, id, companyId
+                viewerId, postAuthorId, id
         );
         return list.isEmpty() ? Optional.empty() : Optional.of(list.get(0));
     }
 
-    public List<CommentViewRow> findByUserWithView(long targetUserId, long viewerId, long companyId, OffsetDateTime cursorTs, Long cursorId, int limit) {
+    public List<CommentViewRow> findByUserWithView(long targetUserId, long viewerId, OffsetDateTime cursorTs, Long cursorId, int limit) {
         String sql = """
                 SELECT c.id, c.post_id, c.user_id, c.company_id, c.content, c.parent_id, c.likes_count, c.created_at,
                        u.handle, u.display_name, u.is_anonymous, u.company_id AS user_company_id, u.profile_image_url,
                        CASE WHEN cv.user_id IS NULL THEN false ELSE true END AS viewer_liked,
                        CASE WHEN cc.user_id IS NULL THEN false ELSE true END AS liked_by_creator
                 FROM comments c
-                JOIN users u ON u.id = c.user_id
+                JOIN users u ON u.id = c.user_id AND u.deleted_at IS NULL
                 JOIN posts p ON p.id = c.post_id
                 LEFT JOIN comment_likes cv ON cv.comment_id = c.id AND cv.user_id = ?
                 LEFT JOIN comment_likes cc ON cc.comment_id = c.id AND cc.user_id = p.author_id
-                WHERE c.user_id = ? AND c.company_id = ? AND p.company_id = ?
+                WHERE c.user_id = ?
                 """;
         Object[] params;
         if (cursorTs == null || cursorId == null) {
             sql += "ORDER BY c.created_at DESC, c.id DESC LIMIT ?";
-            params = new Object[]{viewerId, targetUserId, companyId, companyId, limit};
+            params = new Object[]{viewerId, targetUserId, limit};
         } else {
             sql += "AND (c.created_at < ? OR (c.created_at = ? AND c.id < ?)) ORDER BY c.created_at DESC, c.id DESC LIMIT ?";
-            params = new Object[]{viewerId, targetUserId, companyId, companyId, cursorTs, cursorTs, cursorId, limit};
+            params = new Object[]{viewerId, targetUserId, cursorTs, cursorTs, cursorId, limit};
         }
         return jdbc.query(sql, this::mapViewRow, params);
     }

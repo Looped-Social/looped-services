@@ -30,7 +30,12 @@ public abstract class PostgresTestBase {
         try (Connection c = DriverManager.getConnection(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword());
              Statement s = c.createStatement()) {
             // Truncate all app tables and reset identities between tests to avoid cross-test interference
-            s.execute("TRUNCATE TABLE conversation_messages, channel_messages, notifications, comment_likes, comments, follows, conversation_participants, conversations, channel_members, channels, saved_posts, likes, posts, devices, reports, media_assets, verifications, hashtags, loops, users, companies RESTART IDENTITY CASCADE");
+            s.execute("TRUNCATE TABLE conversation_messages, channel_messages, notifications, comment_likes, comments, " +
+                    "principal_follows, principal_saved_posts, post_likes, follows, saved_posts, likes, " +
+                    "conversation_participants, conversations, channel_members, channels, posts, devices, reports, media_assets, " +
+                    "anon_enrollment_sanctions, anon_backup_blobs, anon_revocations, anon_issuers, anon_handle_counters, anonymous_profiles, " +
+                    "principals, verifications, hashtags, community_verifications, community_follows, communities, user_loops, loops, users, companies " +
+                    "RESTART IDENTITY CASCADE");
         }
     }
 }

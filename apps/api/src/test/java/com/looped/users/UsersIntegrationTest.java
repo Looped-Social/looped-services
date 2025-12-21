@@ -22,6 +22,7 @@ import java.util.List;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.notNullValue;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -78,12 +79,13 @@ class UsersIntegrationTest extends PostgresTestBase {
         long acmeId = jdbc.queryForObject("INSERT INTO companies(name, domain) VALUES ('Acme','acme.com') RETURNING id", Long.class);
         long actorId = jdbc.queryForObject("INSERT INTO users(firebase_uid, handle, company_id) VALUES ('uid-actor','alex',?) RETURNING id", Long.class, acmeId);
         long targetId = jdbc.queryForObject("INSERT INTO users(firebase_uid, handle, company_id) VALUES ('uid-target','taylor',?) RETURNING id", Long.class, acmeId);
+        long targetPrincipal = jdbc.queryForObject("INSERT INTO principals(kind, user_id) VALUES ('user', ?) RETURNING id", Long.class, targetId);
 
         Instant base = Instant.now();
         for (int i = 1; i <= 3; i++) {
             jdbc.update(
-                    "INSERT INTO posts(author_id, company_id, content, created_at) VALUES (?,?,?,?)",
-                    targetId, acmeId, "post-" + i, Timestamp.from(base.minusSeconds(30L * i))
+                    "INSERT INTO posts(author_id, author_principal_id, company_id, content, created_at) VALUES (?,?,?,?,?)",
+                    targetId, targetPrincipal, acmeId, "post-" + i, Timestamp.from(base.minusSeconds(30L * i))
             );
         }
 
@@ -117,5 +119,44 @@ class UsersIntegrationTest extends PostgresTestBase {
                         .header("Authorization", "Bearer " + token("uid-actor")))
                 .andExpect(status().isForbidden());
     }
-}
 
+    @Test
+    void delete_me_hard_is_idempotent() throws Exception {
+        long companyId = jdbc.queryForObject("INSERT INTO companies(name, domain) VALUES ('DelCo','del.co') RETURNING id", Long.class);
+        jdbc.update("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?)", "uid-delete", "dora", companyId);
+
+        String auth = "Bearer " + token("uid-delete");
+
+        mockMvc.perform(delete("/v1/users/me")
+                        .header("Authorization", auth))
+                .andExpect(status().isNoContent());
+
+        Integer count = jdbc.queryForObject("SELECT COUNT(*) FROM users WHERE firebase_uid='uid-delete'", Integer.class);
+        org.junit.jupiter.api.Assertions.assertNotNull(count);
+        org.junit.jupiter.api.Assertions.assertEquals(0, count.intValue());
+
+        mockMvc.perform(delete("/v1/users/me")
+                        .header("Authorization", auth))
+                .andExpect(status().isNoContent());
+    }
+
+    @Test
+    void delete_me_soft_marks_deleted() throws Exception {
+        long companyId = jdbc.queryForObject("INSERT INTO companies(name, domain) VALUES ('SoftCo','soft.co') RETURNING id", Long.class);
+        jdbc.update("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?)", "uid-delete-soft", "sara", companyId);
+
+        String auth = "Bearer " + token("uid-delete-soft");
+
+        mockMvc.perform(delete("/v1/users/me?mode=soft")
+                        .header("Authorization", auth))
+                .andExpect(status().isNoContent());
+
+        Integer count = jdbc.queryForObject("SELECT COUNT(*) FROM users WHERE firebase_uid='uid-delete-soft' AND deleted_at IS NOT NULL", Integer.class);
+        org.junit.jupiter.api.Assertions.assertNotNull(count);
+        org.junit.jupiter.api.Assertions.assertEquals(1, count.intValue());
+
+        mockMvc.perform(delete("/v1/users/me?mode=soft")
+                        .header("Authorization", auth))
+                .andExpect(status().isNoContent());
+    }
+}

@@ -43,6 +43,27 @@ public class UsersController {
         };
     }
 
+    @DeleteMapping("/me")
+    public ResponseEntity<?> deleteMe(
+            @AuthenticationPrincipal Jwt jwt,
+            @RequestParam(value = "mode", required = false, defaultValue = "hard") String mode,
+            @RequestBody(required = false) DeleteRequest body
+    ) {
+        UsersService.DeleteMode deleteMode = switch (mode.toLowerCase()) {
+            case "hard" -> UsersService.DeleteMode.HARD;
+            case "soft" -> UsersService.DeleteMode.SOFT;
+            default -> null;
+        };
+        if (deleteMode == null) {
+            return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of(
+                    "error", "invalid_mode",
+                    "message", "mode must be hard or soft"
+            ));
+        }
+        service.deleteMe(jwt.getSubject(), deleteMode);
+        return ResponseEntity.noContent().build();
+    }
+
     @GetMapping("/{id}/replies")
     public ResponseEntity<?> replies(
             @AuthenticationPrincipal Jwt jwt,
@@ -58,9 +79,6 @@ public class UsersController {
             ));
             case USER_NOT_FOUND -> ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of(
                     "error", "not_found"
-            ));
-            case FORBIDDEN -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
-                    "error", "forbidden"
             ));
             case OK -> {
                 List<Map<String, Object>> items = res.comments().stream().map(com.looped.comments.CommentPayloads::from).toList();
@@ -214,4 +232,6 @@ public class UsersController {
             @Size(max = 500) String bio,
             @NotNull Boolean isAnonymous
     ) {}
+
+    public record DeleteRequest(Boolean confirm, String password) {}
 }

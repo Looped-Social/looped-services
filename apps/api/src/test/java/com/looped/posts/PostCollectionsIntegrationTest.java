@@ -61,15 +61,17 @@ class PostCollectionsIntegrationTest extends PostgresTestBase {
         long companyId = jdbc.queryForObject("INSERT INTO companies(name, domain) VALUES ('Acme','acme.com') RETURNING id", Long.class);
         long userId = jdbc.queryForObject("INSERT INTO users(firebase_uid, handle, company_id) VALUES ('uid-like','alex',?) RETURNING id", Long.class, companyId);
         long author = jdbc.queryForObject("INSERT INTO users(firebase_uid, handle, company_id) VALUES ('uid-author','taylor',?) RETURNING id", Long.class, companyId);
+        long userPrincipal = jdbc.queryForObject("INSERT INTO principals(kind, user_id) VALUES ('user', ?) RETURNING id", Long.class, userId);
+        long authorPrincipal = jdbc.queryForObject("INSERT INTO principals(kind, user_id) VALUES ('user', ?) RETURNING id", Long.class, author);
 
         Instant base = Instant.now();
-        long post1 = jdbc.queryForObject("INSERT INTO posts(author_id, company_id, content, created_at) VALUES (?,?,?,?) RETURNING id",
-                Long.class, author, companyId, "alpha", Timestamp.from(base.minusSeconds(60)));
-        long post2 = jdbc.queryForObject("INSERT INTO posts(author_id, company_id, content, created_at) VALUES (?,?,?,?) RETURNING id",
-                Long.class, author, companyId, "beta", Timestamp.from(base.minusSeconds(30)));
+        long post1 = jdbc.queryForObject("INSERT INTO posts(author_id, author_principal_id, company_id, content, created_at) VALUES (?,?,?,?,?) RETURNING id",
+                Long.class, author, authorPrincipal, companyId, "alpha", Timestamp.from(base.minusSeconds(60)));
+        long post2 = jdbc.queryForObject("INSERT INTO posts(author_id, author_principal_id, company_id, content, created_at) VALUES (?,?,?,?,?) RETURNING id",
+                Long.class, author, authorPrincipal, companyId, "beta", Timestamp.from(base.minusSeconds(30)));
 
-        jdbc.update("INSERT INTO likes(user_id, post_id, created_at) VALUES (?,?,?)", userId, post1, Timestamp.from(base.minusSeconds(10)));
-        jdbc.update("INSERT INTO likes(user_id, post_id, created_at) VALUES (?,?,?)", userId, post2, Timestamp.from(base.minusSeconds(5)));
+        jdbc.update("INSERT INTO post_likes(liker_principal_id, post_id, created_at) VALUES (?,?,?)", userPrincipal, post1, Timestamp.from(base.minusSeconds(10)));
+        jdbc.update("INSERT INTO post_likes(liker_principal_id, post_id, created_at) VALUES (?,?,?)", userPrincipal, post2, Timestamp.from(base.minusSeconds(5)));
 
         var first = mockMvc.perform(get("/v1/posts/liked?limit=1")
                         .header("Authorization", "Bearer " + token("uid-like")))
@@ -94,8 +96,9 @@ class PostCollectionsIntegrationTest extends PostgresTestBase {
         long companyId = jdbc.queryForObject("INSERT INTO companies(name, domain) VALUES ('Acme','acme.com') RETURNING id", Long.class);
         long userId = jdbc.queryForObject("INSERT INTO users(firebase_uid, handle, company_id) VALUES ('uid-save','alex',?) RETURNING id", Long.class, companyId);
         long author = jdbc.queryForObject("INSERT INTO users(firebase_uid, handle, company_id) VALUES ('uid-author','taylor',?) RETURNING id", Long.class, companyId);
-        long postId = jdbc.queryForObject("INSERT INTO posts(author_id, company_id, content) VALUES (?,?,?) RETURNING id",
-                Long.class, author, companyId, "alpha");
+        long authorPrincipal = jdbc.queryForObject("INSERT INTO principals(kind, user_id) VALUES ('user', ?) RETURNING id", Long.class, author);
+        long postId = jdbc.queryForObject("INSERT INTO posts(author_id, author_principal_id, company_id, content) VALUES (?,?,?,?) RETURNING id",
+                Long.class, author, authorPrincipal, companyId, "alpha");
 
         String auth = "Bearer " + token("uid-save");
 
@@ -128,15 +131,17 @@ class PostCollectionsIntegrationTest extends PostgresTestBase {
         long companyId = jdbc.queryForObject("INSERT INTO companies(name, domain) VALUES ('Acme','acme.com') RETURNING id", Long.class);
         long userId = jdbc.queryForObject("INSERT INTO users(firebase_uid, handle, company_id) VALUES ('uid-save-user','alex',?) RETURNING id", Long.class, companyId);
         long author = jdbc.queryForObject("INSERT INTO users(firebase_uid, handle, company_id) VALUES ('uid-author-user','taylor',?) RETURNING id", Long.class, companyId);
+        long userPrincipal = jdbc.queryForObject("INSERT INTO principals(kind, user_id) VALUES ('user', ?) RETURNING id", Long.class, userId);
+        long authorPrincipal = jdbc.queryForObject("INSERT INTO principals(kind, user_id) VALUES ('user', ?) RETURNING id", Long.class, author);
 
         Instant base = Instant.now();
-        long postOld = jdbc.queryForObject("INSERT INTO posts(author_id, company_id, content, created_at) VALUES (?,?,?,?) RETURNING id",
-                Long.class, author, companyId, "old", Timestamp.from(base.minusSeconds(60)));
-        long postNew = jdbc.queryForObject("INSERT INTO posts(author_id, company_id, content, created_at) VALUES (?,?,?,?) RETURNING id",
-                Long.class, author, companyId, "new", Timestamp.from(base.minusSeconds(10)));
+        long postOld = jdbc.queryForObject("INSERT INTO posts(author_id, author_principal_id, company_id, content, created_at) VALUES (?,?,?,?,?) RETURNING id",
+                Long.class, author, authorPrincipal, companyId, "old", Timestamp.from(base.minusSeconds(60)));
+        long postNew = jdbc.queryForObject("INSERT INTO posts(author_id, author_principal_id, company_id, content, created_at) VALUES (?,?,?,?,?) RETURNING id",
+                Long.class, author, authorPrincipal, companyId, "new", Timestamp.from(base.minusSeconds(10)));
 
-        jdbc.update("INSERT INTO saved_posts(user_id, post_id, created_at) VALUES (?,?,?)", userId, postOld, Timestamp.from(base.minusSeconds(5)));
-        jdbc.update("INSERT INTO saved_posts(user_id, post_id, created_at) VALUES (?,?,?)", userId, postNew, Timestamp.from(base.minusSeconds(2)));
+        jdbc.update("INSERT INTO principal_saved_posts(saver_principal_id, post_id, created_at) VALUES (?,?,?)", userPrincipal, postOld, Timestamp.from(base.minusSeconds(5)));
+        jdbc.update("INSERT INTO principal_saved_posts(saver_principal_id, post_id, created_at) VALUES (?,?,?)", userPrincipal, postNew, Timestamp.from(base.minusSeconds(2)));
 
         mockMvc.perform(get("/v1/users/" + userId + "/posts/saved")
                         .header("Authorization", "Bearer " + token("uid-save-user")))

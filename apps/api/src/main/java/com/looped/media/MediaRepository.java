@@ -17,7 +17,7 @@ public class MediaRepository {
         this.jdbc = jdbc;
     }
 
-    public Long insert(long ownerId, String s3Key, String mimeType, Integer width, Integer height, Integer durationSeconds) {
+    public Long insert(Long ownerId, String s3Key, String mimeType, Integer width, Integer height, Integer durationSeconds) {
         return jdbc.query(
                 "INSERT INTO media_assets(owner_id, s3_key, mime_type, width, height, duration_seconds) " +
                         "VALUES (?,?,?,?,?,?) RETURNING id",
@@ -30,5 +30,10 @@ public class MediaRepository {
         Integer count = jdbc.queryForObject("SELECT COUNT(1) FROM media_assets WHERE s3_key=?", Integer.class, s3Key);
         return count != null && count > 0;
     }
-}
 
+    public Long findOwnerId(long mediaAssetId) {
+        var rows = jdbc.query("SELECT owner_id FROM media_assets WHERE id = ?",
+                (rs, rowNum) -> rs.getObject("owner_id", Long.class), mediaAssetId);
+        return rows.isEmpty() ? null : rows.get(0);
+    }
+}

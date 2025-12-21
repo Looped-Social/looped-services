@@ -6,7 +6,6 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.oauth2.jwt.JwsHeader;
 import org.springframework.security.oauth2.jose.jws.SignatureAlgorithm;
@@ -55,9 +54,11 @@ class LikesIntegrationTest extends PostgresTestBase {
     @Test
     void like_is_idempotent_and_updates_count() throws Exception {
         long companyId = jdbc.queryForObject("INSERT INTO companies(name, domain) VALUES ('Acme','acme.com') RETURNING id", Long.class);
-        jdbc.update("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?)", "uid-like-main", "zoe", companyId);
-        long author = jdbc.queryForObject("SELECT id FROM users WHERE firebase_uid=?", Long.class, "uid-like-main");
-        long postId = jdbc.queryForObject("INSERT INTO posts(author_id, company_id, content) VALUES (?,?,?) RETURNING id", Long.class, author, companyId, "hi");
+        long userId = jdbc.queryForObject("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?) RETURNING id",
+                Long.class, "uid-like-main", "zoe", companyId);
+        long principalId = jdbc.queryForObject("INSERT INTO principals(kind, user_id) VALUES ('user', ?) RETURNING id", Long.class, userId);
+        long postId = jdbc.queryForObject("INSERT INTO posts(author_id, author_principal_id, company_id, content) VALUES (?,?,?,?) RETURNING id",
+                Long.class, userId, principalId, companyId, "hi");
 
         String auth = "Bearer " + token("uid-like-main");
 
@@ -88,16 +89,18 @@ class LikesIntegrationTest extends PostgresTestBase {
     }
 
     @Test
-    void like_forbidden_cross_company() throws Exception {
+    void like_allows_cross_company() throws Exception {
         long acme = jdbc.queryForObject("INSERT INTO companies(name, domain) VALUES ('Acme3','acme3.com') RETURNING id", Long.class);
         long beta = jdbc.queryForObject("INSERT INTO companies(name, domain) VALUES ('Beta3','beta3.com') RETURNING id", Long.class);
-        jdbc.update("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?)", "uid-like-a", "amy", acme);
+        long authorId = jdbc.queryForObject("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?) RETURNING id",
+                Long.class, "uid-like-a", "amy", acme);
+        long authorPrincipal = jdbc.queryForObject("INSERT INTO principals(kind, user_id) VALUES ('user', ?) RETURNING id", Long.class, authorId);
         jdbc.update("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?)", "uid-like-b", "ben", beta);
-        long author = jdbc.queryForObject("SELECT id FROM users WHERE firebase_uid=?", Long.class, "uid-like-a");
-        long postId = jdbc.queryForObject("INSERT INTO posts(author_id, company_id, content) VALUES (?,?,?) RETURNING id", Long.class, author, acme, "hello");
+        long postId = jdbc.queryForObject("INSERT INTO posts(author_id, author_principal_id, company_id, content) VALUES (?,?,?,?) RETURNING id",
+                Long.class, authorId, authorPrincipal, acme, "hello");
 
         String auth = "Bearer " + token("uid-like-b");
         mockMvc.perform(post("/v1/posts/" + postId + "/like").header("Authorization", auth))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isCreated());
     }
 }

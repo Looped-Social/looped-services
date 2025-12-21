@@ -39,9 +39,6 @@ public class CommentsController {
             case POST_NOT_FOUND -> ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of(
                     "error", "not_found"
             ));
-            case FORBIDDEN -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
-                    "error", "forbidden"
-            ));
             case OK -> {
                 List<Map<String, Object>> items = res.comments().stream().map(CommentPayloads::from).toList();
                 Map<String, Object> body = new HashMap<>();
@@ -77,13 +74,17 @@ public class CommentsController {
                     "error", "user_not_found",
                     "message", "User not found"
             ));
+            case COMMUNITY_NOT_FOUND -> ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of(
+                    "error", "community_not_found",
+                    "message", "Community not found"
+            ));
+            case NOT_VERIFIED -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
+                    "error", "community_not_verified",
+                    "message", "You must be verified to comment in this community"
+            ));
             case INVALID_PARENT -> ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of(
                     "error", "invalid_parent",
                     "message", "Parent comment must belong to the same post"
-            ));
-            case FORBIDDEN -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
-                    "error", "forbidden",
-                    "message", "Cross-company access denied"
             ));
             case OK -> ResponseEntity.status(HttpStatus.CREATED).body(CommentPayloads.from(res.comment()));
         };
@@ -104,9 +105,6 @@ public class CommentsController {
             ));
             case COMMENT_NOT_FOUND -> ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of(
                     "error", "not_found"
-            ));
-            case FORBIDDEN -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
-                    "error", "forbidden"
             ));
             case OK -> {
                 List<Map<String, Object>> items = res.comments().stream().map(CommentPayloads::from).toList();
@@ -132,9 +130,6 @@ public class CommentsController {
             ));
             case COMMENT_NOT_FOUND -> ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of(
                     "error", "not_found"
-            ));
-            case FORBIDDEN -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
-                    "error", "forbidden"
             ));
             case OK -> new ResponseEntity<>(Map.of(
                     "comment_id", id,

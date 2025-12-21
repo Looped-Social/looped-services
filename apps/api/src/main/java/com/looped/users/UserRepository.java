@@ -31,17 +31,46 @@ public class UserRepository {
             row.isAnonymous = rs.getBoolean("is_anonymous");
             row.profileImageUrl = rs.getString("profile_image_url");
             row.createdAt = rs.getObject("created_at", OffsetDateTime.class);
+            row.deletedAt = rs.getObject("deleted_at", OffsetDateTime.class);
+            long deletedBy = rs.getLong("deleted_by");
+            row.deletedBy = rs.wasNull() ? null : deletedBy;
             return row;
         }
     };
 
     public Optional<UserRow> findByFirebaseUid(String firebaseUid) {
-        var list = jdbcTemplate.query("SELECT id, firebase_uid, handle, company_id, display_name, bio, is_anonymous, profile_image_url, created_at FROM users WHERE firebase_uid = ?", MAPPER, firebaseUid);
+        var list = jdbcTemplate.query(
+                "SELECT id, firebase_uid, handle, company_id, display_name, bio, is_anonymous, profile_image_url, created_at, deleted_at, deleted_by " +
+                        "FROM users WHERE firebase_uid = ? AND deleted_at IS NULL",
+                MAPPER, firebaseUid
+        );
         return list.isEmpty() ? Optional.empty() : Optional.of(list.get(0));
     }
 
     public Optional<UserRow> findById(long userId) {
-        var list = jdbcTemplate.query("SELECT id, firebase_uid, handle, company_id, display_name, bio, is_anonymous, profile_image_url, created_at FROM users WHERE id = ?", MAPPER, userId);
+        var list = jdbcTemplate.query(
+                "SELECT id, firebase_uid, handle, company_id, display_name, bio, is_anonymous, profile_image_url, created_at, deleted_at, deleted_by " +
+                        "FROM users WHERE id = ? AND deleted_at IS NULL",
+                MAPPER, userId
+        );
+        return list.isEmpty() ? Optional.empty() : Optional.of(list.get(0));
+    }
+
+    public Optional<UserRow> findByFirebaseUidIncludingDeleted(String firebaseUid) {
+        var list = jdbcTemplate.query(
+                "SELECT id, firebase_uid, handle, company_id, display_name, bio, is_anonymous, profile_image_url, created_at, deleted_at, deleted_by " +
+                        "FROM users WHERE firebase_uid = ?",
+                MAPPER, firebaseUid
+        );
+        return list.isEmpty() ? Optional.empty() : Optional.of(list.get(0));
+    }
+
+    public Optional<UserRow> findByIdIncludingDeleted(long userId) {
+        var list = jdbcTemplate.query(
+                "SELECT id, firebase_uid, handle, company_id, display_name, bio, is_anonymous, profile_image_url, created_at, deleted_at, deleted_by " +
+                        "FROM users WHERE id = ?",
+                MAPPER, userId
+        );
         return list.isEmpty() ? Optional.empty() : Optional.of(list.get(0));
     }
 
@@ -56,15 +85,15 @@ public class UserRepository {
         String like = "%" + query.toLowerCase() + "%";
         if (cursorTs == null || cursorId == null) {
             return jdbcTemplate.query(
-                    "SELECT id, firebase_uid, handle, company_id, display_name, bio, is_anonymous, profile_image_url, created_at " +
-                            "FROM users WHERE company_id = ? AND (LOWER(handle) LIKE ? OR LOWER(COALESCE(display_name,'')) LIKE ?) " +
+                    "SELECT id, firebase_uid, handle, company_id, display_name, bio, is_anonymous, profile_image_url, created_at, deleted_at, deleted_by " +
+                            "FROM users WHERE company_id = ? AND deleted_at IS NULL AND (LOWER(handle) LIKE ? OR LOWER(COALESCE(display_name,'')) LIKE ?) " +
                             "ORDER BY created_at DESC, id DESC LIMIT ?",
                     MAPPER, companyId, like, like, limit
             );
         }
         return jdbcTemplate.query(
-                "SELECT id, firebase_uid, handle, company_id, display_name, bio, is_anonymous, profile_image_url, created_at " +
-                        "FROM users WHERE company_id = ? AND (LOWER(handle) LIKE ? OR LOWER(COALESCE(display_name,'')) LIKE ?) " +
+                "SELECT id, firebase_uid, handle, company_id, display_name, bio, is_anonymous, profile_image_url, created_at, deleted_at, deleted_by " +
+                        "FROM users WHERE company_id = ? AND deleted_at IS NULL AND (LOWER(handle) LIKE ? OR LOWER(COALESCE(display_name,'')) LIKE ?) " +
                         "AND (created_at < ? OR (created_at = ? AND id < ?)) " +
                         "ORDER BY created_at DESC, id DESC LIMIT ?",
                 MAPPER, companyId, like, like, cursorTs, cursorTs, cursorId, limit
@@ -74,22 +103,39 @@ public class UserRepository {
     public java.util.List<UserRow> listCompanyUsers(long companyId, java.time.OffsetDateTime cursorTs, Long cursorId, int limit) {
         if (cursorTs == null || cursorId == null) {
             return jdbcTemplate.query(
-                    "SELECT id, firebase_uid, handle, company_id, display_name, bio, is_anonymous, profile_image_url, created_at " +
-                            "FROM users WHERE company_id = ? ORDER BY created_at DESC, id DESC LIMIT ?",
+                    "SELECT id, firebase_uid, handle, company_id, display_name, bio, is_anonymous, profile_image_url, created_at, deleted_at, deleted_by " +
+                            "FROM users WHERE company_id = ? AND deleted_at IS NULL ORDER BY created_at DESC, id DESC LIMIT ?",
                     MAPPER, companyId, limit
             );
         }
         return jdbcTemplate.query(
-                "SELECT id, firebase_uid, handle, company_id, display_name, bio, is_anonymous, profile_image_url, created_at " +
-                        "FROM users WHERE company_id = ? AND (created_at < ? OR (created_at = ? AND id < ?)) " +
+                "SELECT id, firebase_uid, handle, company_id, display_name, bio, is_anonymous, profile_image_url, created_at, deleted_at, deleted_by " +
+                        "FROM users WHERE company_id = ? AND deleted_at IS NULL AND (created_at < ? OR (created_at = ? AND id < ?)) " +
                         "ORDER BY created_at DESC, id DESC LIMIT ?",
                 MAPPER, companyId, cursorTs, cursorTs, cursorId, limit
         );
     }
 
+    public boolean softDelete(long userId, Long deletedBy) {
+        int rows = jdbcTemplate.update(
+                "UPDATE users SET deleted_at = now(), deleted_by = ? WHERE id = ? AND deleted_at IS NULL",
+                deletedBy, userId
+        );
+        return rows > 0;
+    }
+
+    public boolean hardDelete(long userId) {
+        int rows = jdbcTemplate.update("DELETE FROM users WHERE id = ?", userId);
+        return rows > 0;
+    }
+
     public int countFollowers(long userId) {
         Integer count = jdbcTemplate.queryForObject(
-                "SELECT COUNT(*) FROM follows WHERE followee_id = ?",
+                "SELECT COUNT(*) FROM principal_follows f " +
+                        "JOIN principals target ON target.id = f.followee_principal_id " +
+                        "JOIN principals follower ON follower.id = f.follower_principal_id " +
+                        "LEFT JOIN users u ON u.id = follower.user_id AND u.deleted_at IS NULL " +
+                        "WHERE target.user_id = ? AND (follower.kind = 'anon' OR u.id IS NOT NULL)",
                 Integer.class, userId
         );
         return count == null ? 0 : count;
@@ -97,7 +143,11 @@ public class UserRepository {
 
     public int countFollowing(long userId) {
         Integer count = jdbcTemplate.queryForObject(
-                "SELECT COUNT(*) FROM follows WHERE follower_id = ?",
+                "SELECT COUNT(*) FROM principal_follows f " +
+                        "JOIN principals target ON target.id = f.follower_principal_id " +
+                        "JOIN principals followee ON followee.id = f.followee_principal_id " +
+                        "LEFT JOIN users u ON u.id = followee.user_id AND u.deleted_at IS NULL " +
+                        "WHERE target.user_id = ? AND (followee.kind = 'anon' OR u.id IS NOT NULL)",
                 Integer.class, userId
         );
         return count == null ? 0 : count;
@@ -129,5 +179,7 @@ public class UserRepository {
         public boolean isAnonymous;
         public String profileImageUrl;
         public OffsetDateTime createdAt;
+        public OffsetDateTime deletedAt;
+        public Long deletedBy;
     }
 }

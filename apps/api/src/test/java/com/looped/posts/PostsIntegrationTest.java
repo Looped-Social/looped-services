@@ -2,7 +2,6 @@ package com.looped.posts;
 
 import com.looped.auth.TestSecurityConfig;
 import com.looped.support.PostgresTestBase;
-import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -14,8 +13,6 @@ import org.springframework.security.oauth2.jose.jws.SignatureAlgorithm;
 import org.springframework.security.oauth2.jwt.JwtClaimsSet;
 import org.springframework.security.oauth2.jwt.JwtEncoder;
 import org.springframework.security.oauth2.jwt.JwtEncoderParameters;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.junit.jupiter.Container;
@@ -42,8 +39,8 @@ class PostsIntegrationTest extends PostgresTestBase {
     @Container
     static GenericContainer<?> redis = new GenericContainer<>(DockerImageName.parse("redis:7-alpine")).withExposedPorts(6379);
 
-    @DynamicPropertySource
-    static void redisProps(DynamicPropertyRegistry registry) {
+    @org.springframework.test.context.DynamicPropertySource
+    static void redisProps(org.springframework.test.context.DynamicPropertyRegistry registry) {
         registry.add("spring.data.redis.url", () -> "redis://" + redis.getHost() + ":" + redis.getMappedPort(6379));
     }
 
@@ -76,9 +73,16 @@ class PostsIntegrationTest extends PostgresTestBase {
                 Long.class);
         jdbc.update("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?)",
                 "uid-post", "carol", companyId);
+        long communityId = jdbc.queryForObject(
+                "INSERT INTO communities(kind, name) VALUES ('company', 'Acme') RETURNING id",
+                Long.class);
+        long userId = jdbc.queryForObject("SELECT id FROM users WHERE firebase_uid=?", Long.class, "uid-post");
+        jdbc.update("INSERT INTO principals(kind, user_id) VALUES ('user', ?)", userId);
+        jdbc.update("INSERT INTO community_verifications(user_id, community_id, method, verified, verified_at) VALUES (?,?,?,?, now())",
+                userId, communityId, "manual", true);
 
         String auth = "Bearer " + token("uid-post");
-        String body = "{\"content\":\"hello world\"}";
+        String body = "{\"content\":\"hello world\", \"communityId\": " + communityId + "}";
 
         var r1 = mockMvc.perform(post("/v1/posts")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -115,35 +119,67 @@ class PostsIntegrationTest extends PostgresTestBase {
                 Long.class);
         jdbc.update("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?)",
                 "uid-post2", "dave", companyId);
+        long communityId = jdbc.queryForObject(
+                "INSERT INTO communities(kind, name) VALUES ('company', 'Beta') RETURNING id",
+                Long.class);
+        long userId = jdbc.queryForObject("SELECT id FROM users WHERE firebase_uid=?", Long.class, "uid-post2");
+        jdbc.update("INSERT INTO principals(kind, user_id) VALUES ('user', ?)", userId);
+        jdbc.update("INSERT INTO community_verifications(user_id, community_id, method, verified, verified_at) VALUES (?,?,?,?, now())",
+                userId, communityId, "manual", true);
 
         String auth = "Bearer " + token("uid-post2");
 
         mockMvc.perform(post("/v1/posts")
                         .contentType(MediaType.APPLICATION_JSON)
                         .header("Authorization", auth)
-                        .content("{\"content\":\"no key\"}"))
+                        .content("{\"content\":\"no key\", \"communityId\": " + communityId + "}"))
                 .andExpect(status().isBadRequest());
     }
 
     @Test
-    void get_forbidden_cross_company() throws Exception {
+    void create_requires_verified_community() throws Exception {
+        long companyId = jdbc.queryForObject(
+                "INSERT INTO companies(name, domain) VALUES ('Gamma', 'gamma.com') RETURNING id",
+                Long.class);
+        jdbc.update("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?)",
+                "uid-post3", "gina", companyId);
+        long communityId = jdbc.queryForObject(
+                "INSERT INTO communities(kind, name) VALUES ('sector', 'Finance') RETURNING id",
+                Long.class);
+
+        String auth = "Bearer " + token("uid-post3");
+
+        mockMvc.perform(post("/v1/posts")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", auth)
+                        .header("Idempotency-Key", "k-3")
+                        .content("{\"content\":\"need verify\", \"communityId\": " + communityId + "}"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error", equalTo("community_not_verified")));
+    }
+
+    @Test
+    void get_allows_cross_company() throws Exception {
         long acme = jdbc.queryForObject(
                 "INSERT INTO companies(name, domain) VALUES ('Acme', 'acme.com') RETURNING id",
                 Long.class);
         long beta = jdbc.queryForObject(
                 "INSERT INTO companies(name, domain) VALUES ('Beta', 'beta.com') RETURNING id",
                 Long.class);
-        jdbc.update("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?)",
-                "uid-author", "arthur", acme);
-        long authorId = jdbc.queryForObject("SELECT id FROM users WHERE firebase_uid=?", Long.class, "uid-author");
-        long postId = jdbc.queryForObject("INSERT INTO posts(author_id, company_id, content) VALUES (?,?,?) RETURNING id",
-                Long.class, authorId, acme, "secret");
+        long authorId = jdbc.queryForObject("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?) RETURNING id",
+                Long.class, "uid-author", "arthur", acme);
+        long authorPrincipal = jdbc.queryForObject("INSERT INTO principals(kind, user_id) VALUES ('user', ?) RETURNING id", Long.class, authorId);
+        long communityId = jdbc.queryForObject(
+                "INSERT INTO communities(kind, name) VALUES ('company', 'Acme') RETURNING id",
+                Long.class);
+        long postId = jdbc.queryForObject("INSERT INTO posts(author_id, author_principal_id, company_id, community_id, content) VALUES (?,?,?,?,?) RETURNING id",
+                Long.class, authorId, authorPrincipal, acme, communityId, "secret");
 
         jdbc.update("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?)",
                 "uid-reader", "rachel", beta);
         String auth = "Bearer " + token("uid-reader");
 
         mockMvc.perform(get("/v1/posts/" + postId).header("Authorization", auth))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isOk());
     }
 }

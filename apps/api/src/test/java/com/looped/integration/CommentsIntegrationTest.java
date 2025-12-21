@@ -65,8 +65,14 @@ class CommentsIntegrationTest extends PostgresTestBase {
                 Long.class, "uid-author", "author", companyId, "Author");
         long commenterId = jdbc.queryForObject("INSERT INTO users(firebase_uid, handle, company_id, display_name) VALUES (?,?,?,?) RETURNING id",
                 Long.class, "uid-commenter", "commenter", companyId, "Commenter");
-        long postId = jdbc.queryForObject("INSERT INTO posts(author_id, company_id, content) VALUES (?,?,?) RETURNING id",
-                Long.class, postAuthorId, companyId, "post body");
+        long authorPrincipal = jdbc.queryForObject("INSERT INTO principals(kind, user_id) VALUES ('user', ?) RETURNING id", Long.class, postAuthorId);
+        long communityId = jdbc.queryForObject("INSERT INTO communities(kind, name) VALUES ('company', 'CommentCo') RETURNING id", Long.class);
+        jdbc.update("INSERT INTO community_verifications(user_id, community_id, method, verified, verified_at) VALUES (?,?,?,?, now())",
+                postAuthorId, communityId, "manual", true);
+        jdbc.update("INSERT INTO community_verifications(user_id, community_id, method, verified, verified_at) VALUES (?,?,?,?, now())",
+                commenterId, communityId, "manual", true);
+        long postId = jdbc.queryForObject("INSERT INTO posts(author_id, author_principal_id, company_id, community_id, content) VALUES (?,?,?,?,?) RETURNING id",
+                Long.class, postAuthorId, authorPrincipal, companyId, communityId, "post body");
 
         String commenterAuth = "Bearer " + token("uid-commenter");
         String authorAuth = "Bearer " + token("uid-author");
@@ -129,8 +135,14 @@ class CommentsIntegrationTest extends PostgresTestBase {
                 Long.class, "uid-r1", "replyuser", companyId, "Replier");
         long authorId = jdbc.queryForObject("INSERT INTO users(firebase_uid, handle, company_id, display_name) VALUES (?,?,?,?) RETURNING id",
                 Long.class, "uid-author-r1", "author", companyId, "Author");
-        long postId = jdbc.queryForObject("INSERT INTO posts(author_id, company_id, content) VALUES (?,?,?) RETURNING id",
-                Long.class, authorId, companyId, "post");
+        long authorPrincipal = jdbc.queryForObject("INSERT INTO principals(kind, user_id) VALUES ('user', ?) RETURNING id", Long.class, authorId);
+        long communityId = jdbc.queryForObject("INSERT INTO communities(kind, name) VALUES ('company', 'RepliesCo') RETURNING id", Long.class);
+        jdbc.update("INSERT INTO community_verifications(user_id, community_id, method, verified, verified_at) VALUES (?,?,?,?, now())",
+                userId, communityId, "manual", true);
+        jdbc.update("INSERT INTO community_verifications(user_id, community_id, method, verified, verified_at) VALUES (?,?,?,?, now())",
+                authorId, communityId, "manual", true);
+        long postId = jdbc.queryForObject("INSERT INTO posts(author_id, author_principal_id, company_id, community_id, content) VALUES (?,?,?,?,?) RETURNING id",
+                Long.class, authorId, authorPrincipal, companyId, communityId, "post");
 
         String auth = "Bearer " + token("uid-r1");
         String authorAuth = "Bearer " + token("uid-author-r1");
@@ -156,5 +168,27 @@ class CommentsIntegrationTest extends PostgresTestBase {
                 .andExpect(jsonPath("$.items[0].content").value("second"))
                 .andExpect(jsonPath("$.items[0].parent_id").value((int) comment1))
                 .andExpect(jsonPath("$.items[1].content").value("first"));
+    }
+
+    @Test
+    void comment_requires_community_verification() throws Exception {
+        long companyId = jdbc.queryForObject("INSERT INTO companies(name, domain) VALUES ('VerifyCo','verify.co') RETURNING id", Long.class);
+        long authorId = jdbc.queryForObject("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?) RETURNING id",
+                Long.class, "uid-v-author", "vauthor", companyId);
+        long commenterId = jdbc.queryForObject("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?) RETURNING id",
+                Long.class, "uid-v-commenter", "vcommenter", companyId);
+        long authorPrincipal = jdbc.queryForObject("INSERT INTO principals(kind, user_id) VALUES ('user', ?) RETURNING id", Long.class, authorId);
+        long communityId = jdbc.queryForObject("INSERT INTO communities(kind, name) VALUES ('company', 'VerifyCo') RETURNING id", Long.class);
+        jdbc.update("INSERT INTO community_verifications(user_id, community_id, method, verified, verified_at) VALUES (?,?,?,?, now())",
+                authorId, communityId, "manual", true);
+        long postId = jdbc.queryForObject("INSERT INTO posts(author_id, author_principal_id, company_id, community_id, content) VALUES (?,?,?,?,?) RETURNING id",
+                Long.class, authorId, authorPrincipal, companyId, communityId, "post");
+
+        mockMvc.perform(post("/v1/posts/" + postId + "/comments")
+                        .header("Authorization", "Bearer " + token("uid-v-commenter"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"content\":\"nope\"}"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error").value("community_not_verified"));
     }
 }

@@ -1,5 +1,7 @@
 package com.looped.posts;
 
+import com.looped.anon.AnonProofService;
+import com.looped.principals.PrincipalRepository;
 import com.looped.shared.Pagination;
 import com.looped.users.UserRepository;
 import org.springframework.stereotype.Service;
@@ -11,23 +13,33 @@ import java.util.Optional;
 @Service
 public class PostCollectionsService {
     private final UserRepository users;
+    private final PrincipalRepository principals;
     private final PostRepository posts;
     private final LikesRepository likes;
     private final SavedPostsRepository savedPosts;
+    private final AnonProofService anonProofs;
 
-    public PostCollectionsService(UserRepository users, PostRepository posts, LikesRepository likes, SavedPostsRepository savedPosts) {
+    public PostCollectionsService(UserRepository users,
+                                  PrincipalRepository principals,
+                                  PostRepository posts,
+                                  LikesRepository likes,
+                                  SavedPostsRepository savedPosts,
+                                  AnonProofService anonProofs) {
         this.users = users;
+        this.principals = principals;
         this.posts = posts;
         this.likes = likes;
         this.savedPosts = savedPosts;
+        this.anonProofs = anonProofs;
     }
 
     public ListResult liked(String firebaseUid, String cursor, int limit) {
         var actor = provisionedUser(firebaseUid);
         if (actor.isEmpty()) return ListResult.userNotProvisioned();
+        var principal = principals.createForUser(actor.get().id);
 
         var cursorParts = decodeCursor(cursor);
-        var rows = likes.findLikedPosts(actor.get().id, actor.get().companyId, cursorParts.timestamp, cursorParts.postId, limit);
+        var rows = likes.findLikedPosts(principal.id, cursorParts.timestamp, cursorParts.postId, limit);
         String next = null;
         if (rows.size() == limit) {
             var last = rows.get(rows.size() - 1);
@@ -40,9 +52,10 @@ public class PostCollectionsService {
     public ListResult saved(String firebaseUid, String cursor, int limit) {
         var actor = provisionedUser(firebaseUid);
         if (actor.isEmpty()) return ListResult.userNotProvisioned();
+        var principal = principals.createForUser(actor.get().id);
 
         var cursorParts = decodeCursor(cursor);
-        var rows = savedPosts.findSavedPosts(actor.get().id, actor.get().companyId, cursorParts.timestamp, cursorParts.postId, limit);
+        var rows = savedPosts.findSavedPosts(principal.id, cursorParts.timestamp, cursorParts.postId, limit);
         String next = null;
         if (rows.size() == limit) {
             var last = rows.get(rows.size() - 1);
@@ -58,10 +71,11 @@ public class PostCollectionsService {
 
         var target = users.findById(targetUserId);
         if (target.isEmpty()) return ListResult.notFound();
-        if (!actor.get().companyId.equals(target.get().companyId)) return ListResult.forbidden();
+
+        var targetPrincipal = principals.createForUser(targetUserId);
 
         var cursorParts = decodeCursor(cursor);
-        var rows = savedPosts.findSavedPosts(targetUserId, actor.get().companyId, cursorParts.timestamp, cursorParts.postId, limit);
+        var rows = savedPosts.findSavedPosts(targetPrincipal.id, cursorParts.timestamp, cursorParts.postId, limit);
         String next = null;
         if (rows.size() == limit) {
             var last = rows.get(rows.size() - 1);
@@ -71,27 +85,45 @@ public class PostCollectionsService {
         return ListResult.ok(posts, next);
     }
 
-    public SaveResult save(String firebaseUid, long postId) {
+    public SaveResult save(String firebaseUid, long postId, AnonProofService.AnonActionProof anonProof) {
         var actor = provisionedUser(firebaseUid);
         if (actor.isEmpty()) return SaveResult.userNotProvisioned();
 
         var post = posts.findById(postId);
         if (post.isEmpty()) return SaveResult.notFound(false);
-        if (!actor.get().companyId.equals(post.get().companyId)) return SaveResult.forbidden(false);
 
-        boolean created = savedPosts.insertIfAbsent(actor.get().id, postId);
+        long actorPrincipalId;
+        if (anonProof != null && anonProof.anonProfileId() != null) {
+            var verified = anonProofs.verifyAction(anonProof, "save", postId);
+            if (verified.status() != AnonProofService.Status.OK) return SaveResult.invalidSignature();
+            actorPrincipalId = verified.actor().principalId();
+        } else {
+            var principal = principals.createForUser(actor.get().id);
+            actorPrincipalId = principal.id;
+        }
+
+        boolean created = savedPosts.insertIfAbsent(actorPrincipalId, postId);
         return SaveResult.ok(true, created);
     }
 
-    public SaveResult unsave(String firebaseUid, long postId) {
+    public SaveResult unsave(String firebaseUid, long postId, AnonProofService.AnonActionProof anonProof) {
         var actor = provisionedUser(firebaseUid);
         if (actor.isEmpty()) return SaveResult.userNotProvisioned();
 
         var post = posts.findById(postId);
         if (post.isEmpty()) return SaveResult.notFound(false);
-        if (!actor.get().companyId.equals(post.get().companyId)) return SaveResult.forbidden(false);
 
-        boolean deleted = savedPosts.delete(actor.get().id, postId);
+        long actorPrincipalId;
+        if (anonProof != null && anonProof.anonProfileId() != null) {
+            var verified = anonProofs.verifyAction(anonProof, "unsave", postId);
+            if (verified.status() != AnonProofService.Status.OK) return SaveResult.invalidSignature();
+            actorPrincipalId = verified.actor().principalId();
+        } else {
+            var principal = principals.createForUser(actor.get().id);
+            actorPrincipalId = principal.id;
+        }
+
+        boolean deleted = savedPosts.delete(actorPrincipalId, postId);
         return SaveResult.ok(false, deleted);
     }
 
@@ -115,19 +147,18 @@ public class PostCollectionsService {
 
     private record CursorParts(OffsetDateTime timestamp, Long postId) {}
 
-    public enum Status { OK, USER_NOT_PROVISIONED, NOT_FOUND, FORBIDDEN }
+    public enum Status { OK, USER_NOT_PROVISIONED, NOT_FOUND, INVALID_SIGNATURE }
 
     public record ListResult(Status status, List<PostRepository.PostRow> posts, String nextCursor) {
         static ListResult ok(List<PostRepository.PostRow> posts, String next) { return new ListResult(Status.OK, posts, next); }
         static ListResult userNotProvisioned() { return new ListResult(Status.USER_NOT_PROVISIONED, List.of(), null); }
         static ListResult notFound() { return new ListResult(Status.NOT_FOUND, List.of(), null); }
-        static ListResult forbidden() { return new ListResult(Status.FORBIDDEN, List.of(), null); }
     }
 
     public record SaveResult(Status status, boolean saved, boolean changed) {
         static SaveResult ok(boolean saved, boolean changed) { return new SaveResult(Status.OK, saved, changed); }
         static SaveResult userNotProvisioned() { return new SaveResult(Status.USER_NOT_PROVISIONED, false, false); }
         static SaveResult notFound(boolean saved) { return new SaveResult(Status.NOT_FOUND, saved, false); }
-        static SaveResult forbidden(boolean saved) { return new SaveResult(Status.FORBIDDEN, saved, false); }
+        static SaveResult invalidSignature() { return new SaveResult(Status.INVALID_SIGNATURE, false, false); }
     }
 }

@@ -19,7 +19,9 @@ import java.util.List;
 
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.hasSize;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -61,8 +63,12 @@ class FollowsIntegrationTest extends PostgresTestBase {
         long carol = jdbc.queryForObject("INSERT INTO users(firebase_uid, handle, company_id, display_name) VALUES (?,?,?,?) RETURNING id",
                 Long.class, "uid-carol", "carol", companyId, "Carol");
 
-        jdbc.update("INSERT INTO follows(follower_id, followee_id, created_at) VALUES (?,?, now() - interval '5 seconds')", bob, alice);
-        jdbc.update("INSERT INTO follows(follower_id, followee_id, created_at) VALUES (?,?, now() - interval '2 seconds')", carol, alice);
+        long alicePrincipal = jdbc.queryForObject("INSERT INTO principals(kind, user_id) VALUES ('user', ?) RETURNING id", Long.class, alice);
+        long bobPrincipal = jdbc.queryForObject("INSERT INTO principals(kind, user_id) VALUES ('user', ?) RETURNING id", Long.class, bob);
+        long carolPrincipal = jdbc.queryForObject("INSERT INTO principals(kind, user_id) VALUES ('user', ?) RETURNING id", Long.class, carol);
+
+        jdbc.update("INSERT INTO principal_follows(follower_principal_id, followee_principal_id, created_at) VALUES (?,?, now() - interval '5 seconds')", bobPrincipal, alicePrincipal);
+        jdbc.update("INSERT INTO principal_follows(follower_principal_id, followee_principal_id, created_at) VALUES (?,?, now() - interval '2 seconds')", carolPrincipal, alicePrincipal);
 
         mockMvc.perform(get("/v1/users/" + alice + "/followers")
                         .header("Authorization", "Bearer " + token("uid-alice")))
@@ -76,5 +82,25 @@ class FollowsIntegrationTest extends PostgresTestBase {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items", hasSize(1)))
                 .andExpect(jsonPath("$.items[0].handle", equalTo("alice")));
+    }
+
+    @Test
+    void follow_and_unfollow_user() throws Exception {
+        long companyId = jdbc.queryForObject("INSERT INTO companies(name, domain) VALUES ('Follow2','follow2.co') RETURNING id", Long.class);
+        jdbc.update("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?)", "uid-follower", "follower", companyId);
+        long targetId = jdbc.queryForObject("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?) RETURNING id",
+                Long.class, "uid-target", "target", companyId);
+
+        String auth = "Bearer " + token("uid-follower");
+
+        mockMvc.perform(post("/v1/users/" + targetId + "/follow")
+                        .header("Authorization", auth))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.following").value(true));
+
+        mockMvc.perform(delete("/v1/users/" + targetId + "/follow")
+                        .header("Authorization", auth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.following").value(false));
     }
 }

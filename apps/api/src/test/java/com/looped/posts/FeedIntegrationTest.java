@@ -6,7 +6,6 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.oauth2.jwt.JwsHeader;
 import org.springframework.security.oauth2.jose.jws.SignatureAlgorithm;
@@ -19,7 +18,10 @@ import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.List;
 
-import static org.hamcrest.Matchers.*;
+import static org.hamcrest.Matchers.containsInAnyOrder;
+import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.hasSize;
+import static org.hamcrest.Matchers.notNullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -53,42 +55,31 @@ class FeedIntegrationTest extends PostgresTestBase {
     }
 
     @Test
-    void feed_returns_company_posts_with_pagination() throws Exception {
+    void feed_returns_popular_posts_with_pagination() throws Exception {
         long acmeId = jdbc.queryForObject("INSERT INTO companies(name, domain) VALUES ('Acme','acme.com') RETURNING id", Long.class);
-        long otherId = jdbc.queryForObject("INSERT INTO companies(name, domain) VALUES ('Other','other.com') RETURNING id", Long.class);
-        jdbc.update("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?)", "uid-feed", "erin", acmeId);
+        long userId = jdbc.queryForObject("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?) RETURNING id", Long.class,
+                "uid-feed", "erin", acmeId);
+        long principalId = jdbc.queryForObject("INSERT INTO principals(kind, user_id) VALUES ('user', ?) RETURNING id", Long.class, userId);
+        long commA = jdbc.queryForObject("INSERT INTO communities(kind, name) VALUES ('company', 'Acme') RETURNING id", Long.class);
+        long commB = jdbc.queryForObject("INSERT INTO communities(kind, name) VALUES ('sector', 'Finance') RETURNING id", Long.class);
 
-        long author = jdbc.queryForObject("SELECT id FROM users WHERE firebase_uid=?", Long.class, "uid-feed");
         Instant base = Instant.now();
-        // Insert 5 posts for Acme with descending times, and 2 posts for Other company
-        for (int i = 1; i <= 5; i++) {
-            Long id = jdbc.queryForObject(
-                    "INSERT INTO posts(author_id, company_id, content, created_at) VALUES (?,?,?,?) RETURNING id",
-                    Long.class,
-                    author, acmeId, "p" + i, Timestamp.from(base.minusSeconds(60L * i))
-            );
-        }
-        for (int i = 1; i <= 2; i++) {
-            jdbc.update(
-                    "INSERT INTO posts(author_id, company_id, content, created_at) VALUES (?,?,?,?)",
-                    author, otherId, "x" + i, Timestamp.from(base.minusSeconds(60L * (10 + i)))
-            );
-        }
+        jdbc.update(
+                "INSERT INTO posts(author_id, author_principal_id, company_id, community_id, content, likes_count, comments_count, share_count, created_at) VALUES (?,?,?,?,?,?,?,?,?)",
+                userId, principalId, acmeId, commA, "p1", 1, 1, 0, Timestamp.from(base.minusSeconds(180))
+        ); // score 3
+        jdbc.update(
+                "INSERT INTO posts(author_id, author_principal_id, company_id, community_id, content, likes_count, comments_count, share_count, created_at) VALUES (?,?,?,?,?,?,?,?,?)",
+                userId, principalId, acmeId, commB, "p2", 3, 0, 0, Timestamp.from(base.minusSeconds(120))
+        ); // score 6
+        jdbc.update(
+                "INSERT INTO posts(author_id, author_principal_id, company_id, community_id, content, likes_count, comments_count, share_count, created_at) VALUES (?,?,?,?,?,?,?,?,?)",
+                userId, principalId, acmeId, commA, "p3", 2, 2, 1, Timestamp.from(base.minusSeconds(60))
+        ); // score 7
 
         String auth = "Bearer " + token("uid-feed");
 
         var r1 = mockMvc.perform(get("/v1/feed?limit=2")
-                        .header("Authorization", auth))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.items", hasSize(2)))
-                .andExpect(jsonPath("$.items[0].content", equalTo("p5")))
-                .andExpect(jsonPath("$.items[1].content", equalTo("p4")))
-                .andExpect(jsonPath("$.next_cursor", notNullValue()))
-                .andReturn();
-
-        String next = r1.getResponse().getContentAsString().replaceAll(".*\"next_cursor\":\"([^\"]+)\".*", "$1");
-
-        var r2 = mockMvc.perform(get("/v1/feed?limit=2&cursor=" + next)
                         .header("Authorization", auth))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items", hasSize(2)))
@@ -97,13 +88,40 @@ class FeedIntegrationTest extends PostgresTestBase {
                 .andExpect(jsonPath("$.next_cursor", notNullValue()))
                 .andReturn();
 
-        String next2 = r2.getResponse().getContentAsString().replaceAll(".*\"next_cursor\":\"([^\"]+)\".*", "$1");
+        String next = r1.getResponse().getContentAsString().replaceAll(".*\"next_cursor\":\"([^\"]+)\".*", "$1");
 
-        mockMvc.perform(get("/v1/feed?limit=2&cursor=" + next2)
+        mockMvc.perform(get("/v1/feed?limit=2&cursor=" + next)
                         .header("Authorization", auth))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items", hasSize(1)))
                 .andExpect(jsonPath("$.items[0].content", equalTo("p1")))
                 .andExpect(jsonPath("$.next_cursor").doesNotExist());
+    }
+
+    @Test
+    void feed_filters_by_community_id() throws Exception {
+        long acmeId = jdbc.queryForObject("INSERT INTO companies(name, domain) VALUES ('Acme','acme.com') RETURNING id", Long.class);
+        long userId = jdbc.queryForObject("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?) RETURNING id", Long.class,
+                "uid-loop-feed", "lena", acmeId);
+        long principalId = jdbc.queryForObject("INSERT INTO principals(kind, user_id) VALUES ('user', ?) RETURNING id", Long.class, userId);
+
+        long commA = jdbc.queryForObject("INSERT INTO communities(kind, name) VALUES ('sector', ?) RETURNING id", Long.class, "Finance");
+        long commB = jdbc.queryForObject("INSERT INTO communities(kind, name) VALUES ('sector', ?) RETURNING id", Long.class, "Product");
+
+        Instant base = Instant.now();
+        jdbc.update("INSERT INTO posts(author_id, author_principal_id, company_id, community_id, content, created_at) VALUES (?,?,?,?,?,?)",
+                userId, principalId, acmeId, commA, "a1", Timestamp.from(base.minusSeconds(120)));
+        jdbc.update("INSERT INTO posts(author_id, author_principal_id, company_id, community_id, content, created_at) VALUES (?,?,?,?,?,?)",
+                userId, principalId, acmeId, commB, "b1", Timestamp.from(base.minusSeconds(90)));
+        jdbc.update("INSERT INTO posts(author_id, author_principal_id, company_id, community_id, content, created_at) VALUES (?,?,?,?,?,?)",
+                userId, principalId, acmeId, commA, "a2", Timestamp.from(base.minusSeconds(60)));
+
+        String auth = "Bearer " + token("uid-loop-feed");
+
+        mockMvc.perform(get("/v1/feed?communityId=" + commA + "&limit=10")
+                        .header("Authorization", auth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items", hasSize(2)))
+                .andExpect(jsonPath("$.items[*].content", containsInAnyOrder("a1", "a2")));
     }
 }

@@ -35,7 +35,7 @@ public class SecurityConfig {
             .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(authz -> authz
                 .requestMatchers("/health", "/actuator/health", "/actuator/info").permitAll()
-                .requestMatchers("/v1/**").authenticated()
+                .requestMatchers("/v1/**", "/anon/**").authenticated()
                 .anyRequest().permitAll()
             )
             .oauth2ResourceServer(oauth2 -> oauth2.jwt(Customizer.withDefaults()));
@@ -51,4 +51,3 @@ public class SecurityConfig {
         return decoder;
     }
 }
-

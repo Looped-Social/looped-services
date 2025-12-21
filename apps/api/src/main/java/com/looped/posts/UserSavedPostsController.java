@@ -38,9 +38,6 @@ public class UserSavedPostsController {
             case NOT_FOUND -> ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of(
                     "error", "not_found"
             ));
-            case FORBIDDEN -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
-                    "error", "forbidden"
-            ));
             case OK -> {
                 List<Map<String, Object>> items = res.posts().stream().map(p -> PostPayloads.fromSaved(p, true)).toList();
                 Map<String, Object> body = new HashMap<>();
@@ -48,6 +45,7 @@ public class UserSavedPostsController {
                 if (res.nextCursor() != null) body.put("next_cursor", res.nextCursor());
                 yield ResponseEntity.ok(body);
             }
+            default -> ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         };
     }
 }

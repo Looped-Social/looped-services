@@ -53,6 +53,7 @@ public class MediaController {
     public ResponseEntity<?> callback(
             @AuthenticationPrincipal Jwt jwt,
             @RequestHeader(value = "X-Media-Signature", required = false) String signature,
+            @RequestHeader(value = "X-Actor", required = false) String actor,
             @Validated @RequestBody CallbackRequest body
     ) {
         // Verify signature if secret configured
@@ -64,12 +65,16 @@ public class MediaController {
                 ));
             }
         }
-        // Verify user exists
-        var u = users.findByFirebaseUid(jwt.getSubject());
-        if (u.isEmpty()) {
-            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
-                    "error", "user_not_provisioned"
-            ));
+        Long ownerId = null;
+        boolean isAnon = actor != null && actor.equalsIgnoreCase("anon");
+        if (!isAnon) {
+            var u = users.findByFirebaseUid(jwt.getSubject());
+            if (u.isEmpty()) {
+                return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
+                        "error", "user_not_provisioned"
+                ));
+            }
+            ownerId = u.get().id;
         }
         // Ensure key not already recorded
         if (mediaRepository.existsByKey(body.key())) {
@@ -77,7 +82,7 @@ public class MediaController {
                     "status", "exists"
             ));
         }
-        Long id = mediaRepository.insert(u.get().id, body.key(), body.mimeType(), body.width(), body.height(), body.durationSeconds());
+        Long id = mediaRepository.insert(ownerId, body.key(), body.mimeType(), body.width(), body.height(), body.durationSeconds());
         String cdnUrl = null;
         if (cloudfrontDomain != null && !cloudfrontDomain.isBlank()) {
             cdnUrl = "https://" + cloudfrontDomain + "/" + body.key();
@@ -93,4 +98,3 @@ public class MediaController {
     public record PresignRequest(@NotBlank String contentType, @NotNull Long sizeBytes) {}
     public record CallbackRequest(@NotBlank String key, @NotBlank String mimeType, Integer width, Integer height, Integer durationSeconds) {}
 }
-
