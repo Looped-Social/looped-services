@@ -16,14 +16,17 @@ public class VerificationService {
 
     private final UserRepository users;
     private final VerificationRepository repo;
+    private final VerificationRequestsRepository requests;
     private final StringRedisTemplate redis;
     private final VerificationProperties props;
     private final ThirdPartyVerifier thirdPartyVerifier;
     private final SecureRandom random = new SecureRandom();
 
-    public VerificationService(UserRepository users, VerificationRepository repo, StringRedisTemplate redis, VerificationProperties props, ThirdPartyVerifier thirdPartyVerifier) {
+    public VerificationService(UserRepository users, VerificationRepository repo, VerificationRequestsRepository requests,
+                               StringRedisTemplate redis, VerificationProperties props, ThirdPartyVerifier thirdPartyVerifier) {
         this.users = users;
         this.repo = repo;
+        this.requests = requests;
         this.redis = redis;
         this.props = props;
         this.thirdPartyVerifier = thirdPartyVerifier;
@@ -63,7 +66,7 @@ public class VerificationService {
         return StartResult.ok(method.name(), devCode, sessionId, instructions);
     }
 
-    public FinishResult finish(String firebaseUid, String methodStr, String code, String mediaKey, String token) {
+    public FinishResult finish(String firebaseUid, String email, String methodStr, String code, String mediaKey, String token) {
         var method = parseMethod(methodStr);
         if (method == null) return FinishResult.badRequest("unsupported_method");
 
@@ -81,7 +84,6 @@ public class VerificationService {
             }
             case video -> {
                 if (mediaKey == null || mediaKey.isBlank()) return FinishResult.badRequest("media_key_required");
-                // In MVP, we trust manual review out-of-band and mark verified.
             }
             case thirdparty -> {
                 if (token == null || token.isBlank()) return FinishResult.badRequest("token_required");
@@ -93,8 +95,14 @@ public class VerificationService {
                 redis.delete(sessKey);
             }
         }
-        repo.markVerified(userId, method.name());
-        return FinishResult.ok();
+        String status = (method == Method.video) ? "pending" : "approved";
+        requests.insert(userId, email, method.name(), status, mediaKey, null);
+        if ("approved".equals(status)) {
+            repo.markVerified(userId, method.name());
+            return FinishResult.ok(true);
+        }
+        repo.markUnverified(userId, method.name());
+        return FinishResult.ok(false);
     }
 
     private Method parseMethod(String m) {
@@ -117,7 +125,7 @@ public class VerificationService {
     }
 
     public record FinishResult(Status status, Boolean verified, String error) {
-        static FinishResult ok() { return new FinishResult(Status.OK, true, null); }
+        static FinishResult ok(boolean verified) { return new FinishResult(Status.OK, verified, null); }
         static FinishResult userNotProvisioned() { return new FinishResult(Status.USER_NOT_PROVISIONED, null, null); }
         static FinishResult badRequest(String err) { return new FinishResult(Status.BAD_REQUEST, null, err); }
         static FinishResult invalidCode() { return new FinishResult(Status.INVALID_CODE, null, "invalid_code"); }

@@ -28,6 +28,7 @@ public class MeController {
         Object email = jwt.getClaims().get("email");
         if (email != null) {
             resp.put("email", email);
+            users.syncEmail(jwt.getSubject(), email.toString());
         }
 
         var profile = users.currentProfile(jwt.getSubject());

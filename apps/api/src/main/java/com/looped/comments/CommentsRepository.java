@@ -145,7 +145,7 @@ public class CommentsRepository {
                        CASE WHEN cc.user_id IS NULL THEN false ELSE true END AS liked_by_creator
                 FROM comments c
                 JOIN users u ON u.id = c.user_id AND u.deleted_at IS NULL
-                JOIN posts p ON p.id = c.post_id
+                JOIN posts p ON p.id = c.post_id AND p.removed_at IS NULL
                 LEFT JOIN comment_likes cv ON cv.comment_id = c.id AND cv.user_id = ?
                 LEFT JOIN comment_likes cc ON cc.comment_id = c.id AND cc.user_id = p.author_id
                 WHERE c.user_id = ?

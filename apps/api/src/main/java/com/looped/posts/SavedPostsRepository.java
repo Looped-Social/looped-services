@@ -32,12 +32,12 @@ public class SavedPostsRepository {
 
     public List<SavedPostRow> findSavedPosts(long principalId, OffsetDateTime cursorTs, Long cursorPostId, int limit) {
         if (cursorTs == null || cursorPostId == null) {
-            return jdbc.query(BASE_QUERY + " WHERE s.saver_principal_id=? AND (p.author_id IS NULL OR u.id IS NOT NULL) " +
+            return jdbc.query(BASE_QUERY + " WHERE s.saver_principal_id=? AND p.removed_at IS NULL AND (p.author_id IS NULL OR u.id IS NOT NULL) " +
                             "ORDER BY s.created_at DESC, p.id DESC LIMIT ?",
                     MAPPER, principalId, limit);
         }
         return jdbc.query(BASE_QUERY +
-                        " WHERE s.saver_principal_id=? AND (p.author_id IS NULL OR u.id IS NOT NULL) " +
+                        " WHERE s.saver_principal_id=? AND p.removed_at IS NULL AND (p.author_id IS NULL OR u.id IS NOT NULL) " +
                         "AND (s.created_at < ? OR (s.created_at = ? AND p.id < ?)) " +
                         "ORDER BY s.created_at DESC, p.id DESC LIMIT ?",
                 MAPPER, principalId, cursorTs, cursorTs, cursorPostId, limit);

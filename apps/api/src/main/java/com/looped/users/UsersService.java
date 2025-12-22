@@ -143,6 +143,13 @@ public class UsersService {
         return Optional.of(buildProfile(user.get(), verification));
     }
 
+    public void syncEmail(String firebaseUid, String email) {
+        if (email == null || email.isBlank()) return;
+        var user = users.findByFirebaseUid(firebaseUid);
+        if (user.isEmpty()) return;
+        users.updateEmail(user.get().id, email);
+    }
+
     private Optional<UserRepository.UserRow> requireProvisionedUser(String firebaseUid) {
         var user = users.findByFirebaseUid(firebaseUid);
         if (user.isEmpty() || user.get().companyId == null) return Optional.empty();

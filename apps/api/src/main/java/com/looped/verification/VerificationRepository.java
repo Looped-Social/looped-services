@@ -33,6 +33,14 @@ public class VerificationRepository {
         );
     }
 
+    public void markUnverified(long userId, String method) {
+        jdbc.update(
+                "INSERT INTO verifications(user_id, method, verified, verified_at) VALUES (?,?,false, NULL) " +
+                        "ON CONFLICT (user_id) DO UPDATE SET method=EXCLUDED.method, verified=false, verified_at=NULL",
+                userId, method
+        );
+    }
+
     public Optional<Row> findByUserId(long userId) {
         var list = jdbc.query("SELECT user_id, method, verified, verified_at FROM verifications WHERE user_id=?", MAPPER, userId);
         return list.isEmpty() ? Optional.empty() : Optional.of(list.get(0));
@@ -57,4 +65,3 @@ public class VerificationRepository {
         public OffsetDateTime verifiedAt;
     }
 }
-

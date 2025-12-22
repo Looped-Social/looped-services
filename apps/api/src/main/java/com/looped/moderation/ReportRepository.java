@@ -30,6 +30,19 @@ public class ReportRepository {
             r.status = rs.getString("status");
             r.createdAt = rs.getObject("created_at", OffsetDateTime.class);
             r.updatedAt = rs.getObject("updated_at", OffsetDateTime.class);
+            r.resolvedAt = rs.getObject("resolved_at", OffsetDateTime.class);
+            long resolvedBy = rs.getLong("resolved_by");
+            r.resolvedBy = rs.wasNull() ? null : resolvedBy;
+            r.resolvedReason = rs.getString("resolved_reason");
+            return r;
+        }
+    };
+
+    private static final RowMapper<ReportRow> ADMIN_MAPPER = new RowMapper<>() {
+        @Override
+        public ReportRow mapRow(ResultSet rs, int rowNum) throws SQLException {
+            ReportRow r = MAPPER.mapRow(rs, rowNum);
+            r.reporterHandle = rs.getString("reporter_handle");
             return r;
         }
     };
@@ -60,6 +73,42 @@ public class ReportRepository {
         return rows > 0;
     }
 
+    public boolean resolve(long id, Long resolvedBy, String resolvedReason) {
+        int rows = jdbc.update(
+                "UPDATE reports SET status = 'resolved', resolved_at = now(), resolved_by = ?, " +
+                        "resolved_reason = ?, updated_at = now() WHERE id = ?",
+                resolvedBy, resolvedReason, id
+        );
+        return rows > 0;
+    }
+
+    public List<ReportRow> listAll(String status, String targetType, OffsetDateTime cursorTs, Long cursorId, int limit) {
+        String base = "SELECT r.*, u.handle AS reporter_handle FROM reports r " +
+                "LEFT JOIN users u ON u.id = r.reporter_id ";
+        StringBuilder where = new StringBuilder();
+        java.util.List<Object> params = new java.util.ArrayList<>();
+        if (status != null && !status.isBlank()) {
+            where.append("r.status = ?");
+            params.add(status);
+        }
+        if (targetType != null && !targetType.isBlank()) {
+            if (!where.isEmpty()) where.append(" AND ");
+            where.append("r.target_type = ?");
+            params.add(targetType);
+        }
+        if (cursorTs != null && cursorId != null) {
+            if (!where.isEmpty()) where.append(" AND ");
+            where.append("(r.created_at < ? OR (r.created_at = ? AND r.id < ?))");
+            params.add(cursorTs);
+            params.add(cursorTs);
+            params.add(cursorId);
+        }
+        String sql = base + (where.isEmpty() ? "" : "WHERE " + where + " ") +
+                "ORDER BY r.created_at DESC, r.id DESC LIMIT ?";
+        params.add(limit);
+        return jdbc.query(sql, ADMIN_MAPPER, params.toArray());
+    }
+
     public static class ReportRow {
         public long id;
         public String targetType;
@@ -69,6 +118,9 @@ public class ReportRepository {
         public String status;
         public OffsetDateTime createdAt;
         public OffsetDateTime updatedAt;
+        public OffsetDateTime resolvedAt;
+        public Long resolvedBy;
+        public String resolvedReason;
+        public String reporterHandle;
     }
 }
-

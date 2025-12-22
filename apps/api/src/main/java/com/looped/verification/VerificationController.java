@@ -46,7 +46,8 @@ public class VerificationController {
 
     @PostMapping("/finish")
     public ResponseEntity<?> finish(@AuthenticationPrincipal Jwt jwt, @Validated @RequestBody FinishRequest body) {
-        var res = service.finish(jwt.getSubject(), body.method(), body.code(), body.mediaKey(), body.token());
+        String email = jwt.getClaimAsString("email");
+        var res = service.finish(jwt.getSubject(), email, body.method(), body.code(), body.mediaKey(), body.token());
         if (res.status() == VerificationService.Status.USER_NOT_PROVISIONED) {
             return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "user_not_provisioned"));
         }
@@ -56,7 +57,11 @@ public class VerificationController {
         if (res.status() == VerificationService.Status.INVALID_CODE) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "invalid_code"));
         }
-        return ResponseEntity.ok(Map.of("verified", true));
+        boolean verified = res.verified() != null && res.verified();
+        Map<String, Object> out = new HashMap<>();
+        out.put("verified", verified);
+        out.put("status", verified ? "approved" : "pending");
+        return ResponseEntity.ok(out);
     }
 
     public record StartRequest(@NotBlank String method) {}

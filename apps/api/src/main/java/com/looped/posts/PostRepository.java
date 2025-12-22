@@ -20,6 +20,7 @@ public class PostRepository {
     private static final String BASE_SELECT =
             "SELECT p.id, p.author_id, p.author_principal_id, p.is_anon, p.anon_profile_id, p.anon_company_id, " +
             "p.company_id, p.community_id, p.content, p.media_asset_id, p.likes_count, p.comments_count, p.share_count, p.created_at, " +
+            "p.removed_at, p.removed_by, p.removed_reason, " +
             "COALESCE(u.handle, ap.handle) AS author_handle, " +
             "u.display_name AS author_display_name, " +
             "u.profile_image_url AS author_profile_image_url, " +
@@ -51,6 +52,10 @@ public class PostRepository {
             p.commentsCount = rs.getInt("comments_count");
             p.shareCount = rs.getInt("share_count");
             p.createdAt = rs.getObject("created_at", OffsetDateTime.class);
+            p.removedAt = rs.getObject("removed_at", OffsetDateTime.class);
+            long removedBy = rs.getLong("removed_by");
+            p.removedBy = rs.wasNull() ? null : removedBy;
+            p.removedReason = rs.getString("removed_reason");
             p.authorHandle = rs.getString("author_handle");
             p.authorDisplayName = rs.getString("author_display_name");
             p.authorProfileImageUrl = rs.getString("author_profile_image_url");
@@ -75,6 +80,14 @@ public class PostRepository {
 
     public Optional<PostRow> findById(Long id) {
         var list = jdbc.query(
+                BASE_SELECT + "WHERE p.id = ? AND p.removed_at IS NULL AND (p.author_id IS NULL OR u.id IS NOT NULL)",
+                MAPPER, id
+        );
+        return list.isEmpty() ? Optional.empty() : Optional.of(list.get(0));
+    }
+
+    public Optional<PostRow> findByIdIncludingRemoved(Long id) {
+        var list = jdbc.query(
                 BASE_SELECT + "WHERE p.id = ? AND (p.author_id IS NULL OR u.id IS NOT NULL)",
                 MAPPER, id
         );
@@ -84,13 +97,13 @@ public class PostRepository {
     public java.util.List<PostRow> findFeedByCommunity(long communityId, java.time.OffsetDateTime cursorTs, Long cursorId, int limit) {
         if (cursorTs == null || cursorId == null) {
             return jdbc.query(
-                    BASE_SELECT + "WHERE p.community_id=? AND (p.author_id IS NULL OR u.id IS NOT NULL) " +
+                    BASE_SELECT + "WHERE p.community_id=? AND p.removed_at IS NULL AND (p.author_id IS NULL OR u.id IS NOT NULL) " +
                             "ORDER BY p.created_at ASC, p.id ASC LIMIT ?",
                     MAPPER, communityId, limit
             );
         }
         return jdbc.query(
-                BASE_SELECT + "WHERE p.community_id=? AND (p.author_id IS NULL OR u.id IS NOT NULL) " +
+                BASE_SELECT + "WHERE p.community_id=? AND p.removed_at IS NULL AND (p.author_id IS NULL OR u.id IS NOT NULL) " +
                         "AND (p.created_at > ? OR (p.created_at = ? AND p.id > ?)) " +
                         "ORDER BY p.created_at ASC, p.id ASC LIMIT ?",
                 MAPPER, communityId, cursorTs, cursorTs, cursorId, limit
@@ -108,7 +121,7 @@ public class PostRepository {
                 scoreExpr + " AS score FROM posts p " +
                 "LEFT JOIN users u ON u.id = p.author_id AND u.deleted_at IS NULL " +
                 "LEFT JOIN anonymous_profiles ap ON ap.id = p.anon_profile_id " +
-                "WHERE p.created_at >= ? AND (p.author_id IS NULL OR u.id IS NOT NULL)";
+                "WHERE p.created_at >= ? AND p.removed_at IS NULL AND (p.author_id IS NULL OR u.id IS NOT NULL)";
         if (cursorScore == null || cursorTs == null || cursorId == null) {
             return jdbc.query(
                     "SELECT id, author_id, author_principal_id, is_anon, anon_profile_id, anon_company_id, company_id, community_id, " +
@@ -131,13 +144,13 @@ public class PostRepository {
     public java.util.List<PostRow> findByAuthor(long authorId, java.time.OffsetDateTime cursorTs, Long cursorId, int limit) {
         if (cursorTs == null || cursorId == null) {
             return jdbc.query(
-                    BASE_SELECT + "WHERE p.author_id=? AND u.id IS NOT NULL " +
+                    BASE_SELECT + "WHERE p.author_id=? AND p.removed_at IS NULL AND u.id IS NOT NULL " +
                             "ORDER BY p.created_at ASC, p.id ASC LIMIT ?",
                     MAPPER, authorId, limit
             );
         } else {
             return jdbc.query(
-                    BASE_SELECT + "WHERE p.author_id=? AND u.id IS NOT NULL " +
+                    BASE_SELECT + "WHERE p.author_id=? AND p.removed_at IS NULL AND u.id IS NOT NULL " +
                             "AND (p.created_at > ? OR (p.created_at = ? AND p.id > ?)) " +
                             "ORDER BY p.created_at ASC, p.id ASC LIMIT ?",
                     MAPPER, authorId, cursorTs, cursorTs, cursorId, limit
@@ -148,13 +161,13 @@ public class PostRepository {
     public java.util.List<PostRow> findByAuthorPrincipal(long authorPrincipalId, java.time.OffsetDateTime cursorTs, Long cursorId, int limit) {
         if (cursorTs == null || cursorId == null) {
             return jdbc.query(
-                    BASE_SELECT + "WHERE p.author_principal_id=? AND (p.author_id IS NULL OR u.id IS NOT NULL) " +
+                    BASE_SELECT + "WHERE p.author_principal_id=? AND p.removed_at IS NULL AND (p.author_id IS NULL OR u.id IS NOT NULL) " +
                             "ORDER BY p.created_at ASC, p.id ASC LIMIT ?",
                     MAPPER, authorPrincipalId, limit
             );
         } else {
             return jdbc.query(
-                    BASE_SELECT + "WHERE p.author_principal_id=? AND (p.author_id IS NULL OR u.id IS NOT NULL) " +
+                    BASE_SELECT + "WHERE p.author_principal_id=? AND p.removed_at IS NULL AND (p.author_id IS NULL OR u.id IS NOT NULL) " +
                             "AND (p.created_at > ? OR (p.created_at = ? AND p.id > ?)) " +
                         "ORDER BY p.created_at ASC, p.id ASC LIMIT ?",
                 MAPPER, authorPrincipalId, cursorTs, cursorTs, cursorId, limit
@@ -166,7 +179,7 @@ public class PostRepository {
         String base = BASE_SELECT +
                 "JOIN hashtag_posts hp ON hp.post_id = p.id " +
                 "JOIN hashtags h ON h.id = hp.hashtag_id " +
-                "WHERE h.company_id = ? AND h.name = ? AND (p.author_id IS NULL OR u.id IS NOT NULL) ";
+                "WHERE h.company_id = ? AND h.name = ? AND p.removed_at IS NULL AND (p.author_id IS NULL OR u.id IS NOT NULL) ";
         if (cursorTs == null || cursorId == null) {
             return jdbc.query(
                     base + "ORDER BY p.created_at ASC, p.id ASC LIMIT ?",
@@ -193,7 +206,7 @@ public class PostRepository {
                 "JOIN communities c ON c.id = p.community_id " +
                 "LEFT JOIN users u ON u.id = p.author_id AND u.deleted_at IS NULL " +
                 "LEFT JOIN anonymous_profiles ap ON ap.id = p.anon_profile_id " +
-                "WHERE p.media_asset_id IS NOT NULL AND p.created_at >= ? AND (p.author_id IS NULL OR u.id IS NOT NULL) ";
+                "WHERE p.media_asset_id IS NOT NULL AND p.created_at >= ? AND p.removed_at IS NULL AND (p.author_id IS NULL OR u.id IS NOT NULL) ";
         if (communityId != null) {
             base += "AND p.community_id = ? ";
         }
@@ -212,6 +225,23 @@ public class PostRepository {
         jdbc.update("UPDATE posts SET comments_count = comments_count + 1 WHERE id = ?", postId);
     }
 
+    public boolean remove(long postId, Long adminId, String reason) {
+        int rows = jdbc.update(
+                "UPDATE posts SET removed_at = now(), removed_by = ?, removed_reason = ? " +
+                        "WHERE id = ? AND removed_at IS NULL",
+                adminId, reason, postId
+        );
+        return rows > 0;
+    }
+
+    public boolean restore(long postId) {
+        int rows = jdbc.update(
+                "UPDATE posts SET removed_at = NULL, removed_by = NULL, removed_reason = NULL WHERE id = ?",
+                postId
+        );
+        return rows > 0;
+    }
+
     public static class PostRow {
         public long id;
         public Long authorId;
@@ -227,6 +257,9 @@ public class PostRepository {
         public int commentsCount;
         public int shareCount;
         public OffsetDateTime createdAt;
+        public OffsetDateTime removedAt;
+        public Long removedBy;
+        public String removedReason;
         public String authorHandle;
         public String authorDisplayName;
         public String authorProfileImageUrl;

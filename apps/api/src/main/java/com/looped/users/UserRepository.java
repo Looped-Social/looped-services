@@ -24,6 +24,7 @@ public class UserRepository {
             row.id = rs.getLong("id");
             row.firebaseUid = rs.getString("firebase_uid");
             row.handle = rs.getString("handle");
+            row.email = rs.getString("email");
             long company = rs.getLong("company_id");
             row.companyId = rs.wasNull() ? null : company;
             row.displayName = rs.getString("display_name");
@@ -41,7 +42,7 @@ public class UserRepository {
 
     public Optional<UserRow> findByFirebaseUid(String firebaseUid) {
         var list = jdbcTemplate.query(
-                "SELECT id, firebase_uid, handle, company_id, display_name, bio, is_anonymous, show_follower_count, " +
+                "SELECT id, firebase_uid, handle, email, company_id, display_name, bio, is_anonymous, show_follower_count, " +
                         "profile_image_url, created_at, deleted_at, deleted_by " +
                         "FROM users WHERE firebase_uid = ? AND deleted_at IS NULL",
                 MAPPER, firebaseUid
@@ -51,7 +52,7 @@ public class UserRepository {
 
     public Optional<UserRow> findById(long userId) {
         var list = jdbcTemplate.query(
-                "SELECT id, firebase_uid, handle, company_id, display_name, bio, is_anonymous, show_follower_count, " +
+                "SELECT id, firebase_uid, handle, email, company_id, display_name, bio, is_anonymous, show_follower_count, " +
                         "profile_image_url, created_at, deleted_at, deleted_by " +
                         "FROM users WHERE id = ? AND deleted_at IS NULL",
                 MAPPER, userId
@@ -61,7 +62,7 @@ public class UserRepository {
 
     public Optional<UserRow> findByFirebaseUidIncludingDeleted(String firebaseUid) {
         var list = jdbcTemplate.query(
-                "SELECT id, firebase_uid, handle, company_id, display_name, bio, is_anonymous, show_follower_count, " +
+                "SELECT id, firebase_uid, handle, email, company_id, display_name, bio, is_anonymous, show_follower_count, " +
                         "profile_image_url, created_at, deleted_at, deleted_by " +
                         "FROM users WHERE firebase_uid = ?",
                 MAPPER, firebaseUid
@@ -71,7 +72,7 @@ public class UserRepository {
 
     public Optional<UserRow> findByIdIncludingDeleted(long userId) {
         var list = jdbcTemplate.query(
-                "SELECT id, firebase_uid, handle, company_id, display_name, bio, is_anonymous, show_follower_count, " +
+                "SELECT id, firebase_uid, handle, email, company_id, display_name, bio, is_anonymous, show_follower_count, " +
                         "profile_image_url, created_at, deleted_at, deleted_by " +
                         "FROM users WHERE id = ?",
                 MAPPER, userId
@@ -91,7 +92,7 @@ public class UserRepository {
         String like = "%" + query.toLowerCase() + "%";
         if (cursorTs == null || cursorId == null) {
             return jdbcTemplate.query(
-                    "SELECT id, firebase_uid, handle, company_id, display_name, bio, is_anonymous, show_follower_count, " +
+                    "SELECT id, firebase_uid, handle, email, company_id, display_name, bio, is_anonymous, show_follower_count, " +
                             "profile_image_url, created_at, deleted_at, deleted_by " +
                             "FROM users WHERE company_id = ? AND deleted_at IS NULL AND (LOWER(handle) LIKE ? OR LOWER(COALESCE(display_name,'')) LIKE ?) " +
                             "ORDER BY created_at DESC, id DESC LIMIT ?",
@@ -99,7 +100,7 @@ public class UserRepository {
             );
         }
         return jdbcTemplate.query(
-                "SELECT id, firebase_uid, handle, company_id, display_name, bio, is_anonymous, show_follower_count, " +
+                "SELECT id, firebase_uid, handle, email, company_id, display_name, bio, is_anonymous, show_follower_count, " +
                         "profile_image_url, created_at, deleted_at, deleted_by " +
                         "FROM users WHERE company_id = ? AND deleted_at IS NULL AND (LOWER(handle) LIKE ? OR LOWER(COALESCE(display_name,'')) LIKE ?) " +
                         "AND (created_at < ? OR (created_at = ? AND id < ?)) " +
@@ -111,14 +112,14 @@ public class UserRepository {
     public java.util.List<UserRow> listCompanyUsers(long companyId, java.time.OffsetDateTime cursorTs, Long cursorId, int limit) {
         if (cursorTs == null || cursorId == null) {
             return jdbcTemplate.query(
-                    "SELECT id, firebase_uid, handle, company_id, display_name, bio, is_anonymous, show_follower_count, " +
+                    "SELECT id, firebase_uid, handle, email, company_id, display_name, bio, is_anonymous, show_follower_count, " +
                             "profile_image_url, created_at, deleted_at, deleted_by " +
                             "FROM users WHERE company_id = ? AND deleted_at IS NULL ORDER BY created_at DESC, id DESC LIMIT ?",
                     MAPPER, companyId, limit
             );
         }
         return jdbcTemplate.query(
-                "SELECT id, firebase_uid, handle, company_id, display_name, bio, is_anonymous, show_follower_count, " +
+                "SELECT id, firebase_uid, handle, email, company_id, display_name, bio, is_anonymous, show_follower_count, " +
                         "profile_image_url, created_at, deleted_at, deleted_by " +
                         "FROM users WHERE company_id = ? AND deleted_at IS NULL AND (created_at < ? OR (created_at = ? AND id < ?)) " +
                         "ORDER BY created_at DESC, id DESC LIMIT ?",
@@ -132,6 +133,77 @@ public class UserRepository {
                 deletedBy, userId
         );
         return rows > 0;
+    }
+
+    public void updateEmail(long userId, String email) {
+        String normalized = normalizeEmail(email);
+        if (normalized == null) return;
+        jdbcTemplate.update("UPDATE users SET email = ? WHERE id = ?", normalized, userId);
+    }
+
+    public java.util.List<UserRow> searchAll(String query, java.time.OffsetDateTime cursorTs, Long cursorId, int limit) {
+        String q = query == null ? "" : query.trim().toLowerCase();
+        boolean hasQuery = !q.isBlank();
+        String like = "%" + q + "%";
+        Long idQuery = null;
+        if (hasQuery) {
+            try {
+                idQuery = Long.parseLong(q);
+            } catch (NumberFormatException ignored) {}
+        }
+        if (!hasQuery) {
+            if (cursorTs == null || cursorId == null) {
+                return jdbcTemplate.query(
+                        "SELECT id, firebase_uid, handle, email, company_id, display_name, bio, is_anonymous, show_follower_count, " +
+                                "profile_image_url, created_at, deleted_at, deleted_by " +
+                                "FROM users WHERE deleted_at IS NULL ORDER BY created_at DESC, id DESC LIMIT ?",
+                        MAPPER, limit
+                );
+            }
+            return jdbcTemplate.query(
+                    "SELECT id, firebase_uid, handle, email, company_id, display_name, bio, is_anonymous, show_follower_count, " +
+                            "profile_image_url, created_at, deleted_at, deleted_by " +
+                            "FROM users WHERE deleted_at IS NULL AND (created_at < ? OR (created_at = ? AND id < ?)) " +
+                            "ORDER BY created_at DESC, id DESC LIMIT ?",
+                    MAPPER, cursorTs, cursorTs, cursorId, limit
+            );
+        }
+        boolean hasId = idQuery != null;
+        String filter = hasId
+                ? "(LOWER(handle) LIKE ? OR LOWER(COALESCE(display_name,'')) LIKE ? OR LOWER(COALESCE(email,'')) LIKE ? " +
+                "OR LOWER(firebase_uid) LIKE ? OR id = ?)"
+                : "(LOWER(handle) LIKE ? OR LOWER(COALESCE(display_name,'')) LIKE ? OR LOWER(COALESCE(email,'')) LIKE ? " +
+                "OR LOWER(firebase_uid) LIKE ?)";
+        if (cursorTs == null || cursorId == null) {
+            Object[] args = hasId
+                    ? new Object[]{like, like, like, like, idQuery, limit}
+                    : new Object[]{like, like, like, like, limit};
+            return jdbcTemplate.query(
+                    "SELECT id, firebase_uid, handle, email, company_id, display_name, bio, is_anonymous, show_follower_count, " +
+                            "profile_image_url, created_at, deleted_at, deleted_by " +
+                            "FROM users WHERE deleted_at IS NULL AND " + filter +
+                            " ORDER BY created_at DESC, id DESC LIMIT ?",
+                    args, MAPPER
+            );
+        }
+        Object[] args = hasId
+                ? new Object[]{like, like, like, like, idQuery, cursorTs, cursorTs, cursorId, limit}
+                : new Object[]{like, like, like, like, cursorTs, cursorTs, cursorId, limit};
+        return jdbcTemplate.query(
+                "SELECT id, firebase_uid, handle, email, company_id, display_name, bio, is_anonymous, show_follower_count, " +
+                        "profile_image_url, created_at, deleted_at, deleted_by " +
+                        "FROM users WHERE deleted_at IS NULL AND " + filter +
+                        " AND (created_at < ? OR (created_at = ? AND id < ?)) " +
+                        "ORDER BY created_at DESC, id DESC LIMIT ?",
+                args, MAPPER
+        );
+    }
+
+    private String normalizeEmail(String email) {
+        if (email == null) return null;
+        String trimmed = email.trim();
+        if (trimmed.isBlank()) return null;
+        return trimmed.toLowerCase(java.util.Locale.ROOT);
     }
 
     public boolean hardDelete(long userId) {
@@ -183,6 +255,7 @@ public class UserRepository {
         public Long id;
         public String firebaseUid;
         public String handle;
+        public String email;
         public Long companyId;
         public String displayName;
         public String bio;
