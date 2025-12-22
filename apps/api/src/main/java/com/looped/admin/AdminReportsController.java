@@ -14,7 +14,10 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.time.LocalDate;
 import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
+import java.time.format.DateTimeParseException;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
@@ -38,6 +41,9 @@ public class AdminReportsController {
             @AuthenticationPrincipal Jwt jwt,
             @RequestParam(value = "status", required = false) String status,
             @RequestParam(value = "targetType", required = false) String targetType,
+            @RequestParam(value = "from", required = false) String from,
+            @RequestParam(value = "to", required = false) String to,
+            @RequestParam(value = "sort", required = false) String sort,
             @RequestParam(value = "cursor", required = false) String cursor,
             @RequestParam(value = "limit", required = false, defaultValue = "50") int limit
     ) {
@@ -55,9 +61,37 @@ public class AdminReportsController {
                 cursorId = decoded.id();
             } catch (IllegalArgumentException ignored) {}
         }
+        OffsetDateTime fromTs = null;
+        OffsetDateTime toTs = null;
+        try {
+            if (from != null && !from.isBlank()) {
+                LocalDate start = LocalDate.parse(from);
+                fromTs = start.atStartOfDay().atOffset(ZoneOffset.UTC);
+            }
+            if (to != null && !to.isBlank()) {
+                LocalDate end = LocalDate.parse(to);
+                toTs = end.plusDays(1).atStartOfDay().atOffset(ZoneOffset.UTC);
+            }
+        } catch (DateTimeParseException e) {
+            return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of("error", "invalid_date"));
+        }
+        String normalizedSort = sort != null ? sort.trim().toLowerCase(Locale.ROOT) : "created_at_desc";
+        boolean ascending = "created_at_asc".equals(normalizedSort);
+        if (!ascending && !"created_at_desc".equals(normalizedSort)) {
+            return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of("error", "invalid_sort"));
+        }
         String normalizedStatus = status != null ? status.trim().toLowerCase(Locale.ROOT) : null;
         String normalizedTarget = targetType != null ? targetType.trim().toLowerCase(Locale.ROOT) : null;
-        List<ReportRepository.ReportRow> rows = reports.listAll(normalizedStatus, normalizedTarget, cursorTs, cursorId, limit);
+        List<ReportRepository.ReportRow> rows = reports.listAll(
+                normalizedStatus,
+                normalizedTarget,
+                fromTs,
+                toTs,
+                cursorTs,
+                cursorId,
+                limit,
+                ascending
+        );
         String next = null;
         if (rows.size() == limit) {
             var last = rows.get(rows.size() - 1);

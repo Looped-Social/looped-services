@@ -82,7 +82,8 @@ public class ReportRepository {
         return rows > 0;
     }
 
-    public List<ReportRow> listAll(String status, String targetType, OffsetDateTime cursorTs, Long cursorId, int limit) {
+    public List<ReportRow> listAll(String status, String targetType, OffsetDateTime fromTs, OffsetDateTime toTs,
+                                   OffsetDateTime cursorTs, Long cursorId, int limit, boolean ascending) {
         String base = "SELECT r.*, u.handle AS reporter_handle FROM reports r " +
                 "LEFT JOIN users u ON u.id = r.reporter_id ";
         StringBuilder where = new StringBuilder();
@@ -96,15 +97,30 @@ public class ReportRepository {
             where.append("r.target_type = ?");
             params.add(targetType);
         }
+        if (fromTs != null) {
+            if (!where.isEmpty()) where.append(" AND ");
+            where.append("r.created_at >= ?");
+            params.add(fromTs);
+        }
+        if (toTs != null) {
+            if (!where.isEmpty()) where.append(" AND ");
+            where.append("r.created_at < ?");
+            params.add(toTs);
+        }
         if (cursorTs != null && cursorId != null) {
             if (!where.isEmpty()) where.append(" AND ");
-            where.append("(r.created_at < ? OR (r.created_at = ? AND r.id < ?))");
+            if (ascending) {
+                where.append("(r.created_at > ? OR (r.created_at = ? AND r.id > ?))");
+            } else {
+                where.append("(r.created_at < ? OR (r.created_at = ? AND r.id < ?))");
+            }
             params.add(cursorTs);
             params.add(cursorTs);
             params.add(cursorId);
         }
+        String order = ascending ? "ASC" : "DESC";
         String sql = base + (where.isEmpty() ? "" : "WHERE " + where + " ") +
-                "ORDER BY r.created_at DESC, r.id DESC LIMIT ?";
+                "ORDER BY r.created_at " + order + ", r.id " + order + " LIMIT ?";
         params.add(limit);
         return jdbc.query(sql, ADMIN_MAPPER, params.toArray());
     }
