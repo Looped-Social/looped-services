@@ -122,7 +122,8 @@ class VerificationIntegrationTest extends PostgresTestBase {
                         .header("Authorization", auth)
                         .content("{\"method\":\"video\",\"mediaKey\":\"media/original/fake\"}"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.verified", equalTo(true)));
+                .andExpect(jsonPath("$.verified", equalTo(false)))
+                .andExpect(jsonPath("$.status", equalTo("pending")));
     }
 
     @Test

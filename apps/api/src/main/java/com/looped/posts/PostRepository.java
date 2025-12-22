@@ -115,6 +115,7 @@ public class PostRepository {
                 "FLOOR(EXTRACT(EPOCH FROM (?::timestamptz - p.created_at)) / 3600))";
         String base = "SELECT p.id, p.author_id, p.author_principal_id, p.is_anon, p.anon_profile_id, p.anon_company_id, " +
                 "p.company_id, p.community_id, p.content, p.media_asset_id, p.likes_count, p.comments_count, p.share_count, p.created_at, " +
+                "p.removed_at, p.removed_by, p.removed_reason, " +
                 "COALESCE(u.handle, ap.handle) AS author_handle, u.display_name AS author_display_name, " +
                 "u.profile_image_url AS author_profile_image_url, " +
                 "CASE WHEN p.is_anon THEN true ELSE COALESCE(u.is_anonymous, false) END AS author_is_anonymous, " +
@@ -126,6 +127,7 @@ public class PostRepository {
             return jdbc.query(
                     "SELECT id, author_id, author_principal_id, is_anon, anon_profile_id, anon_company_id, company_id, community_id, " +
                             "content, media_asset_id, likes_count, comments_count, share_count, created_at, " +
+                            "removed_at, removed_by, removed_reason, " +
                             "author_handle, author_display_name, author_profile_image_url, author_is_anonymous " +
                             "FROM (" + base + ") s ORDER BY score DESC, created_at DESC, id DESC LIMIT ?",
                     MAPPER, asOf, since, limit
@@ -134,6 +136,7 @@ public class PostRepository {
         return jdbc.query(
                 "SELECT id, author_id, author_principal_id, is_anon, anon_profile_id, anon_company_id, company_id, community_id, " +
                         "content, media_asset_id, likes_count, comments_count, share_count, created_at, " +
+                        "removed_at, removed_by, removed_reason, " +
                         "author_handle, author_display_name, author_profile_image_url, author_is_anonymous " +
                         "FROM (" + base + ") s WHERE (score < ? OR (score = ? AND (created_at < ? OR (created_at = ? AND id < ?)))) " +
                         "ORDER BY score DESC, created_at DESC, id DESC LIMIT ?",
