@@ -55,6 +55,25 @@ public class DiscoveryController {
         };
     }
 
+    @GetMapping("/communities/recommended")
+    public ResponseEntity<?> recommendedCommunities(
+            @AuthenticationPrincipal Jwt jwt,
+            @RequestParam(value = "limit", required = false, defaultValue = "8") int limit
+    ) {
+        int lim = Math.max(1, Math.min(limit, 50));
+        var res = service.recommendedCommunities(jwt.getSubject(), lim);
+        return switch (res.status()) {
+            case USER_NOT_PROVISIONED -> ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
+                    "error", "user_not_provisioned",
+                    "message", "Complete onboarding before viewing recommended communities"
+            ));
+            case OK -> {
+                List<Map<String, Object>> items = res.items().stream().map(this::recommendedPayload).toList();
+                yield ResponseEntity.ok(Map.of("items", items));
+            }
+        };
+    }
+
     @GetMapping("/loops/search")
     public ResponseEntity<?> searchLoops(
             @AuthenticationPrincipal Jwt jwt,
@@ -130,6 +149,7 @@ public class DiscoveryController {
         map.put("name", row.name);
         map.put("description", row.description);
         map.put("member_count", row.memberCount);
+        if (row.imageUrl != null) map.put("image_url", row.imageUrl);
         return map;
     }
 
@@ -137,6 +157,18 @@ public class DiscoveryController {
         Map<String, Object> map = new HashMap<>();
         map.put("name", row.name);
         map.put("usage_count", row.usageCount);
+        return map;
+    }
+
+    private Map<String, Object> recommendedPayload(CommunitiesRepository.RecommendedRow row) {
+        Map<String, Object> map = new HashMap<>();
+        map.put("id", row.id);
+        map.put("kind", row.kind);
+        map.put("name", row.name);
+        map.put("description", row.description);
+        map.put("member_count", row.memberCount);
+        map.put("is_following", row.isFollowing);
+        if (row.imageUrl != null) map.put("image_url", row.imageUrl);
         return map;
     }
 }

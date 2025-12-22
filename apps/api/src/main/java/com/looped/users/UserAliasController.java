@@ -32,7 +32,7 @@ public class UserAliasController {
             @Valid @RequestBody UsersController.UpdateProfileRequest body
     ) {
         boolean anonymous = body.isAnonymous() != null && body.isAnonymous();
-        var res = users.updateProfile(jwt.getSubject(), body.displayName(), body.bio(), anonymous);
+        var res = users.updateProfile(jwt.getSubject(), body.displayName(), body.bio(), anonymous, body.showFollowerCount());
         return switch (res.status()) {
             case USER_NOT_PROVISIONED -> ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
                     "error", "user_not_provisioned",

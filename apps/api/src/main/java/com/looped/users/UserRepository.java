@@ -29,6 +29,7 @@ public class UserRepository {
             row.displayName = rs.getString("display_name");
             row.bio = rs.getString("bio");
             row.isAnonymous = rs.getBoolean("is_anonymous");
+            row.showFollowerCount = rs.getBoolean("show_follower_count");
             row.profileImageUrl = rs.getString("profile_image_url");
             row.createdAt = rs.getObject("created_at", OffsetDateTime.class);
             row.deletedAt = rs.getObject("deleted_at", OffsetDateTime.class);
@@ -40,7 +41,8 @@ public class UserRepository {
 
     public Optional<UserRow> findByFirebaseUid(String firebaseUid) {
         var list = jdbcTemplate.query(
-                "SELECT id, firebase_uid, handle, company_id, display_name, bio, is_anonymous, profile_image_url, created_at, deleted_at, deleted_by " +
+                "SELECT id, firebase_uid, handle, company_id, display_name, bio, is_anonymous, show_follower_count, " +
+                        "profile_image_url, created_at, deleted_at, deleted_by " +
                         "FROM users WHERE firebase_uid = ? AND deleted_at IS NULL",
                 MAPPER, firebaseUid
         );
@@ -49,7 +51,8 @@ public class UserRepository {
 
     public Optional<UserRow> findById(long userId) {
         var list = jdbcTemplate.query(
-                "SELECT id, firebase_uid, handle, company_id, display_name, bio, is_anonymous, profile_image_url, created_at, deleted_at, deleted_by " +
+                "SELECT id, firebase_uid, handle, company_id, display_name, bio, is_anonymous, show_follower_count, " +
+                        "profile_image_url, created_at, deleted_at, deleted_by " +
                         "FROM users WHERE id = ? AND deleted_at IS NULL",
                 MAPPER, userId
         );
@@ -58,7 +61,8 @@ public class UserRepository {
 
     public Optional<UserRow> findByFirebaseUidIncludingDeleted(String firebaseUid) {
         var list = jdbcTemplate.query(
-                "SELECT id, firebase_uid, handle, company_id, display_name, bio, is_anonymous, profile_image_url, created_at, deleted_at, deleted_by " +
+                "SELECT id, firebase_uid, handle, company_id, display_name, bio, is_anonymous, show_follower_count, " +
+                        "profile_image_url, created_at, deleted_at, deleted_by " +
                         "FROM users WHERE firebase_uid = ?",
                 MAPPER, firebaseUid
         );
@@ -67,17 +71,19 @@ public class UserRepository {
 
     public Optional<UserRow> findByIdIncludingDeleted(long userId) {
         var list = jdbcTemplate.query(
-                "SELECT id, firebase_uid, handle, company_id, display_name, bio, is_anonymous, profile_image_url, created_at, deleted_at, deleted_by " +
+                "SELECT id, firebase_uid, handle, company_id, display_name, bio, is_anonymous, show_follower_count, " +
+                        "profile_image_url, created_at, deleted_at, deleted_by " +
                         "FROM users WHERE id = ?",
                 MAPPER, userId
         );
         return list.isEmpty() ? Optional.empty() : Optional.of(list.get(0));
     }
 
-    public void updateProfile(long userId, String displayName, String bio, boolean isAnonymous) {
+    public void updateProfile(long userId, String displayName, String bio, boolean isAnonymous, Boolean showFollowerCount) {
         jdbcTemplate.update(
-                "UPDATE users SET display_name = ?, bio = ?, is_anonymous = ? WHERE id = ?",
-                displayName, bio, isAnonymous, userId
+                "UPDATE users SET display_name = ?, bio = ?, is_anonymous = ?, " +
+                        "show_follower_count = COALESCE(?, show_follower_count) WHERE id = ?",
+                displayName, bio, isAnonymous, showFollowerCount, userId
         );
     }
 
@@ -85,14 +91,16 @@ public class UserRepository {
         String like = "%" + query.toLowerCase() + "%";
         if (cursorTs == null || cursorId == null) {
             return jdbcTemplate.query(
-                    "SELECT id, firebase_uid, handle, company_id, display_name, bio, is_anonymous, profile_image_url, created_at, deleted_at, deleted_by " +
+                    "SELECT id, firebase_uid, handle, company_id, display_name, bio, is_anonymous, show_follower_count, " +
+                            "profile_image_url, created_at, deleted_at, deleted_by " +
                             "FROM users WHERE company_id = ? AND deleted_at IS NULL AND (LOWER(handle) LIKE ? OR LOWER(COALESCE(display_name,'')) LIKE ?) " +
                             "ORDER BY created_at DESC, id DESC LIMIT ?",
                     MAPPER, companyId, like, like, limit
             );
         }
         return jdbcTemplate.query(
-                "SELECT id, firebase_uid, handle, company_id, display_name, bio, is_anonymous, profile_image_url, created_at, deleted_at, deleted_by " +
+                "SELECT id, firebase_uid, handle, company_id, display_name, bio, is_anonymous, show_follower_count, " +
+                        "profile_image_url, created_at, deleted_at, deleted_by " +
                         "FROM users WHERE company_id = ? AND deleted_at IS NULL AND (LOWER(handle) LIKE ? OR LOWER(COALESCE(display_name,'')) LIKE ?) " +
                         "AND (created_at < ? OR (created_at = ? AND id < ?)) " +
                         "ORDER BY created_at DESC, id DESC LIMIT ?",
@@ -103,13 +111,15 @@ public class UserRepository {
     public java.util.List<UserRow> listCompanyUsers(long companyId, java.time.OffsetDateTime cursorTs, Long cursorId, int limit) {
         if (cursorTs == null || cursorId == null) {
             return jdbcTemplate.query(
-                    "SELECT id, firebase_uid, handle, company_id, display_name, bio, is_anonymous, profile_image_url, created_at, deleted_at, deleted_by " +
+                    "SELECT id, firebase_uid, handle, company_id, display_name, bio, is_anonymous, show_follower_count, " +
+                            "profile_image_url, created_at, deleted_at, deleted_by " +
                             "FROM users WHERE company_id = ? AND deleted_at IS NULL ORDER BY created_at DESC, id DESC LIMIT ?",
                     MAPPER, companyId, limit
             );
         }
         return jdbcTemplate.query(
-                "SELECT id, firebase_uid, handle, company_id, display_name, bio, is_anonymous, profile_image_url, created_at, deleted_at, deleted_by " +
+                "SELECT id, firebase_uid, handle, company_id, display_name, bio, is_anonymous, show_follower_count, " +
+                        "profile_image_url, created_at, deleted_at, deleted_by " +
                         "FROM users WHERE company_id = ? AND deleted_at IS NULL AND (created_at < ? OR (created_at = ? AND id < ?)) " +
                         "ORDER BY created_at DESC, id DESC LIMIT ?",
                 MAPPER, companyId, cursorTs, cursorTs, cursorId, limit
@@ -177,6 +187,7 @@ public class UserRepository {
         public String displayName;
         public String bio;
         public boolean isAnonymous;
+        public boolean showFollowerCount;
         public String profileImageUrl;
         public OffsetDateTime createdAt;
         public OffsetDateTime deletedAt;

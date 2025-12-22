@@ -153,6 +153,11 @@ Notes
   - `verification.echo-code` (default `true` in dev). Set `VERIFICATION_ECHO_CODE=false` in prod so codes aren’t echoed.
   - `verification.code-ttl-seconds` (default `600`).
 
+## API — Admin Dashboard
+
+- Admin endpoints are documented in `docs/admin-api.md`.
+- All `/v1/admin/*` routes require a Firebase ID token.
+
 ## Docker (build and run)
 - Build image (API only): `docker build -t looped-api:dev -f apps/api/Dockerfile .`
 - Run locally:

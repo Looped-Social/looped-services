@@ -62,10 +62,10 @@ public class UsersService {
         return PostsResult.ok(rows, next);
     }
 
-    public UpdateProfileResult updateProfile(String firebaseUid, String displayName, String bio, boolean isAnonymous) {
+    public UpdateProfileResult updateProfile(String firebaseUid, String displayName, String bio, boolean isAnonymous, Boolean showFollowerCount) {
         var actor = requireProvisionedUser(firebaseUid);
         if (actor.isEmpty()) return UpdateProfileResult.userNotProvisioned();
-        users.updateProfile(actor.get().id, displayName, bio, isAnonymous);
+        users.updateProfile(actor.get().id, displayName, bio, isAnonymous, showFollowerCount);
         var updated = users.findById(actor.get().id).orElse(actor.get());
         var verification = verifications.findByUserId(actor.get().id).orElse(null);
         return UpdateProfileResult.ok(buildProfile(updated, verification));
@@ -163,6 +163,7 @@ public class UsersService {
                 row.displayName,
                 row.bio,
                 row.isAnonymous,
+                row.showFollowerCount,
                 row.companyId,
                 row.createdAt,
                 row.profileImageUrl,
@@ -197,7 +198,7 @@ public class UsersService {
         static CommentsResult forbidden() { return new CommentsResult(Status.FORBIDDEN, List.of(), null); }
     }
 
-    public record UserProfile(long id, String handle, String displayName, String bio, boolean isAnonymous, Long companyId,
+    public record UserProfile(long id, String handle, String displayName, String bio, boolean isAnonymous, boolean showFollowerCount, Long companyId,
                               OffsetDateTime createdAt, String profileImageUrl, Verification verification, ProfileStats stats) {}
 
     public record ProfileStats(int followerCount, int followingCount, int postsCount, int commentsCount) {}

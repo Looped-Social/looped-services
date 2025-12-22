@@ -27,6 +27,7 @@ public class CommunitiesRepository {
             row.name = rs.getString("name");
             row.description = rs.getString("description");
             row.memberCount = rs.getInt("member_count");
+            row.imageUrl = rs.getString("image_url");
             row.createdAt = rs.getObject("created_at", OffsetDateTime.class);
             return row;
         }
@@ -36,14 +37,14 @@ public class CommunitiesRepository {
         String like = "%" + query.toLowerCase() + "%";
         if (cursorTs == null || cursorId == null) {
             return jdbc.query(
-                    "SELECT id, kind, name, description, member_count, created_at " +
+                    "SELECT id, kind, name, description, member_count, image_url, created_at " +
                             "FROM communities WHERE LOWER(name) LIKE ? OR LOWER(COALESCE(description,'')) LIKE ? " +
                             "ORDER BY created_at DESC, id DESC LIMIT ?",
                     MAPPER, like, like, limit
             );
         }
         return jdbc.query(
-                "SELECT id, kind, name, description, member_count, created_at " +
+                "SELECT id, kind, name, description, member_count, image_url, created_at " +
                         "FROM communities WHERE (LOWER(name) LIKE ? OR LOWER(COALESCE(description,'')) LIKE ?) " +
                         "AND (created_at < ? OR (created_at = ? AND id < ?)) " +
                         "ORDER BY created_at DESC, id DESC LIMIT ?",
@@ -53,10 +54,32 @@ public class CommunitiesRepository {
 
     public Optional<CommunityRow> findById(long id) {
         var list = jdbc.query(
-                "SELECT id, kind, name, description, member_count, created_at FROM communities WHERE id = ?",
+                "SELECT id, kind, name, description, member_count, image_url, created_at FROM communities WHERE id = ?",
                 MAPPER, id
         );
         return list.isEmpty() ? Optional.empty() : Optional.of(list.get(0));
+    }
+
+    public List<RecommendedRow> recommended(long userId, int limit) {
+        return jdbc.query(
+                "SELECT c.id, c.kind, c.name, c.description, c.member_count, c.image_url, " +
+                        "CASE WHEN cf.user_id IS NULL THEN false ELSE true END AS is_following " +
+                        "FROM communities c " +
+                        "LEFT JOIN community_follows cf ON cf.community_id = c.id AND cf.user_id = ? " +
+                        "ORDER BY c.member_count DESC, c.created_at DESC, c.id DESC LIMIT ?",
+                (rs, rowNum) -> {
+                    RecommendedRow row = new RecommendedRow();
+                    row.id = rs.getLong("id");
+                    row.kind = rs.getString("kind");
+                    row.name = rs.getString("name");
+                    row.description = rs.getString("description");
+                    row.memberCount = rs.getInt("member_count");
+                    row.imageUrl = rs.getString("image_url");
+                    row.isFollowing = rs.getBoolean("is_following");
+                    return row;
+                },
+                userId, limit
+        );
     }
 
     public static class CommunityRow {
@@ -65,6 +88,17 @@ public class CommunitiesRepository {
         public String name;
         public String description;
         public int memberCount;
+        public String imageUrl;
         public OffsetDateTime createdAt;
+    }
+
+    public static class RecommendedRow {
+        public long id;
+        public String kind;
+        public String name;
+        public String description;
+        public int memberCount;
+        public String imageUrl;
+        public boolean isFollowing;
     }
 }

@@ -43,6 +43,13 @@ public class DiscoveryService {
         return CommunitySearchResult.ok(rows, next);
     }
 
+    public RecommendedCommunitiesResult recommendedCommunities(String firebaseUid, int limit) {
+        var actor = users.findByFirebaseUid(firebaseUid);
+        if (actor.isEmpty()) return RecommendedCommunitiesResult.userNotProvisioned();
+        var rows = communities.recommended(actor.get().id, limit);
+        return RecommendedCommunitiesResult.ok(rows);
+    }
+
     public HashtagSearchResult searchHashtags(String firebaseUid, String query, String cursor, int limit) {
         var actor = users.findByFirebaseUid(firebaseUid);
         if (actor.isEmpty() || actor.get().companyId == null) return HashtagSearchResult.userNotProvisioned();
@@ -86,11 +93,17 @@ public class DiscoveryService {
     }
 
     public enum Status { OK, USER_NOT_PROVISIONED }
+    public enum RecommendedStatus { OK, USER_NOT_PROVISIONED }
     public enum HashtagPostsStatus { OK, USER_NOT_PROVISIONED, INVALID_QUERY }
 
     public record CommunitySearchResult(Status status, List<CommunitiesRepository.CommunityRow> items, String nextCursor) {
         static CommunitySearchResult ok(List<CommunitiesRepository.CommunityRow> items, String next) { return new CommunitySearchResult(Status.OK, items, next); }
         static CommunitySearchResult userNotProvisioned() { return new CommunitySearchResult(Status.USER_NOT_PROVISIONED, List.of(), null); }
+    }
+
+    public record RecommendedCommunitiesResult(RecommendedStatus status, List<CommunitiesRepository.RecommendedRow> items) {
+        static RecommendedCommunitiesResult ok(List<CommunitiesRepository.RecommendedRow> items) { return new RecommendedCommunitiesResult(RecommendedStatus.OK, items); }
+        static RecommendedCommunitiesResult userNotProvisioned() { return new RecommendedCommunitiesResult(RecommendedStatus.USER_NOT_PROVISIONED, List.of()); }
     }
 
     public record HashtagSearchResult(Status status, List<HashtagsRepository.HashtagRow> items, String nextCursor) {
