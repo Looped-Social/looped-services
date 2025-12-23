@@ -103,6 +103,10 @@ public class AdminManagementController {
         if (existing.isEmpty()) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "not_found"));
         }
+        if (AdminRoles.OWNER.equals(existing.get().role) &&
+                (body.role() != null || body.status() != null || body.permissions() != null)) {
+            return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of("error", "owner_update_not_allowed"));
+        }
 
         String role = body.role() != null ? AdminRoles.normalize(body.role()) : existing.get().role;
         if (role == null || !AdminRoles.ALL.contains(role)) {
@@ -110,6 +114,9 @@ public class AdminManagementController {
         }
         if (!existing.get().role.equals(AdminRoles.OWNER) && AdminRoles.OWNER.equals(role)) {
             return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of("error", "owner_role_not_allowed"));
+        }
+        if (existing.get().role.equals(AdminRoles.OWNER) && !AdminRoles.OWNER.equals(role)) {
+            return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of("error", "owner_role_locked"));
         }
 
         String status = body.status() != null ? AdminStatuses.normalize(body.status()) : existing.get().status;
