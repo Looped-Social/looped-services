@@ -77,10 +77,11 @@ public class FirebaseAdminService {
             auth.deleteUser(firebaseUid);
             return DeleteResult.ok();
         } catch (FirebaseAuthException e) {
-            if ("user-not-found".equalsIgnoreCase(e.getErrorCode())) {
+            String code = e.getErrorCode() != null ? e.getErrorCode().name() : null;
+            if ("user-not-found".equalsIgnoreCase(code)) {
                 return DeleteResult.ok();
             }
-            return DeleteResult.failed(e.getErrorCode());
+            return DeleteResult.failed(code);
         } catch (Exception e) {
             return DeleteResult.failed(e.getMessage());
         }
