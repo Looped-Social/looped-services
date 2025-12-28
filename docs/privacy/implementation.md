@@ -12,8 +12,8 @@ This is the “no foot-guns” reference for privacy-safe anon with full actor f
 
 `{`  
   `"kid": "issuer-key-id",`  
-  `"scope_kind": "company",          // or "sector" | "space" | "global"`  
-  `"scope_id": "<uuid>",             // companies.id or spaces.id`  
+  `"scope_kind": "community",`  
+  `"scope_id": "<id>",               // communities.id`  
   `"persona_pubkey": "<base64 ed25519>",`  
   `"not_before": "2025-10-18T00:00:00Z",`  
   `"not_after":  "2026-10-18T00:00:00Z"`  
@@ -21,11 +21,10 @@ This is the “no foot-guns” reference for privacy-safe anon with full actor f
 
 **Post signature (`anon_sig`)** over canonical form (match server):
 
-`SHA-256( "v1|" ||`  
-         `loop_id || "|" ||`  
-         `scope_kind || "|" || scope_id || "|" ||`  
+`SHA-256( "v2|" ||`  
+         `community_id || "|" ||`  
          `content_hash || "|" ||`  
-         `timestamp_floor_seconds )`
+         `timestamp_seconds )`
 
 * Never include `author_id`, device IDs, or account info in the signed body.
 
@@ -46,21 +45,28 @@ This is the “no foot-guns” reference for privacy-safe anon with full actor f
 
 * For anon, `author_principal_id.kind=anon` and you must verify the persona signature before any write (post, like, follow, save, delete, edit).
 
+* For anonymous actions, reject Authorization headers and rely only on anon proofs (no JWT linkage).
+
 ## **Endpoints — hardening**
-
-### **`/anon/enroll`**
-
-**Do:** verify named user has a valid `verification_scopes` record (or base `verifications`) for requested scope; issue blinded cert; no durable mapping; short-TTL issuance limit.  
- **Don’t:** log request bodies or user IDs; no idempotency records.
 
 ### **`/anon/issuer`**
 
 **Do:** expose issuer **public key PEM** (X.509 SubjectPublicKeyInfo) + `kid` so the client can blind.  
 **Don’t:** expose private key or user-linked metadata.
 
+### **`/anon/issue`**
+
+**Do:** verify the named user is verified for `community_id`; sign blinded cert; no durable mapping; short-TTL issuance limit.  
+**Don’t:** log request bodies or user IDs; no idempotency records.
+
+### **`/anon/register`**
+
+**Do:** verify `anon_cert` against issuer + persona pubkey; create anonymous profile + principal; **JWT-free**.  
+**Don’t:** accept Authorization headers or store user mappings.
+
 ### **`/anon/reset`**
 
-**Do:** clear the enrollment sanction so a verified user can enroll a **new** anon persona.  
+**Do:** clear the enrollment sanction so a verified user can issue+register a **new** anon persona.  
 **Don’t:** link user → anon profile. Server cannot prove old persona was revoked; client should call `/anon/revoke` separately.
 
 ### **`/anon/revoke`**
@@ -80,7 +86,7 @@ This is the “no foot-guns” reference for privacy-safe anon with full actor f
 
 * Verify `anon_sig` over canonical body.
 
-* Enforce **scope match** (company/sector/space/global).
+* Enforce **scope match** (`community_id`).
 
 * For attached media, assert `media_assets.owner_id IS NULL`.
 
@@ -91,6 +97,7 @@ This is the “no foot-guns” reference for privacy-safe anon with full actor f
 ### **Likes / Follows / Saves (anon)**
 
 * Require action signature (above).
+* For post-scoped actions, ensure the cert issuer scope matches the post `community_id`.
 
 * Insert into `post_likes`, `principal_follows`, `principal_saved_posts` with the **anon** `principal_id`.
 
@@ -154,6 +161,24 @@ This is the “no foot-guns” reference for privacy-safe anon with full actor f
 
 * Optional RLS to block `author_id` access when `is_anon=true`.
 
+## **Messaging encryption at rest (DB-leak safe)**
+
+* Messages are stored as ciphertext; the API decrypts in memory for reads.
+
+* Envelope encryption: generate a random per-message data key, encrypt each message field with AES-256-GCM.
+
+* Wrap the data key with a KMS CMK (preferred) and store `encrypted_key` + `key_kid` alongside the ciphertext.
+  If KMS setup is deferred, use an app KEK stored in Secrets Manager/SSM and plan a later migration to KMS.
+
+* Store `nonce` + `ciphertext` + `aad` per field (content and attachments encrypted separately with distinct nonces).
+  AAD should include `conversation_id`, `sender_id`, `message_id`, and `created_at`.
+
+* Key rotation: re-wrap data keys under a new CMK without re-encrypting message payloads.
+
+* Never log plaintext or key material; DB-only access cannot decrypt without KMS.
+
+* This is **not** E2EE; it protects against database leaks but the server can decrypt.
+
 ## **Revocation**
 
 * On each anon action, check:
@@ -178,7 +203,7 @@ This is the “no foot-guns” reference for privacy-safe anon with full actor f
 
 * Client derives key with **Argon2id(passphrase, salt)** → decrypts AES-GCM → imports persona.
 
-* Re-enroll same `persona_pubkey` to refresh cert on new device (still unlinkable).
+* Re-issue + register the same `persona_pubkey` to refresh cert on a new device (still unlinkable).
 
 ## **Automated tests (must have)**
 

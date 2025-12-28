@@ -142,7 +142,7 @@
 
 * **`anon_backup_blobs`** (optional) — Encrypted persona bundle by **blob\_id** (recovery code); stores only `salt` \+ `ciphertext`. *No user FK.*
 
-* **`anon_enrollment_sanctions`** — **Blocks new anon certs** at `/anon/enroll` for a named user **per scope** (company/sector/space/global). Does **not** map personas to users.
+* **`anon_enrollment_sanctions`** — **Blocks new anon certs** at `/anon/issue` for a named user **per community scope**. Does **not** map personas to users.
 
 ### **Settings & Analytics**
 
@@ -194,9 +194,9 @@
 
    * For anon content, `media_assets.owner_id IS NULL`.
 
-4. **Sanctions at enrollment only**
+4. **Sanctions at issuance only**
 
-   * `/anon/enroll` must deny issuance when an **active** `anon_enrollment_sanctions` row exists for `(user_id, scope_kind, scope_id)`.
+   * `/anon/issue` must deny issuance when an **active** `anon_enrollment_sanctions` row exists for `(user_id, scope_kind, scope_id)`.
 
 ---
 
@@ -292,7 +292,7 @@
 
   * Revoke current persona: `anon_revocations` (by pubkey).
 
-  * Block future anon issuance for that **named user & scope**: add row in `anon_enrollment_sanctions`. Checked only at `/anon/enroll`.
+  * Block future anon issuance for that **named user & scope**: add row in `anon_enrollment_sanctions`. Checked only at `/anon/issue`.
 
 * **Give Finance space access after company verification?**  
    Add an implication in `verification_scope_implications`, or write both scope rows on verification.
@@ -418,6 +418,9 @@ Table users {
   id uuid [pk]
   firebase_uid text [unique]
   handle text [unique]          // store lowercase app-side
+  first_name text [not null]
+  last_name text [not null]
+  date_of_birth date [not null]
   display_name text
   bio text
   company_id uuid [ref: > companies.id]   // optional convenience pointer
@@ -849,7 +852,7 @@ Table anon_backup_blobs {
 
 
 
-Table anon_enrollment_sanctions {         // NEW — blocks new anon certs at /anon/enroll
+Table anon_enrollment_sanctions {         // NEW — blocks new anon certs at /anon/issue
   id uuid [pk]
   user_id uuid [not null, ref: > users.id]                // named account being sanctioned
   scope_kind verification_scope_kind [not null]           // company | sector | space | global
@@ -864,7 +867,7 @@ Table anon_enrollment_sanctions {         // NEW — blocks new anon certs at /a
     (user_id, scope_kind, scope_id, status)
   }
 
-  Note: 'Evaluated ONLY at /anon/enroll. Does not create any user↔persona mapping.'
+  Note: 'Evaluated ONLY at /anon/issue. Does not create any user↔persona mapping.'
 }
 
 

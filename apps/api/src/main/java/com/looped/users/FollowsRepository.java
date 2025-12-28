@@ -27,4 +27,25 @@ public class FollowsRepository {
         );
         return rows > 0;
     }
+
+    public boolean exists(long followerPrincipalId, long followeePrincipalId) {
+        Boolean exists = jdbc.queryForObject(
+                "SELECT EXISTS (SELECT 1 FROM principal_follows WHERE follower_principal_id = ? AND followee_principal_id = ?)",
+                Boolean.class,
+                followerPrincipalId, followeePrincipalId
+        );
+        return Boolean.TRUE.equals(exists);
+    }
+
+    public java.util.List<Long> findFollowerUserIds(long followeePrincipalId) {
+        return jdbc.query(
+                "SELECT u.id " +
+                        "FROM principal_follows f " +
+                        "JOIN principals p ON p.id = f.follower_principal_id AND p.kind = 'user' " +
+                        "JOIN users u ON u.id = p.user_id AND u.deleted_at IS NULL " +
+                        "WHERE f.followee_principal_id = ?",
+                (rs, rowNum) -> rs.getLong("id"),
+                followeePrincipalId
+        );
+    }
 }

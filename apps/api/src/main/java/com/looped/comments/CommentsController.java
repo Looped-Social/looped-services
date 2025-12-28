@@ -27,10 +27,35 @@ public class CommentsController {
             @AuthenticationPrincipal Jwt jwt,
             @PathVariable("postId") long postId,
             @RequestParam(value = "cursor", required = false) String cursor,
-            @RequestParam(value = "limit", required = false, defaultValue = "20") int limit
+            @RequestParam(value = "limit", required = false, defaultValue = "20") int limit,
+            @RequestParam(value = "asAnon", required = false) Boolean asAnon,
+            @RequestParam(value = "anonProfileId", required = false) Long anonProfileId,
+            @RequestParam(value = "anonCert", required = false) String anonCert,
+            @RequestParam(value = "anonCertKid", required = false) String anonCertKid,
+            @RequestParam(value = "anonSig", required = false) String anonSig
     ) {
+        boolean isAnon = Boolean.TRUE.equals(asAnon);
+        if (isAnon && !hasAnonProof(asAnon, anonProfileId, anonCert, anonCertKid, anonSig)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
+                    "error", "invalid_anon_proof",
+                    "message", "Invalid anonymous proof"
+            ));
+        }
+        if (isAnon && jwt != null) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of(
+                    "error", "anon_jwt_not_allowed",
+                    "message", "Do not send Authorization for anonymous actions"
+            ));
+        }
+        if (!isAnon && jwt == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of(
+                    "error", "unauthorized",
+                    "message", "Authorization is required"
+            ));
+        }
         int lim = Math.max(1, Math.min(limit, 100));
-        var res = service.list(jwt.getSubject(), postId, cursor, lim);
+        var res = service.list(jwt == null ? null : jwt.getSubject(), postId, cursor, lim,
+                toAnonProof(asAnon, anonProfileId, anonCert, anonCertKid, anonSig));
         return switch (res.status()) {
             case USER_NOT_PROVISIONED -> ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
                     "error", "user_not_provisioned",
@@ -38,6 +63,10 @@ public class CommentsController {
             ));
             case POST_NOT_FOUND -> ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of(
                     "error", "not_found"
+            ));
+            case INVALID_ANON_PROOF -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
+                    "error", "invalid_anon_proof",
+                    "message", "Invalid anonymous proof"
             ));
             case OK -> {
                 List<Map<String, Object>> items = res.comments().stream().map(CommentPayloads::from).toList();
@@ -56,7 +85,26 @@ public class CommentsController {
             @PathVariable("postId") long postId,
             @Validated @RequestBody CreateRequest body
     ) {
-        var res = service.create(jwt.getSubject(), postId, body.content(), body.parentId());
+        boolean isAnon = body.asAnon() != null && body.asAnon();
+        if (isAnon && !body.hasAnonProof()) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
+                    "error", "invalid_anon_proof",
+                    "message", "Invalid anonymous proof"
+            ));
+        }
+        if (isAnon && jwt != null) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of(
+                    "error", "anon_jwt_not_allowed",
+                    "message", "Do not send Authorization for anonymous actions"
+            ));
+        }
+        if (!isAnon && jwt == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of(
+                    "error", "unauthorized",
+                    "message", "Authorization is required"
+            ));
+        }
+        var res = service.create(jwt == null ? null : jwt.getSubject(), postId, body.content(), body.parentId(), body.toAnonProof());
         return switch (res.status()) {
             case USER_NOT_PROVISIONED -> ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
                     "error", "user_not_provisioned",
@@ -82,6 +130,10 @@ public class CommentsController {
                     "error", "community_not_verified",
                     "message", "You must be verified to comment in this community"
             ));
+            case INVALID_ANON_PROOF -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
+                    "error", "invalid_anon_proof",
+                    "message", "Invalid anonymous proof"
+            ));
             case INVALID_PARENT -> ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of(
                     "error", "invalid_parent",
                     "message", "Parent comment must belong to the same post"
@@ -95,16 +147,45 @@ public class CommentsController {
             @AuthenticationPrincipal Jwt jwt,
             @PathVariable("id") long id,
             @RequestParam(value = "cursor", required = false) String cursor,
-            @RequestParam(value = "limit", required = false, defaultValue = "20") int limit
+            @RequestParam(value = "limit", required = false, defaultValue = "20") int limit,
+            @RequestParam(value = "asAnon", required = false) Boolean asAnon,
+            @RequestParam(value = "anonProfileId", required = false) Long anonProfileId,
+            @RequestParam(value = "anonCert", required = false) String anonCert,
+            @RequestParam(value = "anonCertKid", required = false) String anonCertKid,
+            @RequestParam(value = "anonSig", required = false) String anonSig
     ) {
+        boolean isAnon = Boolean.TRUE.equals(asAnon);
+        if (isAnon && !hasAnonProof(asAnon, anonProfileId, anonCert, anonCertKid, anonSig)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
+                    "error", "invalid_anon_proof",
+                    "message", "Invalid anonymous proof"
+            ));
+        }
+        if (isAnon && jwt != null) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of(
+                    "error", "anon_jwt_not_allowed",
+                    "message", "Do not send Authorization for anonymous actions"
+            ));
+        }
+        if (!isAnon && jwt == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of(
+                    "error", "unauthorized",
+                    "message", "Authorization is required"
+            ));
+        }
         int lim = Math.max(1, Math.min(limit, 100));
-        var res = service.replies(jwt.getSubject(), id, cursor, lim);
+        var res = service.replies(jwt == null ? null : jwt.getSubject(), id, cursor, lim,
+                toAnonProof(asAnon, anonProfileId, anonCert, anonCertKid, anonSig));
         return switch (res.status()) {
             case USER_NOT_PROVISIONED -> ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
                     "error", "user_not_provisioned"
             ));
             case COMMENT_NOT_FOUND -> ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of(
                     "error", "not_found"
+            ));
+            case INVALID_ANON_PROOF -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
+                    "error", "invalid_anon_proof",
+                    "message", "Invalid anonymous proof"
             ));
             case OK -> {
                 List<Map<String, Object>> items = res.comments().stream().map(CommentPayloads::from).toList();
@@ -120,9 +201,29 @@ public class CommentsController {
     @PostMapping("/comments/{id}/like")
     public ResponseEntity<?> like(
             @AuthenticationPrincipal Jwt jwt,
-            @PathVariable("id") long id
+            @PathVariable("id") long id,
+            @RequestBody(required = false) LikeRequest body
     ) {
-        var res = service.like(jwt.getSubject(), id);
+        boolean isAnon = body != null && Boolean.TRUE.equals(body.asAnon());
+        if (isAnon && (body == null || !body.hasAnonProof())) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
+                    "error", "invalid_anon_proof",
+                    "message", "Invalid anonymous proof"
+            ));
+        }
+        if (isAnon && jwt != null) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of(
+                    "error", "anon_jwt_not_allowed",
+                    "message", "Do not send Authorization for anonymous actions"
+            ));
+        }
+        if (!isAnon && jwt == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of(
+                    "error", "unauthorized",
+                    "message", "Authorization is required"
+            ));
+        }
+        var res = service.like(jwt == null ? null : jwt.getSubject(), id, body == null ? null : body.toAnonProof());
         return switch (res.status()) {
             case USER_NOT_PROVISIONED -> ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
                     "error", "user_not_provisioned",
@@ -130,6 +231,10 @@ public class CommentsController {
             ));
             case COMMENT_NOT_FOUND -> ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of(
                     "error", "not_found"
+            ));
+            case INVALID_ANON_PROOF -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
+                    "error", "invalid_anon_proof",
+                    "message", "Invalid anonymous proof"
             ));
             case OK -> new ResponseEntity<>(Map.of(
                     "comment_id", id,
@@ -141,5 +246,52 @@ public class CommentsController {
         };
     }
 
-    public record CreateRequest(@NotBlank @Size(max = 1000) String content, Long parentId) {}
+    private com.looped.anon.AnonProofService.AnonActionProof toAnonProof(Boolean asAnon, Long anonProfileId, String anonCert, String anonCertKid, String anonSig) {
+        if (asAnon == null || !asAnon) return null;
+        return new com.looped.anon.AnonProofService.AnonActionProof(anonProfileId, anonCert, anonCertKid, anonSig);
+    }
+
+    private boolean hasAnonProof(Boolean asAnon, Long anonProfileId, String anonCert, String anonCertKid, String anonSig) {
+        if (asAnon == null || !asAnon) return false;
+        return anonProfileId != null
+                && anonCert != null && !anonCert.isBlank()
+                && anonCertKid != null && !anonCertKid.isBlank()
+                && anonSig != null && !anonSig.isBlank();
+    }
+
+    public record CreateRequest(@NotBlank @Size(max = 1000) String content,
+                                Long parentId,
+                                Boolean asAnon,
+                                Long anonProfileId,
+                                String anonCert,
+                                String anonCertKid,
+                                String anonSig) {
+        com.looped.anon.AnonProofService.AnonActionProof toAnonProof() {
+            if (asAnon == null || !asAnon) return null;
+            return new com.looped.anon.AnonProofService.AnonActionProof(anonProfileId, anonCert, anonCertKid, anonSig);
+        }
+
+        boolean hasAnonProof() {
+            if (asAnon == null || !asAnon) return false;
+            return anonProfileId != null
+                    && anonCert != null && !anonCert.isBlank()
+                    && anonCertKid != null && !anonCertKid.isBlank()
+                    && anonSig != null && !anonSig.isBlank();
+        }
+    }
+
+    public record LikeRequest(Boolean asAnon, Long anonProfileId, String anonCert, String anonCertKid, String anonSig) {
+        com.looped.anon.AnonProofService.AnonActionProof toAnonProof() {
+            if (asAnon == null || !asAnon) return null;
+            return new com.looped.anon.AnonProofService.AnonActionProof(anonProfileId, anonCert, anonCertKid, anonSig);
+        }
+
+        boolean hasAnonProof() {
+            if (asAnon == null || !asAnon) return false;
+            return anonProfileId != null
+                    && anonCert != null && !anonCert.isBlank()
+                    && anonCertKid != null && !anonCertKid.isBlank()
+                    && anonSig != null && !anonSig.isBlank();
+        }
+    }
 }

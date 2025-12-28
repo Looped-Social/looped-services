@@ -68,6 +68,41 @@ public class NotificationRepository {
         return updated > 0;
     }
 
+    public long insert(long userId, String type, Map<String, Object> payload) {
+        String payloadJson = toJson(payload);
+        Long id = jdbc.query(
+                "INSERT INTO notifications(user_id, type, payload) VALUES (?,?, ?::jsonb) RETURNING id",
+                rs -> rs.next() ? rs.getLong(1) : null,
+                userId, type, payloadJson
+        );
+        return id == null ? 0L : id;
+    }
+
+    public int[] insertBatch(java.util.List<NotificationInsert> inserts) {
+        if (inserts == null || inserts.isEmpty()) return new int[0];
+        return jdbc.batchUpdate(
+                "INSERT INTO notifications(user_id, type, payload) VALUES (?,?, ?::jsonb)",
+                inserts,
+                100,
+                (ps, item) -> {
+                    ps.setLong(1, item.userId());
+                    ps.setString(2, item.type());
+                    ps.setString(3, toJson(item.payload()));
+                }
+        );
+    }
+
+    private String toJson(Map<String, Object> payload) {
+        if (payload == null || payload.isEmpty()) return "{}";
+        try {
+            return mapper.writeValueAsString(payload);
+        } catch (Exception e) {
+            return "{}";
+        }
+    }
+
+    public record NotificationInsert(long userId, String type, Map<String, Object> payload) {}
+
     public static class NotificationRow {
         public long id;
         public long userId;

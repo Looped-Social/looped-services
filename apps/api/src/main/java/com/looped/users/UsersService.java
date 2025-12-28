@@ -1,13 +1,18 @@
 package com.looped.users;
 
 import com.looped.comments.CommentsRepository;
+import com.looped.companies.CompanyRepository;
 import com.looped.posts.PostRepository;
 import com.looped.shared.Pagination;
 import com.looped.verification.VerificationRepository;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.dao.DataAccessException;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 
 @Service
@@ -16,12 +21,21 @@ public class UsersService {
     private final VerificationRepository verifications;
     private final PostRepository posts;
     private final CommentsRepository comments;
+    private final CompanyRepository companies;
+    private final int deactivatedRetentionDays;
 
-    public UsersService(UserRepository users, VerificationRepository verifications, PostRepository posts, CommentsRepository comments) {
+    public UsersService(UserRepository users,
+                        VerificationRepository verifications,
+                        PostRepository posts,
+                        CommentsRepository comments,
+                        CompanyRepository companies,
+                        @Value("${retention.deactivated-days:90}") int deactivatedRetentionDays) {
         this.users = users;
         this.verifications = verifications;
         this.posts = posts;
         this.comments = comments;
+        this.companies = companies;
+        this.deactivatedRetentionDays = Math.max(1, deactivatedRetentionDays);
     }
 
     public ProfileResult profile(String firebaseUid, long targetUserId) {
@@ -69,6 +83,45 @@ public class UsersService {
         var updated = users.findById(actor.get().id).orElse(actor.get());
         var verification = verifications.findByUserId(actor.get().id).orElse(null);
         return UpdateProfileResult.ok(buildProfile(updated, verification));
+    }
+
+    public OnboardResult onboard(String firebaseUid, String email, String username,
+                                 String firstName, String lastName, LocalDate dateOfBirth) {
+        if (firebaseUid == null || firebaseUid.isBlank()) return OnboardResult.badRequest("invalid_user");
+        if (email == null || email.isBlank()) return OnboardResult.badRequest("email_required");
+        if (users.isFirebaseUidTombstoned(firebaseUid)) return OnboardResult.conflict("account_deleted");
+        var existing = users.findByFirebaseUidIncludingDeleted(firebaseUid);
+        if (existing.isPresent()) return OnboardResult.conflict("already_onboarded");
+
+        String normalizedHandle = normalizeHandle(username);
+        if (normalizedHandle == null) return OnboardResult.badRequest("invalid_username");
+        if (!users.isHandleAvailable(normalizedHandle)) return OnboardResult.conflict("username_taken");
+        if (!users.isEmailAvailable(email)) return OnboardResult.conflict("email_taken");
+
+        String domain = extractDomain(email);
+        if (domain == null) return OnboardResult.badRequest("invalid_email");
+        var company = companies.findByDomain(domain);
+        if (company.isEmpty()) return OnboardResult.badRequest("company_not_found");
+
+        long userId;
+        try {
+            userId = users.insert(firebaseUid, normalizedHandle, email, company.get().id,
+                    firstName.trim(), lastName.trim(), dateOfBirth);
+        } catch (DataAccessException e) {
+            if (!users.isHandleAvailable(normalizedHandle)) return OnboardResult.conflict("username_taken");
+            if (!users.isEmailAvailable(email)) return OnboardResult.conflict("email_taken");
+            return OnboardResult.conflict("conflict");
+        }
+        var user = users.findById(userId).orElseThrow();
+        var verification = verifications.findByUserId(userId).orElse(null);
+        return OnboardResult.ok(buildProfile(user, verification));
+    }
+
+    public AvailabilityResult usernameAvailability(String username) {
+        String normalizedHandle = normalizeHandle(username);
+        if (normalizedHandle == null) return AvailabilityResult.invalid();
+        boolean available = users.isHandleAvailable(normalizedHandle);
+        return AvailabilityResult.ok(normalizedHandle, available);
     }
 
     public SearchResult search(String firebaseUid, String query, String cursor, int limit) {
@@ -147,7 +200,38 @@ public class UsersService {
         if (email == null || email.isBlank()) return;
         var user = users.findByFirebaseUid(firebaseUid);
         if (user.isEmpty()) return;
+        if (user.get().email != null && user.get().email.equalsIgnoreCase(email)) return;
+        if (!users.isEmailAvailableForUser(user.get().id, email)) return;
         users.updateEmail(user.get().id, email);
+    }
+
+    public LoginStatus onLogin(String firebaseUid) {
+        if (firebaseUid == null || firebaseUid.isBlank()) return LoginStatus.MISSING;
+        var existing = users.findByFirebaseUidIncludingDeleted(firebaseUid);
+        if (existing.isEmpty()) {
+            return users.isFirebaseUidTombstoned(firebaseUid) ? LoginStatus.PURGED : LoginStatus.MISSING;
+        }
+        if (existing.get().deletedAt == null) return LoginStatus.ACTIVE;
+        OffsetDateTime cutoff = OffsetDateTime.now().minusDays(deactivatedRetentionDays);
+        if (existing.get().deletedAt.isBefore(cutoff)) {
+            var deleted = users.deleteByFirebaseUidIfDeletedBefore(firebaseUid, cutoff);
+            deleted.ifPresent(users::insertTombstone);
+            return deleted.isPresent() ? LoginStatus.PURGED : LoginStatus.MISSING;
+        }
+        users.reactivate(existing.get().id);
+        return LoginStatus.REACTIVATED;
+    }
+
+    public int purgeDeactivated() {
+        OffsetDateTime cutoff = OffsetDateTime.now().minusDays(deactivatedRetentionDays);
+        int total = 0;
+        while (true) {
+            var deleted = users.deleteSoftDeletedBefore(cutoff, 200);
+            if (deleted.isEmpty()) break;
+            deleted.forEach(users::insertTombstone);
+            total += deleted.size();
+        }
+        return total;
     }
 
     private Optional<UserRepository.UserRow> requireProvisionedUser(String firebaseUid) {
@@ -167,6 +251,9 @@ public class UsersService {
         return new UserProfile(
                 row.id,
                 row.handle,
+                row.firstName,
+                row.lastName,
+                row.dateOfBirth,
                 row.displayName,
                 row.bio,
                 row.isAnonymous,
@@ -177,6 +264,22 @@ public class UsersService {
                 verificationData,
                 stats
         );
+    }
+
+    private String normalizeHandle(String raw) {
+        if (raw == null) return null;
+        String trimmed = raw.trim().toLowerCase(Locale.ROOT);
+        if (trimmed.isBlank()) return null;
+        if (!trimmed.matches("^[a-z0-9_]{3,30}$")) return null;
+        return trimmed;
+    }
+
+    private String extractDomain(String email) {
+        if (email == null) return null;
+        String trimmed = email.trim().toLowerCase(Locale.ROOT);
+        int at = trimmed.indexOf('@');
+        if (at <= 0 || at == trimmed.length() - 1) return null;
+        return trimmed.substring(at + 1);
     }
 
     public enum Status { OK, USER_NOT_PROVISIONED, NOT_FOUND, FORBIDDEN }
@@ -193,6 +296,18 @@ public class UsersService {
         static UpdateProfileResult userNotProvisioned() { return new UpdateProfileResult(Status.USER_NOT_PROVISIONED, null); }
     }
 
+    public enum OnboardStatus { OK, CONFLICT, BAD_REQUEST }
+    public record OnboardResult(OnboardStatus status, UserProfile profile, String error) {
+        static OnboardResult ok(UserProfile profile) { return new OnboardResult(OnboardStatus.OK, profile, null); }
+        static OnboardResult conflict(String error) { return new OnboardResult(OnboardStatus.CONFLICT, null, error); }
+        static OnboardResult badRequest(String error) { return new OnboardResult(OnboardStatus.BAD_REQUEST, null, error); }
+    }
+
+    public record AvailabilityResult(boolean valid, String username, boolean available) {
+        static AvailabilityResult ok(String username, boolean available) { return new AvailabilityResult(true, username, available); }
+        static AvailabilityResult invalid() { return new AvailabilityResult(false, null, false); }
+    }
+
     public record SearchResult(Status status, List<UserRepository.UserRow> users, String nextCursor) {
         static SearchResult ok(List<UserRepository.UserRow> users, String next) { return new SearchResult(Status.OK, users, next); }
         static SearchResult userNotProvisioned() { return new SearchResult(Status.USER_NOT_PROVISIONED, List.of(), null); }
@@ -205,7 +320,8 @@ public class UsersService {
         static CommentsResult forbidden() { return new CommentsResult(Status.FORBIDDEN, List.of(), null); }
     }
 
-    public record UserProfile(long id, String handle, String displayName, String bio, boolean isAnonymous, boolean showFollowerCount, Long companyId,
+    public record UserProfile(long id, String handle, String firstName, String lastName, LocalDate dateOfBirth,
+                              String displayName, String bio, boolean isAnonymous, boolean showFollowerCount, Long companyId,
                               OffsetDateTime createdAt, String profileImageUrl, Verification verification, ProfileStats stats) {}
 
     public record ProfileStats(int followerCount, int followingCount, int postsCount, int commentsCount) {}
@@ -230,7 +346,8 @@ public class UsersService {
             users.softDelete(user.id, user.id);
             return DeleteResult.ok();
         }
-        users.hardDelete(user.id);
+        var deleted = users.deleteById(user.id);
+        deleted.ifPresent(users::insertTombstone);
         return DeleteResult.ok();
     }
 
@@ -241,4 +358,6 @@ public class UsersService {
     public record DeleteResult(DeleteStatus status) {
         static DeleteResult ok() { return new DeleteResult(DeleteStatus.OK); }
     }
+
+    public enum LoginStatus { ACTIVE, REACTIVATED, PURGED, MISSING }
 }

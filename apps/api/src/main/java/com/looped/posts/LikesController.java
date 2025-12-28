@@ -24,7 +24,26 @@ public class LikesController {
     @PostMapping
     public ResponseEntity<?> like(@AuthenticationPrincipal Jwt jwt, @PathVariable("postId") long postId,
                                   @RequestBody(required = false) LikeRequest body) {
-        var res = service.like(jwt.getSubject(), postId, body == null ? null : body.toAnonProof());
+        boolean asAnon = body != null && Boolean.TRUE.equals(body.asAnon());
+        if (asAnon && (body == null || !body.hasAnonProof())) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
+                    "error", "invalid_anon_proof",
+                    "message", "Invalid anonymous proof"
+            ));
+        }
+        if (asAnon && jwt != null) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of(
+                    "error", "anon_jwt_not_allowed",
+                    "message", "Do not send Authorization for anonymous actions"
+            ));
+        }
+        if (!asAnon && jwt == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of(
+                    "error", "unauthorized",
+                    "message", "Authorization is required"
+            ));
+        }
+        var res = service.like(jwt == null ? null : jwt.getSubject(), postId, body == null ? null : body.toAnonProof());
         return switch (res.status()) {
             case USER_NOT_PROVISIONED -> ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
                     "error", "user_not_provisioned",
@@ -49,6 +68,14 @@ public class LikesController {
         com.looped.anon.AnonProofService.AnonActionProof toAnonProof() {
             if (asAnon == null || !asAnon) return null;
             return new com.looped.anon.AnonProofService.AnonActionProof(anonProfileId, anonCert, anonCertKid, anonSig);
+        }
+
+        boolean hasAnonProof() {
+            if (asAnon == null || !asAnon) return false;
+            return anonProfileId != null
+                    && anonCert != null && !anonCert.isBlank()
+                    && anonCertKid != null && !anonCertKid.isBlank()
+                    && anonSig != null && !anonSig.isBlank();
         }
     }
 }

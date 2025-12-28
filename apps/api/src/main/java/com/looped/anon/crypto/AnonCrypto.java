@@ -14,9 +14,9 @@ public final class AnonCrypto {
         return sha256(canonical);
     }
 
-    public static byte[] postMessage(long communityId, String scopeKind, long scopeId, String content, long timestampSeconds) {
+    public static byte[] postMessage(long communityId, String content, long timestampSeconds) {
         String contentHash = sha256Hex(content);
-        String canonical = "v1|" + communityId + "|" + scopeKind + "|" + scopeId + "|" + contentHash + "|" + timestampSeconds;
+        String canonical = "v2|" + communityId + "|" + contentHash + "|" + timestampSeconds;
         return sha256(canonical);
     }
 

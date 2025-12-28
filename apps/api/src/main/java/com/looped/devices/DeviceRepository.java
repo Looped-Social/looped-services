@@ -48,7 +48,25 @@ public class DeviceRepository {
         return new UpsertResult(row.id, created);
     }
 
+    public java.util.List<DeviceTokenRow> listApnsTokensByUserIds(java.util.List<Long> userIds) {
+        if (userIds == null || userIds.isEmpty()) return java.util.List.of();
+        String placeholders = String.join(",", java.util.Collections.nCopies(userIds.size(), "?"));
+        String sql = "SELECT user_id, apns_token FROM devices WHERE platform = 'ios' AND user_id IN (" + placeholders + ")";
+        Object[] params = userIds.toArray();
+        return jdbcTemplate.query(sql, (rs, rowNum) -> {
+            DeviceTokenRow row = new DeviceTokenRow();
+            row.userId = rs.getLong("user_id");
+            row.apnsToken = rs.getString("apns_token");
+            return row;
+        }, params);
+    }
+
     public record UpsertResult(long id, boolean created) {}
+
+    public static class DeviceTokenRow {
+        public long userId;
+        public String apnsToken;
+    }
 
     public static class DeviceRow {
         public long id;

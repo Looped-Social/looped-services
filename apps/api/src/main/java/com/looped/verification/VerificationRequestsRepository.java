@@ -36,16 +36,24 @@ public class VerificationRequestsRepository {
             row.reviewedBy = rs.wasNull() ? null : reviewedBy;
             row.rejectReason = rs.getString("reject_reason");
             row.companyDomain = rs.getString("company_domain");
+            long communityId = rs.getLong("community_id");
+            row.communityId = rs.wasNull() ? null : communityId;
+            row.communityName = rs.getString("community_name");
+            row.communityKind = rs.getString("community_kind");
             return row;
         }
     };
 
     public long insert(long userId, String email, String method, String status, String mediaKey, String metadata) {
+        return insert(userId, null, email, method, status, mediaKey, metadata);
+    }
+
+    public long insert(long userId, Long communityId, String email, String method, String status, String mediaKey, String metadata) {
         Long id = jdbc.query(
-                "INSERT INTO verification_requests(user_id, email, method, status, media_key, metadata) " +
-                        "VALUES (?, ?, ?, ?, ?, ?) RETURNING id",
+                "INSERT INTO verification_requests(user_id, community_id, email, method, status, media_key, metadata) " +
+                        "VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id",
                 rs -> rs.next() ? rs.getLong(1) : null,
-                userId, normalizeEmail(email), method, status, mediaKey, metadata
+                userId, communityId, normalizeEmail(email), method, status, mediaKey, metadata
         );
         if (id == null) {
             throw new IllegalStateException("Failed to insert verification request");
@@ -55,9 +63,11 @@ public class VerificationRequestsRepository {
 
     public Optional<Row> findById(long id) {
         var list = jdbc.query(
-                "SELECT vr.*, c.domain AS company_domain FROM verification_requests vr " +
+                "SELECT vr.*, c.domain AS company_domain, cm.name AS community_name, cm.kind AS community_kind " +
+                        "FROM verification_requests vr " +
                         "JOIN users u ON u.id = vr.user_id " +
                         "JOIN companies c ON c.id = u.company_id " +
+                        "LEFT JOIN communities cm ON cm.id = vr.community_id " +
                         "WHERE vr.id = ? LIMIT 1",
                 MAPPER, id
         );
@@ -74,9 +84,11 @@ public class VerificationRequestsRepository {
     }
 
     public List<Row> listForAdmin(String status, OffsetDateTime cursorTs, Long cursorId, int limit) {
-        String base = "SELECT vr.*, c.domain AS company_domain FROM verification_requests vr " +
+        String base = "SELECT vr.*, c.domain AS company_domain, cm.name AS community_name, cm.kind AS community_kind " +
+                "FROM verification_requests vr " +
                 "JOIN users u ON u.id = vr.user_id " +
-                "JOIN companies c ON c.id = u.company_id ";
+                "JOIN companies c ON c.id = u.company_id " +
+                "LEFT JOIN communities cm ON cm.id = vr.community_id ";
         String where = "";
         Object[] params;
         if (status != null && !status.isBlank()) {
@@ -127,5 +139,8 @@ public class VerificationRequestsRepository {
         public Long reviewedBy;
         public String rejectReason;
         public String companyDomain;
+        public Long communityId;
+        public String communityName;
+        public String communityKind;
     }
 }

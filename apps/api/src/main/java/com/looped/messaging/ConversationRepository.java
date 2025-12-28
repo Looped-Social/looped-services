@@ -90,15 +90,17 @@ public class ConversationRepository {
                 "(SELECT COUNT(*) FROM conversation_messages cm WHERE cm.conversation_id = c.id AND cm.created_at > COALESCE(cp.last_read_at, to_timestamp(0))) AS unread_count " +
                 "FROM conversations c " +
                 "JOIN conversation_participants cp ON cp.conversation_id = c.id " +
-                "WHERE cp.user_id = ? ";
+                "LEFT JOIN conversation_message_requests cmr " +
+                "ON cmr.conversation_id = c.id AND cmr.recipient_id = ? AND cmr.status IN ('pending', 'rejected') " +
+                "WHERE cp.user_id = ? AND cmr.id IS NULL ";
         if (cursorTs == null || cursorId == null) {
             base += "ORDER BY activity_at DESC, c.id DESC LIMIT " + limit;
-            return jdbc.query(base, (rs, rowNum) -> mapConversationSummary(rs), userId, userId);
+            return jdbc.query(base, (rs, rowNum) -> mapConversationSummary(rs), userId, userId, userId);
         }
         base += "AND (COALESCE((SELECT created_at FROM conversation_messages cm WHERE cm.conversation_id = c.id ORDER BY cm.created_at DESC, cm.id DESC LIMIT 1), c.created_at) < ? " +
                 "OR (COALESCE((SELECT created_at FROM conversation_messages cm WHERE cm.conversation_id = c.id ORDER BY cm.created_at DESC, cm.id DESC LIMIT 1), c.created_at) = ? AND c.id < ?)) " +
                 "ORDER BY activity_at DESC, c.id DESC LIMIT " + limit;
-        return jdbc.query(base, (rs, rowNum) -> mapConversationSummary(rs), userId, userId, cursorTs, cursorTs, cursorId);
+        return jdbc.query(base, (rs, rowNum) -> mapConversationSummary(rs), userId, userId, userId, cursorTs, cursorTs, cursorId);
     }
 
     public Optional<ConversationSummary> findSummary(long conversationId, long userId) {
@@ -157,6 +159,14 @@ public class ConversationRepository {
                 conversationId, senderId, content, json
         );
         return rows.isEmpty() ? null : rows.get(0);
+    }
+
+    public List<Long> listOtherParticipantIds(long conversationId, long userId) {
+        return jdbc.query(
+                "SELECT user_id FROM conversation_participants WHERE conversation_id = ? AND user_id <> ?",
+                (rs, rowNum) -> rs.getLong("user_id"),
+                conversationId, userId
+        );
     }
 
     public void markRead(long conversationId, long userId, OffsetDateTime ts) {

@@ -15,11 +15,16 @@ public final class CommentPayloads {
         out.put("likes_count", row.comment.likesCount);
         out.put("user_liked", row.viewerLiked);
         out.put("liked_by_creator", row.likedByCreator);
+        out.put("author_principal_id", row.author.principalId);
+        out.put("author_is_anonymous", row.author.isAnonymous);
         out.put("is_anonymous", row.author.isAnonymous);
         if (row.comment.parentId != null) out.put("parent_id", row.comment.parentId);
 
         Map<String, Object> author = new HashMap<>();
-        author.put("id", row.author.id);
+        Long authorId = row.author.userId != null ? row.author.userId : row.author.anonProfileId;
+        author.put("id", authorId);
+        author.put("principal_id", row.author.principalId);
+        author.put("is_anonymous", row.author.isAnonymous);
         author.put("display_name", row.author.displayName);
         author.put("username", row.author.handle);
         author.put("handle", row.author.handle);

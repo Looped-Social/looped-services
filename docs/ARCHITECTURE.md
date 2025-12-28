@@ -58,7 +58,7 @@ Verification flows (details)
   - `GET /v1/me` includes `user.verification = { method, verified, verified_at }` when present.
 
 Starter Schema (Postgres)
-users(id, firebase_uid, handle, company_id, created_at)
+users(id, firebase_uid, handle, first_name, last_name, date_of_birth, company_id, created_at)
 companies(id, name, domain, created_at)
 verifications(user_id, method, verified, verified_at) PK(user_id)
 posts(id, author_id, company_id, content, media_asset_id, likes_count, created_at) + index (company_id, created_at desc)
@@ -70,6 +70,7 @@ devices(id, user_id, apns_token, platform, created_at)
 Security & Privacy
 - Verify Firebase JWT every request (JWKS)
 - No PII in logs; structured JSON with request_id
+- Messaging encryption at rest (non-E2EE): per-message data keys, AEAD ciphertext stored in Postgres, keys wrapped with KMS/KEK
 - Rate-limit by IP/user in Redis
 - Idempotency-Key for POST /v1/posts
 - Media guardrails at presign (content-type, size) + bucket policy

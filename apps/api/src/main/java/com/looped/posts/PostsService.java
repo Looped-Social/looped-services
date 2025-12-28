@@ -7,7 +7,10 @@ import com.looped.discovery.HashtagParser;
 import com.looped.discovery.HashtagPostsRepository;
 import com.looped.discovery.HashtagsRepository;
 import com.looped.media.MediaRepository;
+import com.looped.notifications.NotificationPublisher;
 import com.looped.principals.PrincipalRepository;
+import com.looped.shared.MentionParser;
+import com.looped.users.FollowsRepository;
 import com.looped.users.UserRepository;
 import org.springframework.dao.DataAccessException;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -29,6 +32,8 @@ public class PostsService {
     private final AnonProofService anonProofs;
     private final HashtagsRepository hashtags;
     private final HashtagPostsRepository hashtagPosts;
+    private final FollowsRepository follows;
+    private final NotificationPublisher notifications;
 
     public PostsService(PostRepository posts,
                         UserRepository users,
@@ -39,7 +44,9 @@ public class PostsService {
                         StringRedisTemplate redis,
                         AnonProofService anonProofs,
                         HashtagsRepository hashtags,
-                        HashtagPostsRepository hashtagPosts) {
+                        HashtagPostsRepository hashtagPosts,
+                        FollowsRepository follows,
+                        NotificationPublisher notifications) {
         this.posts = posts;
         this.users = users;
         this.principals = principals;
@@ -50,38 +57,31 @@ public class PostsService {
         this.anonProofs = anonProofs;
         this.hashtags = hashtags;
         this.hashtagPosts = hashtagPosts;
+        this.follows = follows;
+        this.notifications = notifications;
     }
 
     public CreateResult create(String firebaseUid, String idempotencyKey, String content, Long mediaAssetId, Long communityId,
                                boolean isAnon, Long anonProfileId, String anonCert, String anonCertKid,
-                               String anonSig, Long anonCompanyId, Long anonTimestamp) {
-        var u = users.findByFirebaseUid(firebaseUid);
-        if (u.isEmpty()) return CreateResult.userNotProvisioned();
-        long userId = u.get().id;
-        long companyId = Optional.ofNullable(u.get().companyId).orElse(0L);
+                               String anonSig, Long anonTimestamp) {
         if (communityId == null) return CreateResult.communityRequired();
         var community = communities.findById(communityId);
         if (community.isEmpty()) return CreateResult.communityNotFound();
-
-        if (!communityVerifications.isVerified(userId, communityId)) {
-            return CreateResult.notVerified();
-        }
 
         if (isAnon) {
             if (anonProfileId == null || anonCert == null || anonCertKid == null || anonSig == null || anonTimestamp == null) {
                 return CreateResult.invalidAnonProof();
             }
-            long effectiveCompanyId = anonCompanyId != null ? anonCompanyId : companyId;
-            if (anonCompanyId != null && anonCompanyId != companyId) {
-                return CreateResult.invalidAnonProof();
-            }
             var proof = new AnonProofService.AnonPostProof(anonProfileId, anonCert, anonCertKid, anonSig);
-            var verified = anonProofs.verifyPost(proof, communityId, effectiveCompanyId, content, anonTimestamp);
+            var verified = anonProofs.verifyPost(proof, communityId, content, anonTimestamp);
             if (verified.status() != AnonProofService.Status.OK) {
                 return CreateResult.invalidAnonProof();
             }
             if (mediaAssetId != null && !mediaOwnerIsNull(mediaAssetId)) {
                 return CreateResult.anonMediaNotAllowed();
+            }
+            if (verified.actor().companyId() == null) {
+                return CreateResult.invalidAnonProof();
             }
 
             byte[] certBytes;
@@ -93,10 +93,24 @@ public class PostsService {
                 return CreateResult.invalidAnonProof();
             }
 
-            var p = posts.insert(null, verified.actor().principalId(), companyId, communityId, content, mediaAssetId,
+            long effectiveCompanyId = verified.actor().companyId();
+            var p = posts.insert(null, verified.actor().principalId(), effectiveCompanyId, communityId, content, mediaAssetId,
                     true, anonProfileId, effectiveCompanyId, certBytes, anonCertKid, sigBytes, null);
             indexHashtags(p.id, effectiveCompanyId, content);
+            try {
+                notifyPostFromFollowed(p.authorPrincipalId, p.id);
+                notifyMentions(p.authorPrincipalId, null, effectiveCompanyId, content, p.id);
+            } catch (RuntimeException ignored) {}
             return CreateResult.ok(p.id, true);
+        }
+
+        var u = users.findByFirebaseUid(firebaseUid);
+        if (u.isEmpty()) return CreateResult.userNotProvisioned();
+        long userId = u.get().id;
+        long companyId = Optional.ofNullable(u.get().companyId).orElse(0L);
+
+        if (!communityVerifications.isVerified(userId, communityId)) {
+            return CreateResult.notVerified();
         }
 
         if (idempotencyKey == null || idempotencyKey.isBlank()) {
@@ -133,6 +147,10 @@ public class PostsService {
                     redis.opsForValue().set(redisKey, Long.toString(p.id), Duration.ofHours(24));
                 } catch (RuntimeException ignored) {}
             }
+            try {
+                notifyPostFromFollowed(p.authorPrincipalId, p.id);
+                notifyMentions(p.authorPrincipalId, userId, companyId, content, p.id);
+            } catch (RuntimeException ignored) {}
             return CreateResult.ok(p.id, true);
         } catch (DataAccessException e) {
             if (useIdem) {
@@ -166,6 +184,24 @@ public class PostsService {
             long hashtagId = hashtags.upsert(companyId, tag);
             hashtagPosts.attach(hashtagId, postId);
         }
+    }
+
+    private void notifyPostFromFollowed(long authorPrincipalId, long postId) {
+        var followerUserIds = follows.findFollowerUserIds(authorPrincipalId);
+        notifications.notifyPostFromFollowed(authorPrincipalId, postId, followerUserIds);
+    }
+
+    private void notifyMentions(long actorPrincipalId, Long actorUserId, long companyId, String content, long postId) {
+        var handles = MentionParser.extract(content);
+        if (handles.isEmpty()) return;
+        var mentioned = users.findByHandlesInCompany(companyId, handles);
+        if (mentioned.isEmpty()) return;
+        java.util.List<Long> userIds = mentioned.stream()
+                .map(u -> u.id)
+                .filter(id -> actorUserId == null || id != actorUserId)
+                .distinct()
+                .toList();
+        notifications.notifyMentions(actorPrincipalId, userIds, postId, null);
     }
 
     public record GetResult(Status status, PostRepository.PostRow post) {

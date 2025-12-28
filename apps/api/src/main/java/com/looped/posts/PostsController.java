@@ -28,6 +28,18 @@ public class PostsController {
     ) {
         Long communityId = body.communityId() != null ? body.communityId() : body.loopId();
         boolean isAnon = body.isAnon() != null && body.isAnon();
+        if (isAnon && jwt != null) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of(
+                    "error", "anon_jwt_not_allowed",
+                    "message", "Do not send Authorization for anonymous actions"
+            ));
+        }
+        if (!isAnon && jwt == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of(
+                    "error", "unauthorized",
+                    "message", "Authorization is required"
+            ));
+        }
         if (!isAnon && (idempotencyKey == null || idempotencyKey.isBlank())) {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of(
                     "error", "idempotency_required",
@@ -35,7 +47,7 @@ public class PostsController {
             ));
         }
         var res = postsService.create(
-                jwt.getSubject(),
+                jwt == null ? null : jwt.getSubject(),
                 idempotencyKey,
                 body.content(),
                 body.mediaAssetId(),
@@ -45,7 +57,6 @@ public class PostsController {
                 body.anonCert(),
                 body.anonCertKid(),
                 body.anonSig(),
-                body.anonCompanyId(),
                 body.anonTimestamp()
         );
         return switch (res.status()) {
@@ -121,6 +132,5 @@ public class PostsController {
                                String anonCert,
                                String anonCertKid,
                                String anonSig,
-                               Long anonCompanyId,
                                Long anonTimestamp) {}
 }

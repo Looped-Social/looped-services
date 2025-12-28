@@ -29,12 +29,15 @@ public class AdminUsersController {
     private final AdminAuthService auth;
     private final UserRepository users;
     private final UserBanRepository bans;
+    private final AdminUserStatsRepository stats;
     private final AdminAuditRepository audit;
 
-    public AdminUsersController(AdminAuthService auth, UserRepository users, UserBanRepository bans, AdminAuditRepository audit) {
+    public AdminUsersController(AdminAuthService auth, UserRepository users, UserBanRepository bans,
+                                AdminUserStatsRepository stats, AdminAuditRepository audit) {
         this.auth = auth;
         this.users = users;
         this.bans = bans;
+        this.stats = stats;
         this.audit = audit;
     }
 
@@ -121,6 +124,23 @@ public class AdminUsersController {
             banMap.put("created_by", b.createdBy);
             body.put("ban", banMap);
         });
+        var moderationStats = stats.forUser(user.id);
+        Map<String, Object> statsMap = new HashMap<>();
+        statsMap.put("posts_total", moderationStats.postsTotal);
+        statsMap.put("posts_removed_total", moderationStats.postsRemovedTotal);
+        statsMap.put("reports_against_user_total", moderationStats.reportsAgainstUserTotal);
+        statsMap.put("reports_against_user_open", moderationStats.reportsAgainstUserOpen);
+        statsMap.put("reports_against_user_resolved", moderationStats.reportsAgainstUserResolved);
+        statsMap.put("reports_against_user_dismissed", moderationStats.reportsAgainstUserDismissed);
+        statsMap.put("reports_against_posts_total", moderationStats.reportsAgainstPostsTotal);
+        statsMap.put("reports_against_posts_open", moderationStats.reportsAgainstPostsOpen);
+        statsMap.put("reports_against_posts_resolved", moderationStats.reportsAgainstPostsResolved);
+        statsMap.put("reports_against_posts_dismissed", moderationStats.reportsAgainstPostsDismissed);
+        statsMap.put("reports_filed_total", moderationStats.reportsFiledTotal);
+        statsMap.put("reports_filed_open", moderationStats.reportsFiledOpen);
+        statsMap.put("reports_filed_resolved", moderationStats.reportsFiledResolved);
+        statsMap.put("reports_filed_dismissed", moderationStats.reportsFiledDismissed);
+        body.put("moderation_stats", statsMap);
         return ResponseEntity.ok(body);
     }
 

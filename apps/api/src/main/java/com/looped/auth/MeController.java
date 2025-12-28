@@ -25,6 +25,12 @@ public class MeController {
         resp.put("sub", jwt.getSubject());
         resp.put("iss", jwt.getIssuer() != null ? jwt.getIssuer().toString() : null);
         resp.put("aud", jwt.getAudience());
+        var loginStatus = users.onLogin(jwt.getSubject());
+        if (loginStatus == UsersService.LoginStatus.PURGED) {
+            resp.put("provisioned", false);
+            resp.put("account_deleted", true);
+            return resp;
+        }
         Object email = jwt.getClaims().get("email");
         if (email != null) {
             resp.put("email", email);

@@ -143,5 +143,29 @@ public class AdminReportsController {
         return ResponseEntity.ok(Map.of("status", "resolved"));
     }
 
+    @PostMapping("/reports/{id}/dismiss")
+    public ResponseEntity<?> dismiss(
+            @AuthenticationPrincipal Jwt jwt,
+            @PathVariable("id") long id,
+            @RequestBody(required = false) ResolveRequest body
+    ) {
+        String email = jwt.getClaimAsString("email");
+        var authRes = auth.requirePermission(jwt.getSubject(), email, AdminPermissions.RESOLVE_REPORTS);
+        if (authRes.status() != AdminAuthService.Status.OK) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "forbidden"));
+        }
+        var existing = reports.findById(id);
+        if (existing.isEmpty()) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "not_found"));
+        }
+        String reason = body != null ? body.reason() : null;
+        boolean updated = reports.dismiss(id, authRes.admin().id, reason);
+        if (!updated) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of("error", "update_failed"));
+        }
+        audit.log(authRes.admin().id, "report.dismiss", "report", id, null);
+        return ResponseEntity.ok(Map.of("status", "dismissed"));
+    }
+
     public record ResolveRequest(String reason) {}
 }

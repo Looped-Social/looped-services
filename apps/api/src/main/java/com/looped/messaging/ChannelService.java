@@ -23,6 +23,7 @@ public class ChannelService {
     public ChannelListResult list(String firebaseUid, String cursor, int limit) {
         var actor = requireProvisionedUser(firebaseUid);
         if (actor.isEmpty()) return ChannelListResult.userNotProvisioned();
+        if (actor.get().isAnonymous) return ChannelListResult.anonymousNotAllowed();
         OffsetDateTime cTs = null; Long cId = null;
         if (cursor != null && !cursor.isBlank()) {
             try {
@@ -51,6 +52,7 @@ public class ChannelService {
     public MessagesResult messages(String firebaseUid, long channelId, String cursor, int limit) {
         var actor = requireProvisionedUser(firebaseUid);
         if (actor.isEmpty()) return MessagesResult.userNotProvisioned();
+        if (actor.get().isAnonymous) return MessagesResult.anonymousNotAllowed();
         var channel = channels.findById(channelId);
         if (channel.isEmpty()) return MessagesResult.notFound();
         if (channel.get().companyId != actor.get().companyId) return MessagesResult.forbidden();
@@ -77,6 +79,7 @@ public class ChannelService {
     public SendResult send(String firebaseUid, long channelId, String content, List<String> attachments) {
         var actor = requireProvisionedUser(firebaseUid);
         if (actor.isEmpty()) return SendResult.userNotProvisioned();
+        if (actor.get().isAnonymous) return SendResult.anonymousNotAllowed();
         var channel = channels.findById(channelId);
         if (channel.isEmpty()) return SendResult.notFound();
         if (channel.get().companyId != actor.get().companyId) return SendResult.forbidden();
@@ -95,11 +98,12 @@ public class ChannelService {
         return user;
     }
 
-    public enum Status { OK, USER_NOT_PROVISIONED, FORBIDDEN, NOT_FOUND }
+    public enum Status { OK, USER_NOT_PROVISIONED, FORBIDDEN, NOT_FOUND, ANONYMOUS_NOT_ALLOWED }
 
     public record ChannelListResult(Status status, List<Map<String, Object>> items, String nextCursor) {
         static ChannelListResult ok(List<Map<String, Object>> items, String next) { return new ChannelListResult(Status.OK, items, next); }
         static ChannelListResult userNotProvisioned() { return new ChannelListResult(Status.USER_NOT_PROVISIONED, List.of(), null); }
+        static ChannelListResult anonymousNotAllowed() { return new ChannelListResult(Status.ANONYMOUS_NOT_ALLOWED, List.of(), null); }
     }
 
     public record MessagesResult(Status status, List<ChannelRepository.ChannelMessageRow> messages, String nextCursor) {
@@ -107,6 +111,7 @@ public class ChannelService {
         static MessagesResult userNotProvisioned() { return new MessagesResult(Status.USER_NOT_PROVISIONED, List.of(), null); }
         static MessagesResult forbidden() { return new MessagesResult(Status.FORBIDDEN, List.of(), null); }
         static MessagesResult notFound() { return new MessagesResult(Status.NOT_FOUND, List.of(), null); }
+        static MessagesResult anonymousNotAllowed() { return new MessagesResult(Status.ANONYMOUS_NOT_ALLOWED, List.of(), null); }
     }
 
     public record SendResult(Status status, ChannelRepository.ChannelMessageRow message) {
@@ -114,5 +119,6 @@ public class ChannelService {
         static SendResult userNotProvisioned() { return new SendResult(Status.USER_NOT_PROVISIONED, null); }
         static SendResult forbidden() { return new SendResult(Status.FORBIDDEN, null); }
         static SendResult notFound() { return new SendResult(Status.NOT_FOUND, null); }
+        static SendResult anonymousNotAllowed() { return new SendResult(Status.ANONYMOUS_NOT_ALLOWED, null); }
     }
 }

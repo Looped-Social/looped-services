@@ -86,18 +86,17 @@ public class PostCollectionsService {
     }
 
     public SaveResult save(String firebaseUid, long postId, AnonProofService.AnonActionProof anonProof) {
-        var actor = provisionedUser(firebaseUid);
-        if (actor.isEmpty()) return SaveResult.userNotProvisioned();
-
         var post = posts.findById(postId);
         if (post.isEmpty()) return SaveResult.notFound(false);
 
         long actorPrincipalId;
         if (anonProof != null && anonProof.anonProfileId() != null) {
-            var verified = anonProofs.verifyAction(anonProof, "save", postId);
+            var verified = anonProofs.verifyActionScoped(anonProof, "save", postId, post.get().communityId);
             if (verified.status() != AnonProofService.Status.OK) return SaveResult.invalidSignature();
             actorPrincipalId = verified.actor().principalId();
         } else {
+            var actor = provisionedUser(firebaseUid);
+            if (actor.isEmpty()) return SaveResult.userNotProvisioned();
             var principal = principals.createForUser(actor.get().id);
             actorPrincipalId = principal.id;
         }
@@ -107,18 +106,17 @@ public class PostCollectionsService {
     }
 
     public SaveResult unsave(String firebaseUid, long postId, AnonProofService.AnonActionProof anonProof) {
-        var actor = provisionedUser(firebaseUid);
-        if (actor.isEmpty()) return SaveResult.userNotProvisioned();
-
         var post = posts.findById(postId);
         if (post.isEmpty()) return SaveResult.notFound(false);
 
         long actorPrincipalId;
         if (anonProof != null && anonProof.anonProfileId() != null) {
-            var verified = anonProofs.verifyAction(anonProof, "unsave", postId);
+            var verified = anonProofs.verifyActionScoped(anonProof, "unsave", postId, post.get().communityId);
             if (verified.status() != AnonProofService.Status.OK) return SaveResult.invalidSignature();
             actorPrincipalId = verified.actor().principalId();
         } else {
+            var actor = provisionedUser(firebaseUid);
+            if (actor.isEmpty()) return SaveResult.userNotProvisioned();
             var principal = principals.createForUser(actor.get().id);
             actorPrincipalId = principal.id;
         }

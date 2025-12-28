@@ -31,9 +31,32 @@ public class MediaRepository {
         return count != null && count > 0;
     }
 
+    public java.util.Optional<MediaRow> findByKey(String s3Key) {
+        var rows = jdbc.query(
+                "SELECT id, owner_id, s3_key, mime_type FROM media_assets WHERE s3_key = ?",
+                (rs, rowNum) -> {
+                    MediaRow row = new MediaRow();
+                    row.id = rs.getLong("id");
+                    row.ownerId = rs.getObject("owner_id", Long.class);
+                    row.s3Key = rs.getString("s3_key");
+                    row.mimeType = rs.getString("mime_type");
+                    return row;
+                },
+                s3Key
+        );
+        return rows.isEmpty() ? java.util.Optional.empty() : java.util.Optional.of(rows.get(0));
+    }
+
     public Long findOwnerId(long mediaAssetId) {
         var rows = jdbc.query("SELECT owner_id FROM media_assets WHERE id = ?",
                 (rs, rowNum) -> rs.getObject("owner_id", Long.class), mediaAssetId);
         return rows.isEmpty() ? null : rows.get(0);
+    }
+
+    public static class MediaRow {
+        public long id;
+        public Long ownerId;
+        public String s3Key;
+        public String mimeType;
     }
 }

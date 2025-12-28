@@ -40,7 +40,9 @@ public class AnonProfilesService {
         if (actor.isEmpty() || actor.get().companyId == null) return ProfileResult.userNotProvisioned();
         var profile = profiles.findById(anonProfileId);
         if (profile.isEmpty()) return ProfileResult.notFound();
-        if (!actor.get().companyId.equals(profile.get().companyId)) return ProfileResult.forbidden();
+        if (profile.get().companyId != null && !actor.get().companyId.equals(profile.get().companyId)) {
+            return ProfileResult.forbidden();
+        }
         var principal = principals.createForAnon(anonProfileId);
         var statsBlock = new ProfileStats(
                 stats.countFollowers(principal.id),
@@ -61,7 +63,9 @@ public class AnonProfilesService {
         if (actor.isEmpty() || actor.get().companyId == null) return PostsResult.userNotProvisioned();
         var profile = profiles.findById(anonProfileId);
         if (profile.isEmpty()) return PostsResult.notFound();
-        if (!actor.get().companyId.equals(profile.get().companyId)) return PostsResult.forbidden();
+        if (profile.get().companyId != null && !actor.get().companyId.equals(profile.get().companyId)) {
+            return PostsResult.forbidden();
+        }
         var principal = principals.createForAnon(anonProfileId);
 
         OffsetDateTime cTs = null; Long cId = null;
@@ -95,7 +99,9 @@ public class AnonProfilesService {
         if (actor.isEmpty() || actor.get().companyId == null) return FollowsResult.userNotProvisioned();
         var profile = profiles.findById(anonProfileId);
         if (profile.isEmpty()) return FollowsResult.notFound();
-        if (!actor.get().companyId.equals(profile.get().companyId)) return FollowsResult.forbidden();
+        if (profile.get().companyId != null && !actor.get().companyId.equals(profile.get().companyId)) {
+            return FollowsResult.forbidden();
+        }
         var principal = principals.createForAnon(anonProfileId);
 
         OffsetDateTime cTs = null; Long cId = null;
@@ -144,7 +150,7 @@ public class AnonProfilesService {
         static FollowsResult forbidden() { return new FollowsResult(Status.FORBIDDEN, List.of(), null); }
     }
 
-    public record AnonProfile(long id, String handle, long companyId, OffsetDateTime createdAt, ProfileStats stats) {}
+    public record AnonProfile(long id, String handle, Long companyId, OffsetDateTime createdAt, ProfileStats stats) {}
 
     public record ProfileStats(int followerCount, int followingCount, int postsCount) {}
 }

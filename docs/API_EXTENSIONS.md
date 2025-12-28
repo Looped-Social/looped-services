@@ -3,7 +3,22 @@
 - **Profile update aliases**
   - `PUT /v1/users/me` and alias `PUT /users/me`
   - Request: `{ "displayName": "optional string|null", "bio": "optional string|null", "isAnonymous": true|false }`
-  - Response: user payload matching `/v1/me.user` with `display_name`, `bio`, `is_anonymous`, `profile_image_url`, and `stats.{follower_count,following_count,posts_count,comments_count}`.
+  - Response: user payload matching `/v1/me.user` with `first_name`, `last_name`, `date_of_birth`, `display_name`, `bio`, `is_anonymous`, `profile_image_url`, and `stats.{follower_count,following_count,posts_count,comments_count}`.
+- **Account management**
+  - Deactivate (soft delete): `POST /v1/users/me/deactivate` → `204`
+  - Delete (hard delete): `POST /v1/users/me/delete` → `204`
+  - Legacy: `DELETE /v1/users/me?mode=soft|hard`
+  - After retention purge, `/v1/me` returns `{ provisioned: false, account_deleted: true }`.
+- **Feedback**
+  - `POST /v1/feedback` → `{ id, status: "received" }`
+  - Request: `{ "title": "...", "message": "...", "email": "optional" }`
+  - JSON aliases: `subject` → `title`, `description`/`body` → `message`
+  - Auth is optional; when provided, feedback is linked to the user.
+- **Onboarding**
+  - `POST /v1/users/onboard` → creates the user record from Firebase identity + email domain.
+  - Body: `{ "username": "string", "firstName": "string", "lastName": "string", "dateOfBirth": "YYYY-MM-DD" }`
+  - Errors: `invalid_username`, `username_taken`, `email_required`, `company_not_found`, `already_onboarded`, `account_deleted`.
+  - `GET /v1/users/username/availability?username=` → `{ "username": "normalized", "available": true|false }`
 - **Employment verification alias**
   - `POST /users/verify-employment` (also available at `/v1/users/verify-employment`)
   - Delegates to existing verification flow; accepts `{ "method": "email|video|thirdparty" }` (defaults to `email` when omitted). Response mirrors `/v1/verification/start`.
@@ -19,16 +34,72 @@
   - `POST /v1/conversations/{id}/messages` → message DTO (201).
     - Body: `{ "content": "<text>", "attachments": [] }`
   - Message DTO: `{ id, sender_id, content, attachments, created_at }`
+  - Message request gating:
+    - If the recipient does **not** follow the sender, the first message creates a pending request.
+    - Pending/rejected requests are hidden from the recipient’s conversation list.
+    - Recipient access is blocked until approval:
+      - `GET /v1/conversations/{id}/messages` → `403 { "error": "message_request_pending" }`
+      - `POST /v1/conversations/{id}/messages` → `403 { "error": "message_request_pending" }`
+      - After rejection, both return `403 { "error": "message_request_rejected" }`
+    - Anonymous profiles (`is_anonymous=true`) are blocked from messaging endpoints with `403 { "error": "anonymous_not_allowed" }`.
+- **Message requests (non-followers)**
+  - `GET /v1/message-requests?cursor=&limit=` → `{ items: [{ id, conversation_id, requester_id, requester_profile, status, created_at, message }], next_cursor }`
+  - `POST /v1/message-requests/{id}/approve` → `{ status: "approved" }`
+  - `POST /v1/message-requests/{id}/reject` → `{ status: "rejected" }`
+  - Message preview: `{ id, sender_id, content, attachments, created_at }`
+  - Notes:
+    - `status` values: `pending`, `approved`, `rejected`.
+    - When pending, new messages from the sender update the preview message shown in the request list.
+    - Anonymous profiles are blocked with `403 { "error": "anonymous_not_allowed" }`.
+- **Violations**
+  - `GET /v1/violations?cursor=&limit=` → `{ items: [{ target_type, target_id, reason, status, created_at }], next_cursor }`
 - **Channels**
   - `GET /v1/channels?cursor=&limit=` → `{ id, name, member_count, is_public }`
   - `GET /v1/channels/{id}/messages?cursor=&limit=` and `POST /v1/channels/{id}/messages` (same shape as DM messages).
+  - Anonymous profiles are blocked with `403 { "error": "anonymous_not_allowed" }`.
 - **Notifications**
   - `GET /v1/notifications?cursor=&limit=` → `{ items: [{ id, type, created_at, unread, payload }], next_cursor }`
   - `POST /v1/notifications/{id}/read` → `{ "read": true }`
+  - `GET /v1/notifications/preferences` → `{ notifications: { channels: { in_app|push|email: { enabled, types: { follow, like, comment, mention, post_from_followed, announcement, system } } } } }`
+  - `PUT /v1/notifications/preferences` → same response; body updates any `enabled` or per-type flags.
+- **Post shares**
+  - `POST /v1/posts/{id}/share` → `{ post_id, share_count }`
+  - Every call records a share event and increments `share_count`.
+- **Admin**
+  - `POST /v1/admin/announcements` → `{ sent: <int> }` (broadcasts in-app announcement notifications to a company).
+  - Push announcements are delivered to opted-in devices (`notifications.preferences.channels.push` and `announcement=true`).
+- **Anonymous protocol (JWT-free)**
+  - **Issuer key**: `GET /anon/issuer?communityId=` (JWT required)
+    - Response: `{ kid, alg: "RSABSSA", public_key_pem, expires_at }`
+  - **Issue blind cert**: `POST /anon/issue` (JWT required)
+    - Body: `{ communityId, blindedMessage }`
+    - Response: `{ anon_cert_kid, blinded_signature, expires_at }`
+  - **Register persona**: `POST /anon/register` (NO JWT)
+    - Body: `{ personaPubkey, anonCert, anonCertKid }`
+    - Response: `{ anon_profile_id, handle, anon_cert_kid, expires_at }`
+  - **Anonymous actions** (NO JWT; reject Authorization with `400 { error: "anon_jwt_not_allowed" }`):
+    - `POST /v1/posts` with `{ isAnon: true, anonProfileId, anonCert, anonCertKid, anonSig, anonTimestamp }`
+    - `POST /v1/posts/{id}/comments` with `{ content, parentId?, asAnon: true, anonProfileId, anonCert, anonCertKid, anonSig }`
+    - `POST /v1/comments/{id}/like` with `{ asAnon: true, anonProfileId, anonCert, anonCertKid, anonSig }`
+    - `POST /v1/posts/{id}/like` with `{ asAnon: true, anonProfileId, anonCert, anonCertKid, anonSig }`
+    - `POST /v1/posts/{id}/save` with `{ asAnon: true, anonProfileId, anonCert, anonCertKid, anonSig }`
+    - `DELETE /v1/posts/{id}/save` with `{ asAnon: true, anonProfileId, anonCert, anonCertKid, anonSig }`
+    - `POST /v1/users/{id}/follow` / `DELETE /v1/users/{id}/follow` with `{ asAnon: true, anonProfileId, anonCert, anonCertKid, anonSig }`
+    - Comment list endpoints accept anon proof to compute `user_liked` for the active anon profile:
+      - `GET /v1/posts/{id}/comments?asAnon=true&anonProfileId=&anonCert=&anonCertKid=&anonSig=`
+      - `GET /v1/comments/{id}/replies?asAnon=true&anonProfileId=&anonCert=&anonCertKid=&anonSig=`
+      - `GET /v1/users/{id}/replies?asAnon=true&anonProfileId=&anonCert=&anonCertKid=&anonSig=`
+    - When `asAnon=true`, all anon proof fields are required; missing fields return `403 { "error": "invalid_anon_proof" }`.
+  - Comment payload additions:
+    - `author_principal_id`, `author_is_anonymous`, and `author.principal_id`.
+    - `author.id` is the `anon_profile_id` when `author_is_anonymous=true`; otherwise it is the user id.
+  - Anonymous proof action strings:
+    - `comment` (target: post_id), `comment_like` (target: comment_id)
+    - `comment_list` (target: post_id), `comment_replies` (target: comment_id), `comment_user_replies` (target: user_id)
 - **Profile stats & DTO extensions**
   - User DTO now includes `stats` block with follower/following/posts/comments counts; display/bio/anonymity fields included across `/v1/me`, `/v1/users/{id}`, and update alias responses.
   - Post DTOs include `comments_count` and `share_count`.
 - **Comments history**
   - `GET /v1/users/{id}/comments?cursor=&limit=` → `{ items: [{ id, post_id, content, created_at, parent_id? }], next_cursor }`
 
-All endpoints enforce Firebase auth + company scoping with `403` for cross-company, `404` for missing resources, and `409` for not-provisioned users. Pagination uses `cursor`/`limit` with `{ items, next_cursor }` envelopes.
+All endpoints enforce Firebase auth + company scoping unless explicitly noted (anonymous actions and `/anon/register` are JWT-free). Pagination uses `cursor`/`limit` with `{ items, next_cursor }` envelopes.

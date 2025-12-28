@@ -68,7 +68,8 @@ class ExtendedEndpointsIntegrationTest extends PostgresTestBase {
         long post1 = jdbc.queryForObject("INSERT INTO posts(author_id, author_principal_id, company_id, content) VALUES (?,?,?,?) RETURNING id",
                 Long.class, userId, userPrincipal, companyId, "first");
         jdbc.update("INSERT INTO posts(author_id, author_principal_id, company_id, content) VALUES (?,?,?,?)", userId, userPrincipal, companyId, "second");
-        jdbc.update("INSERT INTO comments(post_id, user_id, company_id, content) VALUES (?,?,?,?)", post1, userId, companyId, "first-comment");
+        jdbc.update("INSERT INTO comments(post_id, user_id, author_principal_id, company_id, content) VALUES (?,?,?,?,?)",
+                post1, userId, userPrincipal, companyId, "first-comment");
 
         String auth = "Bearer " + token("uid-profile");
 
@@ -142,6 +143,115 @@ class ExtendedEndpointsIntegrationTest extends PostgresTestBase {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items[0].last_message", equalTo("hello")))
                 .andExpect(jsonPath("$.items[0].other_user_profile.handle", equalTo("bravo")));
+    }
+
+    @Test
+    void message_requests_flow() throws Exception {
+        long companyId = jdbc.queryForObject("INSERT INTO companies(name, domain) VALUES ('ReqCo','req.co') RETURNING id", Long.class);
+        long senderId = jdbc.queryForObject("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?) RETURNING id",
+                Long.class, "uid-req-a", "sender", companyId);
+        long recipientId = jdbc.queryForObject("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?) RETURNING id",
+                Long.class, "uid-req-b", "recipient", companyId);
+
+        String senderAuth = "Bearer " + token("uid-req-a");
+        String recipientAuth = "Bearer " + token("uid-req-b");
+
+        var startResp = mockMvc.perform(post("/v1/conversations")
+                        .header("Authorization", senderAuth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"participantUserId\":" + recipientId + "}"))
+                .andExpect(status().isCreated())
+                .andReturn();
+
+        String conversationId = new com.fasterxml.jackson.databind.ObjectMapper()
+                .readTree(startResp.getResponse().getContentAsString())
+                .get("id").asText();
+
+        mockMvc.perform(post("/v1/conversations/" + conversationId + "/messages")
+                        .header("Authorization", senderAuth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"content\":\"request hello\",\"attachments\":[]}"))
+                .andExpect(status().isCreated());
+
+        mockMvc.perform(get("/v1/conversations")
+                        .header("Authorization", recipientAuth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items", hasSize(0)));
+
+        var requestResp = mockMvc.perform(get("/v1/message-requests")
+                        .header("Authorization", recipientAuth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items", hasSize(1)))
+                .andExpect(jsonPath("$.items[0].requester_id", equalTo((int) senderId)))
+                .andExpect(jsonPath("$.items[0].message.content", equalTo("request hello")))
+                .andReturn();
+
+        String requestId = new com.fasterxml.jackson.databind.ObjectMapper()
+                .readTree(requestResp.getResponse().getContentAsString())
+                .get("items").get(0).get("id").asText();
+
+        mockMvc.perform(get("/v1/conversations/" + conversationId + "/messages")
+                        .header("Authorization", recipientAuth))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error", equalTo("message_request_pending")));
+
+        mockMvc.perform(post("/v1/message-requests/" + requestId + "/approve")
+                        .header("Authorization", recipientAuth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status", equalTo("approved")));
+
+        mockMvc.perform(get("/v1/conversations")
+                        .header("Authorization", recipientAuth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].last_message", equalTo("request hello")));
+
+        mockMvc.perform(get("/v1/conversations/" + conversationId + "/messages")
+                        .header("Authorization", recipientAuth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].content", equalTo("request hello")));
+    }
+
+    @Test
+    void anonymous_users_cannot_message() throws Exception {
+        long companyId = jdbc.queryForObject("INSERT INTO companies(name, domain) VALUES ('AnonCo','anon.co') RETURNING id", Long.class);
+        long anonId = jdbc.queryForObject("INSERT INTO users(firebase_uid, handle, company_id, is_anonymous) VALUES (?,?,?, true) RETURNING id",
+                Long.class, "uid-anon-msg", "anonmsg", companyId);
+        long targetId = jdbc.queryForObject("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?) RETURNING id",
+                Long.class, "uid-anon-target", "target", companyId);
+
+        String auth = "Bearer " + token("uid-anon-msg");
+
+        mockMvc.perform(post("/v1/conversations")
+                        .header("Authorization", auth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"participantUserId\":" + targetId + "}"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error", equalTo("anonymous_not_allowed")));
+    }
+
+    @Test
+    void violations_list_for_removed_posts_and_active_bans() throws Exception {
+        long companyId = jdbc.queryForObject("INSERT INTO companies(name, domain) VALUES ('ViolCo','viol.co') RETURNING id", Long.class);
+        long userId = jdbc.queryForObject("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?) RETURNING id",
+                Long.class, "uid-viol", "violator", companyId);
+        long principalId = jdbc.queryForObject("INSERT INTO principals(kind, user_id) VALUES ('user', ?) RETURNING id",
+                Long.class, userId);
+        long postId = jdbc.queryForObject("INSERT INTO posts(author_id, author_principal_id, company_id, content, removed_at, removed_reason) " +
+                        "VALUES (?,?,?,?, now(), ?) RETURNING id",
+                Long.class, userId, principalId, companyId, "removed post", "policy violation");
+        long banId = jdbc.queryForObject("INSERT INTO user_bans(user_id, reason) VALUES (?,?) RETURNING id",
+                Long.class, userId, "ban reason");
+
+        String auth = "Bearer " + token("uid-viol");
+
+        mockMvc.perform(get("/v1/violations")
+                        .header("Authorization", auth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items", hasSize(2)))
+                .andExpect(jsonPath("$.items[*].target_type", hasItems("post_removal", "user_ban")))
+                .andExpect(jsonPath("$.items[*].target_id", hasItems((int) postId, (int) banId)))
+                .andExpect(jsonPath("$.items[*].reason", hasItems("policy violation", "ban reason")))
+                .andExpect(jsonPath("$.items[*].status", hasItems("removed", "active")));
     }
 
     @Test

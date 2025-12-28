@@ -1,5 +1,7 @@
 package com.looped.admin;
 
+import com.looped.communities.CommunitiesRepository;
+import com.looped.communities.CommunityVerificationsRepository;
 import com.looped.shared.Pagination;
 import com.looped.verification.VerificationRepository;
 import com.looped.verification.VerificationRequestsRepository;
@@ -27,13 +29,20 @@ public class AdminVerificationsController {
     private final AdminAuthService auth;
     private final VerificationRequestsRepository requests;
     private final VerificationRepository verifications;
+    private final CommunityVerificationsRepository communityVerifications;
+    private final CommunitiesRepository communities;
     private final AdminAuditRepository audit;
 
     public AdminVerificationsController(AdminAuthService auth, VerificationRequestsRepository requests,
-                                        VerificationRepository verifications, AdminAuditRepository audit) {
+                                        VerificationRepository verifications,
+                                        CommunityVerificationsRepository communityVerifications,
+                                        CommunitiesRepository communities,
+                                        AdminAuditRepository audit) {
         this.auth = auth;
         this.requests = requests;
         this.verifications = verifications;
+        this.communityVerifications = communityVerifications;
+        this.communities = communities;
         this.audit = audit;
     }
 
@@ -74,6 +83,9 @@ public class AdminVerificationsController {
             map.put("status", r.status);
             map.put("submitted_at", r.submittedAt);
             map.put("company_domain", r.companyDomain);
+            if (r.communityId != null) map.put("community_id", r.communityId);
+            if (r.communityName != null) map.put("community_name", r.communityName);
+            if (r.communityKind != null) map.put("community_kind", r.communityKind);
             if (r.mediaKey != null) map.put("media_key", r.mediaKey);
             if (r.metadata != null) map.put("metadata", r.metadata);
             if (r.reviewedAt != null) map.put("reviewed_at", r.reviewedAt);
@@ -98,11 +110,20 @@ public class AdminVerificationsController {
         if (req.isEmpty()) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "not_found"));
         }
+        if (req.get().communityId != null && communities.findById(req.get().communityId).isEmpty()) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "community_not_found"));
+        }
         boolean updated = requests.updateStatus(id, "approved", authRes.admin().id, null);
         if (!updated) {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of("error", "update_failed"));
         }
-        verifications.markVerified(req.get().userId, req.get().method);
+        if (req.get().communityId != null) {
+            var community = communities.findById(req.get().communityId).orElseThrow();
+            communityVerifications.markVerified(req.get().userId, req.get().communityId, req.get().method,
+                    resolveExpiry(community));
+        } else {
+            verifications.markVerified(req.get().userId, req.get().method);
+        }
         audit.log(authRes.admin().id, "verification.approve", "verification_request", id, null);
         return ResponseEntity.ok(Map.of("status", "approved"));
     }
@@ -127,10 +148,22 @@ public class AdminVerificationsController {
         if (!updated) {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of("error", "update_failed"));
         }
-        verifications.markUnverified(req.get().userId, req.get().method);
+        if (req.get().communityId != null) {
+            communityVerifications.markUnverified(req.get().userId, req.get().communityId, req.get().method);
+        } else {
+            verifications.markUnverified(req.get().userId, req.get().method);
+        }
         audit.log(authRes.admin().id, "verification.reject", "verification_request", id, null);
         return ResponseEntity.ok(Map.of("status", "rejected"));
     }
 
     public record RejectRequest(String reason) {}
+
+    private java.time.OffsetDateTime resolveExpiry(CommunitiesRepository.CommunityRow community) {
+        Integer ttlDays = community.verificationTtlDays;
+        if (ttlDays != null && ttlDays > 0) {
+            return java.time.OffsetDateTime.now().plusDays(ttlDays);
+        }
+        return null;
+    }
 }

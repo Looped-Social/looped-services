@@ -82,6 +82,15 @@ public class ReportRepository {
         return rows > 0;
     }
 
+    public boolean dismiss(long id, Long resolvedBy, String resolvedReason) {
+        int rows = jdbc.update(
+                "UPDATE reports SET status = 'dismissed', resolved_at = now(), resolved_by = ?, " +
+                        "resolved_reason = ?, updated_at = now() WHERE id = ?",
+                resolvedBy, resolvedReason, id
+        );
+        return rows > 0;
+    }
+
     public List<ReportRow> listAll(String status, String targetType, OffsetDateTime fromTs, OffsetDateTime toTs,
                                    OffsetDateTime cursorTs, Long cursorId, int limit, boolean ascending) {
         String base = "SELECT r.*, u.handle AS reporter_handle FROM reports r " +

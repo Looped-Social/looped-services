@@ -29,7 +29,9 @@ public class CommentsRepository {
         CommentRow row = new CommentRow();
         row.id = rs.getLong("id");
         row.postId = rs.getLong("post_id");
-        row.userId = rs.getLong("user_id");
+        long userId = rs.getLong("user_id");
+        row.userId = rs.wasNull() ? null : userId;
+        row.authorPrincipalId = rs.getLong("author_principal_id");
         row.companyId = rs.getLong("company_id");
         row.content = rs.getString("content");
         long parent = rs.getLong("parent_id");
@@ -42,13 +44,13 @@ public class CommentsRepository {
     public List<CommentRow> findByUser(long userId, OffsetDateTime cursorTs, Long cursorId, int limit) {
         if (cursorTs == null || cursorId == null) {
             return jdbc.query(
-                    "SELECT id, post_id, user_id, company_id, content, parent_id, likes_count, created_at " +
-                            "FROM comments WHERE user_id = ? ORDER BY created_at DESC, id DESC LIMIT ?",
-                    MAPPER, userId, limit
-            );
+                "SELECT id, post_id, user_id, author_principal_id, company_id, content, parent_id, likes_count, created_at " +
+                        "FROM comments WHERE user_id = ? ORDER BY created_at DESC, id DESC LIMIT ?",
+                MAPPER, userId, limit
+        );
         }
         return jdbc.query(
-                "SELECT id, post_id, user_id, company_id, content, parent_id, likes_count, created_at " +
+                "SELECT id, post_id, user_id, author_principal_id, company_id, content, parent_id, likes_count, created_at " +
                         "FROM comments WHERE user_id = ? AND (created_at < ? OR (created_at = ? AND id < ?)) " +
                         "ORDER BY created_at DESC, id DESC LIMIT ?",
                 MAPPER, userId, cursorTs, cursorTs, cursorId, limit
@@ -57,114 +59,141 @@ public class CommentsRepository {
 
     public Optional<CommentRow> findById(long id) {
         var list = jdbc.query(
-                "SELECT id, post_id, user_id, company_id, content, parent_id, likes_count, created_at FROM comments WHERE id = ?",
+                "SELECT id, post_id, user_id, author_principal_id, company_id, content, parent_id, likes_count, created_at FROM comments WHERE id = ?",
                 MAPPER, id
         );
         return list.isEmpty() ? Optional.empty() : Optional.of(list.get(0));
     }
 
-    public CommentRow insert(long postId, long userId, long companyId, String content, Long parentId) {
+    public CommentRow insert(long postId, Long userId, long authorPrincipalId, long companyId, String content, Long parentId) {
         Long id = jdbc.query(
-                "INSERT INTO comments(post_id, user_id, company_id, content, parent_id) VALUES (?,?,?,?,?) RETURNING id",
+                "INSERT INTO comments(post_id, user_id, author_principal_id, company_id, content, parent_id) VALUES (?,?,?,?,?,?) RETURNING id",
                 rs -> rs.next() ? rs.getLong(1) : null,
-                postId, userId, companyId, content, parentId
+                postId, userId, authorPrincipalId, companyId, content, parentId
         );
         return findById(id).orElseThrow();
     }
 
-    public List<CommentViewRow> findByPost(long postId, long viewerId, Long postAuthorId, OffsetDateTime cursorTs, Long cursorId, int limit) {
+    public List<CommentViewRow> findByPost(long postId, long viewerPrincipalId, Long postAuthorPrincipalId, OffsetDateTime cursorTs, Long cursorId, int limit) {
         String sql = """
-                SELECT c.id, c.post_id, c.user_id, c.company_id, c.content, c.parent_id, c.likes_count, c.created_at,
-                       u.handle, u.display_name, u.is_anonymous, u.company_id AS user_company_id, u.profile_image_url,
-                       CASE WHEN cv.user_id IS NULL THEN false ELSE true END AS viewer_liked,
-                       CASE WHEN cc.user_id IS NULL THEN false ELSE true END AS liked_by_creator
+                SELECT c.id, c.post_id, c.user_id, c.author_principal_id, c.company_id, c.content, c.parent_id, c.likes_count, c.created_at,
+                       p.kind AS author_kind, p.user_id AS author_user_id, p.anon_profile_id AS author_anon_profile_id,
+                       COALESCE(u.handle, ap.handle) AS author_handle,
+                       u.display_name AS author_display_name, u.profile_image_url AS author_profile_image_url,
+                       COALESCE(u.company_id, ap.company_id) AS author_company_id,
+                       CASE WHEN p.kind = 'anon' THEN true ELSE COALESCE(u.is_anonymous, false) END AS author_is_anonymous,
+                       CASE WHEN cv.liker_principal_id IS NULL THEN false ELSE true END AS viewer_liked,
+                       CASE WHEN cc.liker_principal_id IS NULL THEN false ELSE true END AS liked_by_creator
                 FROM comments c
-                JOIN users u ON u.id = c.user_id AND u.deleted_at IS NULL
-                LEFT JOIN comment_likes cv ON cv.comment_id = c.id AND cv.user_id = ?
-                LEFT JOIN comment_likes cc ON cc.comment_id = c.id AND cc.user_id = ?
+                JOIN principals p ON p.id = c.author_principal_id
+                LEFT JOIN users u ON u.id = p.user_id AND u.deleted_at IS NULL
+                LEFT JOIN anonymous_profiles ap ON ap.id = p.anon_profile_id
+                LEFT JOIN comment_likes cv ON cv.comment_id = c.id AND cv.liker_principal_id = ?
+                LEFT JOIN comment_likes cc ON cc.comment_id = c.id AND cc.liker_principal_id = ?
                 WHERE c.post_id = ?
+                AND (p.kind = 'anon' OR u.id IS NOT NULL)
                 """;
         Object[] params;
         if (cursorTs == null || cursorId == null) {
             sql += "ORDER BY c.created_at ASC, c.id ASC LIMIT ?";
-            params = new Object[]{viewerId, postAuthorId, postId, limit};
+            params = new Object[]{viewerPrincipalId, postAuthorPrincipalId, postId, limit};
         } else {
             sql += "AND (c.created_at > ? OR (c.created_at = ? AND c.id > ?)) ORDER BY c.created_at ASC, c.id ASC LIMIT ?";
-            params = new Object[]{viewerId, postAuthorId, postId, cursorTs, cursorTs, cursorId, limit};
+            params = new Object[]{viewerPrincipalId, postAuthorPrincipalId, postId, cursorTs, cursorTs, cursorId, limit};
         }
         return jdbc.query(sql, this::mapViewRow, params);
     }
 
-    public List<CommentViewRow> findReplies(long postId, long parentCommentId, long viewerId, Long postAuthorId, OffsetDateTime cursorTs, Long cursorId, int limit) {
+    public List<CommentViewRow> findReplies(long postId, long parentCommentId, long viewerPrincipalId, Long postAuthorPrincipalId, OffsetDateTime cursorTs, Long cursorId, int limit) {
         String sql = """
-                SELECT c.id, c.post_id, c.user_id, c.company_id, c.content, c.parent_id, c.likes_count, c.created_at,
-                       u.handle, u.display_name, u.is_anonymous, u.company_id AS user_company_id, u.profile_image_url,
-                       CASE WHEN cv.user_id IS NULL THEN false ELSE true END AS viewer_liked,
-                       CASE WHEN cc.user_id IS NULL THEN false ELSE true END AS liked_by_creator
+                SELECT c.id, c.post_id, c.user_id, c.author_principal_id, c.company_id, c.content, c.parent_id, c.likes_count, c.created_at,
+                       p.kind AS author_kind, p.user_id AS author_user_id, p.anon_profile_id AS author_anon_profile_id,
+                       COALESCE(u.handle, ap.handle) AS author_handle,
+                       u.display_name AS author_display_name, u.profile_image_url AS author_profile_image_url,
+                       COALESCE(u.company_id, ap.company_id) AS author_company_id,
+                       CASE WHEN p.kind = 'anon' THEN true ELSE COALESCE(u.is_anonymous, false) END AS author_is_anonymous,
+                       CASE WHEN cv.liker_principal_id IS NULL THEN false ELSE true END AS viewer_liked,
+                       CASE WHEN cc.liker_principal_id IS NULL THEN false ELSE true END AS liked_by_creator
                 FROM comments c
-                JOIN users u ON u.id = c.user_id AND u.deleted_at IS NULL
-                LEFT JOIN comment_likes cv ON cv.comment_id = c.id AND cv.user_id = ?
-                LEFT JOIN comment_likes cc ON cc.comment_id = c.id AND cc.user_id = ?
+                JOIN principals p ON p.id = c.author_principal_id
+                LEFT JOIN users u ON u.id = p.user_id AND u.deleted_at IS NULL
+                LEFT JOIN anonymous_profiles ap ON ap.id = p.anon_profile_id
+                LEFT JOIN comment_likes cv ON cv.comment_id = c.id AND cv.liker_principal_id = ?
+                LEFT JOIN comment_likes cc ON cc.comment_id = c.id AND cc.liker_principal_id = ?
                 WHERE c.parent_id = ? AND c.post_id = ?
+                AND (p.kind = 'anon' OR u.id IS NOT NULL)
                 """;
         Object[] params;
         if (cursorTs == null || cursorId == null) {
             sql += "ORDER BY c.created_at ASC, c.id ASC LIMIT ?";
-            params = new Object[]{viewerId, postAuthorId, parentCommentId, postId, limit};
+            params = new Object[]{viewerPrincipalId, postAuthorPrincipalId, parentCommentId, postId, limit};
         } else {
             sql += "AND (c.created_at > ? OR (c.created_at = ? AND c.id > ?)) ORDER BY c.created_at ASC, c.id ASC LIMIT ?";
-            params = new Object[]{viewerId, postAuthorId, parentCommentId, postId, cursorTs, cursorTs, cursorId, limit};
+            params = new Object[]{viewerPrincipalId, postAuthorPrincipalId, parentCommentId, postId, cursorTs, cursorTs, cursorId, limit};
         }
         return jdbc.query(sql, this::mapViewRow, params);
     }
 
-    public Optional<CommentViewRow> findViewById(long id, long viewerId, Long postAuthorId) {
+    public Optional<CommentViewRow> findViewById(long id, long viewerPrincipalId, Long postAuthorPrincipalId) {
         var list = jdbc.query(
                 """
-                        SELECT c.id, c.post_id, c.user_id, c.company_id, c.content, c.parent_id, c.likes_count, c.created_at,
-                               u.handle, u.display_name, u.is_anonymous, u.company_id AS user_company_id, u.profile_image_url,
-                               CASE WHEN cv.user_id IS NULL THEN false ELSE true END AS viewer_liked,
-                               CASE WHEN cc.user_id IS NULL THEN false ELSE true END AS liked_by_creator
+                        SELECT c.id, c.post_id, c.user_id, c.author_principal_id, c.company_id, c.content, c.parent_id, c.likes_count, c.created_at,
+                               p.kind AS author_kind, p.user_id AS author_user_id, p.anon_profile_id AS author_anon_profile_id,
+                               COALESCE(u.handle, ap.handle) AS author_handle,
+                               u.display_name AS author_display_name, u.profile_image_url AS author_profile_image_url,
+                               COALESCE(u.company_id, ap.company_id) AS author_company_id,
+                               CASE WHEN p.kind = 'anon' THEN true ELSE COALESCE(u.is_anonymous, false) END AS author_is_anonymous,
+                               CASE WHEN cv.liker_principal_id IS NULL THEN false ELSE true END AS viewer_liked,
+                               CASE WHEN cc.liker_principal_id IS NULL THEN false ELSE true END AS liked_by_creator
                         FROM comments c
-                        JOIN users u ON u.id = c.user_id AND u.deleted_at IS NULL
-                        LEFT JOIN comment_likes cv ON cv.comment_id = c.id AND cv.user_id = ?
-                        LEFT JOIN comment_likes cc ON cc.comment_id = c.id AND cc.user_id = ?
-                        WHERE c.id = ?
+                        JOIN principals p ON p.id = c.author_principal_id
+                        LEFT JOIN users u ON u.id = p.user_id AND u.deleted_at IS NULL
+                        LEFT JOIN anonymous_profiles ap ON ap.id = p.anon_profile_id
+                        LEFT JOIN comment_likes cv ON cv.comment_id = c.id AND cv.liker_principal_id = ?
+                        LEFT JOIN comment_likes cc ON cc.comment_id = c.id AND cc.liker_principal_id = ?
+                        WHERE c.id = ? AND (p.kind = 'anon' OR u.id IS NOT NULL)
                         """,
                 this::mapViewRow,
-                viewerId, postAuthorId, id
+                viewerPrincipalId, postAuthorPrincipalId, id
         );
         return list.isEmpty() ? Optional.empty() : Optional.of(list.get(0));
     }
 
-    public List<CommentViewRow> findByUserWithView(long targetUserId, long viewerId, OffsetDateTime cursorTs, Long cursorId, int limit) {
+    public List<CommentViewRow> findByUserWithView(long targetUserId, long viewerPrincipalId, OffsetDateTime cursorTs, Long cursorId, int limit) {
         String sql = """
-                SELECT c.id, c.post_id, c.user_id, c.company_id, c.content, c.parent_id, c.likes_count, c.created_at,
-                       u.handle, u.display_name, u.is_anonymous, u.company_id AS user_company_id, u.profile_image_url,
-                       CASE WHEN cv.user_id IS NULL THEN false ELSE true END AS viewer_liked,
-                       CASE WHEN cc.user_id IS NULL THEN false ELSE true END AS liked_by_creator
+                SELECT c.id, c.post_id, c.user_id, c.author_principal_id, c.company_id, c.content, c.parent_id, c.likes_count, c.created_at,
+                       pr.kind AS author_kind, pr.user_id AS author_user_id, pr.anon_profile_id AS author_anon_profile_id,
+                       COALESCE(u.handle, ap.handle) AS author_handle,
+                       u.display_name AS author_display_name, u.profile_image_url AS author_profile_image_url,
+                       COALESCE(u.company_id, ap.company_id) AS author_company_id,
+                       CASE WHEN pr.kind = 'anon' THEN true ELSE COALESCE(u.is_anonymous, false) END AS author_is_anonymous,
+                       CASE WHEN cv.liker_principal_id IS NULL THEN false ELSE true END AS viewer_liked,
+                       CASE WHEN cc.liker_principal_id IS NULL THEN false ELSE true END AS liked_by_creator
                 FROM comments c
-                JOIN users u ON u.id = c.user_id AND u.deleted_at IS NULL
+                JOIN principals pr ON pr.id = c.author_principal_id
+                LEFT JOIN users u ON u.id = pr.user_id AND u.deleted_at IS NULL
+                LEFT JOIN anonymous_profiles ap ON ap.id = pr.anon_profile_id
                 JOIN posts p ON p.id = c.post_id AND p.removed_at IS NULL
-                LEFT JOIN comment_likes cv ON cv.comment_id = c.id AND cv.user_id = ?
-                LEFT JOIN comment_likes cc ON cc.comment_id = c.id AND cc.user_id = p.author_id
-                WHERE c.user_id = ?
+                LEFT JOIN comment_likes cv ON cv.comment_id = c.id AND cv.liker_principal_id = ?
+                LEFT JOIN comment_likes cc ON cc.comment_id = c.id AND cc.liker_principal_id = p.author_principal_id
+                WHERE c.user_id = ? AND (pr.kind = 'anon' OR u.id IS NOT NULL)
                 """;
         Object[] params;
         if (cursorTs == null || cursorId == null) {
             sql += "ORDER BY c.created_at DESC, c.id DESC LIMIT ?";
-            params = new Object[]{viewerId, targetUserId, limit};
+            params = new Object[]{viewerPrincipalId, targetUserId, limit};
         } else {
             sql += "AND (c.created_at < ? OR (c.created_at = ? AND c.id < ?)) ORDER BY c.created_at DESC, c.id DESC LIMIT ?";
-            params = new Object[]{viewerId, targetUserId, cursorTs, cursorTs, cursorId, limit};
+            params = new Object[]{viewerPrincipalId, targetUserId, cursorTs, cursorTs, cursorId, limit};
         }
         return jdbc.query(sql, this::mapViewRow, params);
     }
 
-    public boolean insertLikeIfAbsent(long commentId, long userId) {
+    public boolean insertLikeIfAbsent(long commentId, long principalId, Long userId) {
         int rows = jdbc.update(
-                "INSERT INTO comment_likes(comment_id, user_id) VALUES (?,?) ON CONFLICT (comment_id, user_id) DO NOTHING",
-                commentId, userId
+                "INSERT INTO comment_likes(comment_id, liker_principal_id, user_id) VALUES (?,?,?) " +
+                        "ON CONFLICT (comment_id, liker_principal_id) DO NOTHING",
+                commentId, principalId, userId
         );
         return rows > 0;
     }
@@ -178,13 +207,17 @@ public class CommentsRepository {
         row.comment = mapComment(rs);
 
         AuthorRow author = new AuthorRow();
-        author.id = rs.getLong("user_id");
-        author.handle = rs.getString("handle");
-        author.displayName = rs.getString("display_name");
-        long company = rs.getLong("user_company_id");
+        author.principalId = rs.getLong("author_principal_id");
+        long authorUserId = rs.getLong("author_user_id");
+        author.userId = rs.wasNull() ? null : authorUserId;
+        long anonProfileId = rs.getLong("author_anon_profile_id");
+        author.anonProfileId = rs.wasNull() ? null : anonProfileId;
+        author.handle = rs.getString("author_handle");
+        author.displayName = rs.getString("author_display_name");
+        long company = rs.getLong("author_company_id");
         author.companyId = rs.wasNull() ? null : company;
-        author.isAnonymous = rs.getBoolean("is_anonymous");
-        author.profileImageUrl = rs.getString("profile_image_url");
+        author.isAnonymous = rs.getBoolean("author_is_anonymous");
+        author.profileImageUrl = rs.getString("author_profile_image_url");
         row.author = author;
 
         row.viewerLiked = rs.getBoolean("viewer_liked");
@@ -195,7 +228,8 @@ public class CommentsRepository {
     public static class CommentRow {
         public long id;
         public long postId;
-        public long userId;
+        public Long userId;
+        public long authorPrincipalId;
         public long companyId;
         public String content;
         public Long parentId;
@@ -211,7 +245,9 @@ public class CommentsRepository {
     }
 
     public static class AuthorRow {
-        public long id;
+        public long principalId;
+        public Long userId;
+        public Long anonProfileId;
         public String handle;
         public String displayName;
         public Long companyId;

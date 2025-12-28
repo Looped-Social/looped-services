@@ -32,6 +32,9 @@ public class ConversationsController {
         if (res.status() == ConversationService.Status.USER_NOT_PROVISIONED) {
             return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "user_not_provisioned"));
         }
+        if (res.status() == ConversationService.Status.ANONYMOUS_NOT_ALLOWED) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "anonymous_not_allowed"));
+        }
         if (res.status() != ConversationService.Status.OK) {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
@@ -49,6 +52,9 @@ public class ConversationsController {
         var res = service.start(jwt.getSubject(), body.participantUserId());
         if (res.status() == ConversationService.Status.USER_NOT_PROVISIONED) {
             return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "user_not_provisioned"));
+        }
+        if (res.status() == ConversationService.Status.ANONYMOUS_NOT_ALLOWED) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "anonymous_not_allowed"));
         }
         if (res.status() == ConversationService.Status.NOT_FOUND) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "not_found"));
@@ -71,8 +77,17 @@ public class ConversationsController {
         if (res.status() == ConversationService.Status.USER_NOT_PROVISIONED) {
             return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "user_not_provisioned"));
         }
+        if (res.status() == ConversationService.Status.ANONYMOUS_NOT_ALLOWED) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "anonymous_not_allowed"));
+        }
         if (res.status() == ConversationService.Status.FORBIDDEN) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "forbidden"));
+        }
+        if (res.status() == ConversationService.Status.MESSAGE_REQUEST_PENDING) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "message_request_pending"));
+        }
+        if (res.status() == ConversationService.Status.MESSAGE_REQUEST_REJECTED) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "message_request_rejected"));
         }
         if (res.status() == ConversationService.Status.NOT_FOUND) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "not_found"));
@@ -94,8 +109,17 @@ public class ConversationsController {
         if (res.status() == ConversationService.Status.USER_NOT_PROVISIONED) {
             return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "user_not_provisioned"));
         }
+        if (res.status() == ConversationService.Status.ANONYMOUS_NOT_ALLOWED) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "anonymous_not_allowed"));
+        }
         if (res.status() == ConversationService.Status.FORBIDDEN) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "forbidden"));
+        }
+        if (res.status() == ConversationService.Status.MESSAGE_REQUEST_PENDING) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "message_request_pending"));
+        }
+        if (res.status() == ConversationService.Status.MESSAGE_REQUEST_REJECTED) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "message_request_rejected"));
         }
         if (res.status() == ConversationService.Status.NOT_FOUND) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "not_found"));

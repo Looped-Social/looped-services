@@ -58,6 +58,7 @@ redis:
 
 sqs:
   notifQueueUrl: ${SQS_NOTIF_QUEUE_URL:}
+  region: ${AWS_REGION:us-east-1}
 
 rate-limit:
   per-ip:

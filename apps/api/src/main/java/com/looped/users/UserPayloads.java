@@ -12,6 +12,10 @@ public final class UserPayloads {
         Map<String, Object> map = new HashMap<>();
         map.put("id", profile.id());
         map.put("handle", profile.handle());
+        map.put("username", profile.handle());
+        map.put("first_name", profile.firstName());
+        map.put("last_name", profile.lastName());
+        map.put("date_of_birth", profile.dateOfBirth());
         map.put("display_name", profile.displayName());
         map.put("bio", profile.bio());
         map.put("is_anonymous", profile.isAnonymous());

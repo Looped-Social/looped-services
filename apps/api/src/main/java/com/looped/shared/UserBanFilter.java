@@ -27,7 +27,11 @@ public class UserBanFilter extends OncePerRequestFilter {
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
             throws ServletException, IOException {
         String path = request.getRequestURI();
-        if (!path.startsWith("/v1/") || path.startsWith("/v1/admin")) {
+        if (!path.startsWith("/v1/") || path.startsWith("/v1/admin") || path.startsWith("/v1/appeals") || path.startsWith("/v1/violations")) {
+            filterChain.doFilter(request, response);
+            return;
+        }
+        if (AnonRequestDetector.isAnonRequest(request)) {
             filterChain.doFilter(request, response);
             return;
         }

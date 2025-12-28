@@ -39,7 +39,7 @@ public class CommunityFollowsRepository {
         String base = """
                 SELECT cf.id AS follow_id, cf.community_id, cf.is_pinned, cf.sort_order, cf.created_at AS followed_at,
                        c.name, c.kind, c.member_count,
-                       COALESCE(cv.verified, false) AS can_post
+                       (COALESCE(cv.verified, false) AND (cv.expires_at IS NULL OR cv.expires_at > now())) AS can_post
                 FROM community_follows cf
                 JOIN communities c ON c.id = cf.community_id
                 LEFT JOIN community_verifications cv

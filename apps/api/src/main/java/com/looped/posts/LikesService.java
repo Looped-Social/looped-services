@@ -1,6 +1,7 @@
 package com.looped.posts;
 
 import com.looped.anon.AnonProofService;
+import com.looped.notifications.NotificationPublisher;
 import com.looped.principals.PrincipalRepository;
 import com.looped.users.UserRepository;
 import org.springframework.stereotype.Service;
@@ -13,32 +14,36 @@ public class LikesService {
     private final UserRepository users;
     private final PrincipalRepository principals;
     private final AnonProofService anonProofs;
+    private final NotificationPublisher notifications;
 
     public LikesService(LikesRepository likes,
                         PostRepository posts,
                         UserRepository users,
                         PrincipalRepository principals,
-                        AnonProofService anonProofs) {
+                        AnonProofService anonProofs,
+                        NotificationPublisher notifications) {
         this.likes = likes;
         this.posts = posts;
         this.users = users;
         this.principals = principals;
         this.anonProofs = anonProofs;
+        this.notifications = notifications;
     }
 
     @Transactional
     public Result like(String firebaseUid, long postId, AnonProofService.AnonActionProof anonProof) {
-        var u = users.findByFirebaseUid(firebaseUid);
-        if (u.isEmpty()) return Result.userNotProvisioned();
         var p = posts.findById(postId);
         if (p.isEmpty()) return Result.notFound();
 
         long actorPrincipalId;
         if (anonProof != null && anonProof.anonProfileId() != null) {
-            var verified = anonProofs.verifyAction(anonProof, "like", postId);
+            var verified = anonProofs.verifyActionScoped(anonProof, "like", postId, p.get().communityId);
             if (verified.status() != AnonProofService.Status.OK) return Result.invalidSignature();
             actorPrincipalId = verified.actor().principalId();
         } else {
+            if (firebaseUid == null) return Result.userNotProvisioned();
+            var u = users.findByFirebaseUid(firebaseUid);
+            if (u.isEmpty()) return Result.userNotProvisioned();
             var principal = principals.createForUser(u.get().id);
             actorPrincipalId = principal.id;
         }
@@ -46,6 +51,9 @@ public class LikesService {
         boolean created = likes.insertIfAbsent(actorPrincipalId, postId);
         if (created) {
             likes.incrementPostLikes(postId);
+            try {
+                notifications.notifyPostLike(p.get(), actorPrincipalId);
+            } catch (RuntimeException ignored) {}
         }
         var current = posts.findById(postId).orElseThrow();
         return Result.ok(created, current.likesCount);

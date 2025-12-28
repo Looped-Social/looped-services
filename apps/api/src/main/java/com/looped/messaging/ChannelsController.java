@@ -32,6 +32,9 @@ public class ChannelsController {
         if (res.status() == ChannelService.Status.USER_NOT_PROVISIONED) {
             return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "user_not_provisioned"));
         }
+        if (res.status() == ChannelService.Status.ANONYMOUS_NOT_ALLOWED) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "anonymous_not_allowed"));
+        }
         if (res.status() != ChannelService.Status.OK) {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
@@ -52,6 +55,9 @@ public class ChannelsController {
         var res = service.messages(jwt.getSubject(), id, cursor, lim);
         if (res.status() == ChannelService.Status.USER_NOT_PROVISIONED) {
             return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "user_not_provisioned"));
+        }
+        if (res.status() == ChannelService.Status.ANONYMOUS_NOT_ALLOWED) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "anonymous_not_allowed"));
         }
         if (res.status() == ChannelService.Status.FORBIDDEN) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "forbidden"));
@@ -75,6 +81,9 @@ public class ChannelsController {
         var res = service.send(jwt.getSubject(), id, body.content(), body.attachments());
         if (res.status() == ChannelService.Status.USER_NOT_PROVISIONED) {
             return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "user_not_provisioned"));
+        }
+        if (res.status() == ChannelService.Status.ANONYMOUS_NOT_ALLOWED) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "anonymous_not_allowed"));
         }
         if (res.status() == ChannelService.Status.FORBIDDEN) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "forbidden"));

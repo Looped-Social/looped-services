@@ -38,4 +38,13 @@ public class AnonEnrollmentSanctionsRepository {
         );
         return rows > 0;
     }
+
+    public boolean clearAllForUser(long userId, String reason) {
+        int rows = jdbc.update(
+                "UPDATE anon_enrollment_sanctions SET status = 'cleared', reason = ? " +
+                        "WHERE user_id = ? AND status = 'active'",
+                reason, userId
+        );
+        return rows > 0;
+    }
 }

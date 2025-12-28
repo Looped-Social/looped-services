@@ -12,6 +12,8 @@ public class AnonIssuerProperties {
     private String privateKeyPem;
     private String publicKeyPem;
     private Duration maxAge = Duration.ofDays(365);
+    private String kek;
+    private Integer keyBits = 2048;
 
     public String getKid() {
         return kid;
@@ -43,5 +45,21 @@ public class AnonIssuerProperties {
 
     public void setMaxAge(Duration maxAge) {
         this.maxAge = maxAge;
+    }
+
+    public String getKek() {
+        return kek;
+    }
+
+    public void setKek(String kek) {
+        this.kek = kek;
+    }
+
+    public Integer getKeyBits() {
+        return keyBits;
+    }
+
+    public void setKeyBits(Integer keyBits) {
+        this.keyBits = keyBits;
     }
 }

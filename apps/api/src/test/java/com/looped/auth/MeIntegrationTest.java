@@ -14,6 +14,7 @@ import org.springframework.security.oauth2.jwt.JwtEncoderParameters;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.time.Instant;
+import java.time.OffsetDateTime;
 import java.util.List;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -93,5 +94,58 @@ class MeIntegrationTest extends PostgresTestBase {
                 .andExpect(jsonPath("$.provisioned").value(true))
                 .andExpect(jsonPath("$.user.verification.verified").value(true))
                 .andExpect(jsonPath("$.user.verification.method").value("email"));
+    }
+
+    @Test
+    void me_reactivates_recently_deactivated() throws Exception {
+        long companyId = jdbc.queryForObject(
+                "INSERT INTO companies(name, domain) VALUES ('Reacme', 'reacme.com') RETURNING id",
+                Long.class);
+        long userId = jdbc.queryForObject(
+                "INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?) RETURNING id",
+                Long.class, "uid-reactivate", "reactor", companyId);
+        OffsetDateTime deletedAt = OffsetDateTime.now().minusDays(10);
+        jdbc.update("UPDATE users SET deleted_at = ?, deleted_by = ? WHERE id = ?", deletedAt, userId, userId);
+
+        String t = token("uid-reactivate");
+        mockMvc.perform(get("/v1/me").header("Authorization", "Bearer " + t))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.provisioned").value(true))
+                .andExpect(jsonPath("$.user.handle").value("reactor"));
+
+        Integer active = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM users WHERE id = ? AND deleted_at IS NULL",
+                Integer.class, userId
+        );
+        org.junit.jupiter.api.Assertions.assertEquals(1, active.intValue());
+    }
+
+    @Test
+    void me_marks_account_deleted_after_retention_window() throws Exception {
+        long companyId = jdbc.queryForObject(
+                "INSERT INTO companies(name, domain) VALUES ('Oldco', 'oldco.com') RETURNING id",
+                Long.class);
+        long userId = jdbc.queryForObject(
+                "INSERT INTO users(firebase_uid, handle, email, company_id) VALUES (?,?,?,?) RETURNING id",
+                Long.class, "uid-purged", "purged", "purged@oldco.com", companyId);
+        OffsetDateTime deletedAt = OffsetDateTime.now().minusDays(91);
+        jdbc.update("UPDATE users SET deleted_at = ?, deleted_by = ? WHERE id = ?", deletedAt, userId, userId);
+
+        String t = token("uid-purged");
+        mockMvc.perform(get("/v1/me").header("Authorization", "Bearer " + t))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.provisioned").value(false))
+                .andExpect(jsonPath("$.account_deleted").value(true));
+
+        Integer remaining = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM users WHERE firebase_uid = 'uid-purged'",
+                Integer.class
+        );
+        Integer tombstones = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM user_tombstones WHERE firebase_uid = 'uid-purged'",
+                Integer.class
+        );
+        org.junit.jupiter.api.Assertions.assertEquals(0, remaining.intValue());
+        org.junit.jupiter.api.Assertions.assertEquals(1, tombstones.intValue());
     }
 }

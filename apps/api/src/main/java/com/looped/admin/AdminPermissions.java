@@ -15,6 +15,7 @@ public final class AdminPermissions {
     public static final String VERIFY_USERS = "verify_users";
     public static final String DELETE_MEDIA = "delete_media";
     public static final String VIEW_FEEDBACK = "view_feedback";
+    public static final String SEND_ANNOUNCEMENTS = "send_announcements";
 
     public static final Set<String> ALL = Set.of(
             MANAGE_ADMINS,
@@ -25,7 +26,8 @@ public final class AdminPermissions {
             RESOLVE_REPORTS,
             VERIFY_USERS,
             DELETE_MEDIA,
-            VIEW_FEEDBACK
+            VIEW_FEEDBACK,
+            SEND_ANNOUNCEMENTS
     );
 
     private AdminPermissions() {}
@@ -61,7 +63,8 @@ public final class AdminPermissions {
                     RESOLVE_REPORTS,
                     VERIFY_USERS,
                     DELETE_MEDIA,
-                    VIEW_FEEDBACK
+                    VIEW_FEEDBACK,
+                    SEND_ANNOUNCEMENTS
             );
         }
         if (AdminRoles.ADMIN.equals(normalized)) {
@@ -73,7 +76,8 @@ public final class AdminPermissions {
                     RESOLVE_REPORTS,
                     VERIFY_USERS,
                     DELETE_MEDIA,
-                    VIEW_FEEDBACK
+                    VIEW_FEEDBACK,
+                    SEND_ANNOUNCEMENTS
             );
         }
         if (AdminRoles.MODERATOR.equals(normalized)) {

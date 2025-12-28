@@ -30,7 +30,8 @@ public class RateLimitingFilter extends OncePerRequestFilter {
 
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
         boolean userOk = true;
-        if (auth != null && auth.isAuthenticated()) {
+        boolean isAnon = AnonRequestDetector.isAnonRequest(request);
+        if (!isAnon && auth != null && auth.isAuthenticated()) {
             userOk = limiter.allowUser(auth.getName());
         }
 

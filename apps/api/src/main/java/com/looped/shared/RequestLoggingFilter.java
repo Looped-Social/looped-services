@@ -35,9 +35,7 @@ public class RequestLoggingFilter extends OncePerRequestFilter {
         response.setHeader("X-Request-Id", requestId);
 
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-        String actorHeader = request.getHeader("X-Actor");
-        boolean suppressPrincipal = request.getRequestURI().startsWith("/anon")
-                || (actorHeader != null && actorHeader.equalsIgnoreCase("anon"));
+        boolean suppressPrincipal = AnonRequestDetector.isAnonRequest(request);
         if (!suppressPrincipal && auth != null && auth.getPrincipal() != null) {
             MDC.put("principal", auth.getName());
         }

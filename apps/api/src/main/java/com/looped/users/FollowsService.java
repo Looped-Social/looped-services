@@ -1,6 +1,7 @@
 package com.looped.users;
 
 import com.looped.anon.AnonProofService;
+import com.looped.notifications.NotificationPublisher;
 import com.looped.principals.PrincipalProfilesRepository;
 import com.looped.principals.PrincipalRepository;
 import com.looped.shared.Pagination;
@@ -16,17 +17,20 @@ public class FollowsService {
     private final PrincipalRepository principals;
     private final PrincipalProfilesRepository profiles;
     private final AnonProofService anonProofs;
+    private final NotificationPublisher notifications;
 
     public FollowsService(FollowsRepository follows,
                           UserRepository users,
                           PrincipalRepository principals,
                           PrincipalProfilesRepository profiles,
-                          AnonProofService anonProofs) {
+                          AnonProofService anonProofs,
+                          NotificationPublisher notifications) {
         this.follows = follows;
         this.users = users;
         this.principals = principals;
         this.profiles = profiles;
         this.anonProofs = anonProofs;
+        this.notifications = notifications;
     }
 
     public ListResult followers(String firebaseUid, long targetUserId, String cursor, int limit) {
@@ -68,9 +72,6 @@ public class FollowsService {
     }
 
     public FollowResult follow(String firebaseUid, long targetUserId, AnonProofService.AnonActionProof anonProof) {
-        var actorUser = users.findByFirebaseUid(firebaseUid);
-        if (actorUser.isEmpty()) return FollowResult.userNotProvisioned();
-
         var target = users.findById(targetUserId);
         if (target.isEmpty()) return FollowResult.notFound();
 
@@ -82,19 +83,24 @@ public class FollowsService {
             if (verified.status() != AnonProofService.Status.OK) return FollowResult.invalidSignature();
             actorPrincipalId = verified.actor().principalId();
         } else {
+            if (firebaseUid == null) return FollowResult.userNotProvisioned();
+            var actorUser = users.findByFirebaseUid(firebaseUid);
+            if (actorUser.isEmpty()) return FollowResult.userNotProvisioned();
             var principal = principals.createForUser(actorUser.get().id);
             actorPrincipalId = principal.id;
         }
 
         if (actorPrincipalId == targetPrincipal.id) return FollowResult.invalidTarget();
         boolean created = follows.insertIfAbsent(actorPrincipalId, targetPrincipal.id);
+        if (created) {
+            try {
+                notifications.notifyFollow(targetUserId, actorPrincipalId);
+            } catch (RuntimeException ignored) {}
+        }
         return FollowResult.ok(true, created);
     }
 
     public FollowResult unfollow(String firebaseUid, long targetUserId, AnonProofService.AnonActionProof anonProof) {
-        var actorUser = users.findByFirebaseUid(firebaseUid);
-        if (actorUser.isEmpty()) return FollowResult.userNotProvisioned();
-
         var target = users.findById(targetUserId);
         if (target.isEmpty()) return FollowResult.notFound();
 
@@ -106,6 +112,9 @@ public class FollowsService {
             if (verified.status() != AnonProofService.Status.OK) return FollowResult.invalidSignature();
             actorPrincipalId = verified.actor().principalId();
         } else {
+            if (firebaseUid == null) return FollowResult.userNotProvisioned();
+            var actorUser = users.findByFirebaseUid(firebaseUid);
+            if (actorUser.isEmpty()) return FollowResult.userNotProvisioned();
             var principal = principals.createForUser(actorUser.get().id);
             actorPrincipalId = principal.id;
         }

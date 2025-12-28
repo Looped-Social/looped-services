@@ -1,6 +1,8 @@
 package com.looped.messaging;
 
 import com.looped.shared.Pagination;
+import com.looped.principals.PrincipalRepository;
+import com.looped.users.FollowsRepository;
 import com.looped.users.UserPayloads;
 import com.looped.users.UserRepository;
 import org.springframework.stereotype.Service;
@@ -13,17 +15,32 @@ import java.util.Optional;
 
 @Service
 public class ConversationService {
+    private static final String REQUEST_STATUS_PENDING = "pending";
+    private static final String REQUEST_STATUS_APPROVED = "approved";
+    private static final String REQUEST_STATUS_REJECTED = "rejected";
+
     private final ConversationRepository conversations;
     private final UserRepository users;
+    private final FollowsRepository follows;
+    private final PrincipalRepository principals;
+    private final MessageRequestRepository messageRequests;
 
-    public ConversationService(ConversationRepository conversations, UserRepository users) {
+    public ConversationService(ConversationRepository conversations,
+                               UserRepository users,
+                               FollowsRepository follows,
+                               PrincipalRepository principals,
+                               MessageRequestRepository messageRequests) {
         this.conversations = conversations;
         this.users = users;
+        this.follows = follows;
+        this.principals = principals;
+        this.messageRequests = messageRequests;
     }
 
     public ConversationListResult list(String firebaseUid, String cursor, int limit) {
         var actor = requireProvisionedUser(firebaseUid);
         if (actor.isEmpty()) return ConversationListResult.userNotProvisioned();
+        if (actor.get().isAnonymous) return ConversationListResult.anonymousNotAllowed();
         OffsetDateTime cTs = null; Long cId = null;
         if (cursor != null && !cursor.isBlank()) {
             try {
@@ -57,6 +74,7 @@ public class ConversationService {
     public StartResult start(String firebaseUid, long participantUserId) {
         var actor = requireProvisionedUser(firebaseUid);
         if (actor.isEmpty()) return StartResult.userNotProvisioned();
+        if (actor.get().isAnonymous) return StartResult.anonymousNotAllowed();
         var participant = users.findById(participantUserId);
         if (participant.isEmpty()) return StartResult.notFound();
         if (!actor.get().companyId.equals(participant.get().companyId)) return StartResult.forbidden();
@@ -92,11 +110,18 @@ public class ConversationService {
     public MessagesResult messages(String firebaseUid, long conversationId, String cursor, int limit) {
         var actor = requireProvisionedUser(firebaseUid);
         if (actor.isEmpty()) return MessagesResult.userNotProvisioned();
+        if (actor.get().isAnonymous) return MessagesResult.anonymousNotAllowed();
 
         var company = conversations.conversationCompany(conversationId);
         if (company.isEmpty()) return MessagesResult.notFound();
         if (!company.get().equals(actor.get().companyId)) return MessagesResult.forbidden();
         if (!conversations.isParticipant(conversationId, actor.get().id)) return MessagesResult.forbidden();
+        var request = messageRequests.findByConversationRecipient(conversationId, actor.get().id);
+        if (request.isPresent() && !REQUEST_STATUS_APPROVED.equals(request.get().status)) {
+            return REQUEST_STATUS_REJECTED.equals(request.get().status)
+                    ? MessagesResult.messageRequestRejected()
+                    : MessagesResult.messageRequestPending();
+        }
 
         OffsetDateTime cTs = null; Long cId = null;
         if (cursor != null && !cursor.isBlank()) {
@@ -121,14 +146,22 @@ public class ConversationService {
     public SendResult send(String firebaseUid, long conversationId, String content, List<String> attachments) {
         var actor = requireProvisionedUser(firebaseUid);
         if (actor.isEmpty()) return SendResult.userNotProvisioned();
+        if (actor.get().isAnonymous) return SendResult.anonymousNotAllowed();
         var company = conversations.conversationCompany(conversationId);
         if (company.isEmpty()) return SendResult.notFound();
         if (!company.get().equals(actor.get().companyId)) return SendResult.forbidden();
         if (!conversations.isParticipant(conversationId, actor.get().id)) return SendResult.forbidden();
+        var request = messageRequests.findByConversationRecipient(conversationId, actor.get().id);
+        if (request.isPresent() && !REQUEST_STATUS_APPROVED.equals(request.get().status)) {
+            return REQUEST_STATUS_REJECTED.equals(request.get().status)
+                    ? SendResult.messageRequestRejected()
+                    : SendResult.messageRequestPending();
+        }
 
         var row = conversations.insertMessage(conversationId, actor.get().id, content, attachments);
         if (row != null) {
             conversations.markRead(conversationId, actor.get().id, row.createdAt);
+            maybeCreateMessageRequest(actor.get().id, conversationId, row.id);
         }
         return SendResult.ok(row);
     }
@@ -139,11 +172,12 @@ public class ConversationService {
         return user;
     }
 
-    public enum Status { OK, USER_NOT_PROVISIONED, NOT_FOUND, FORBIDDEN }
+    public enum Status { OK, USER_NOT_PROVISIONED, NOT_FOUND, FORBIDDEN, ANONYMOUS_NOT_ALLOWED, MESSAGE_REQUEST_PENDING, MESSAGE_REQUEST_REJECTED }
 
     public record ConversationListResult(Status status, List<Map<String, Object>> items, String nextCursor) {
         static ConversationListResult ok(List<Map<String, Object>> items, String next) { return new ConversationListResult(Status.OK, items, next); }
         static ConversationListResult userNotProvisioned() { return new ConversationListResult(Status.USER_NOT_PROVISIONED, List.of(), null); }
+        static ConversationListResult anonymousNotAllowed() { return new ConversationListResult(Status.ANONYMOUS_NOT_ALLOWED, List.of(), null); }
     }
 
     public record StartResult(Status status, Map<String, Object> conversation) {
@@ -151,6 +185,7 @@ public class ConversationService {
         static StartResult userNotProvisioned() { return new StartResult(Status.USER_NOT_PROVISIONED, null); }
         static StartResult forbidden() { return new StartResult(Status.FORBIDDEN, null); }
         static StartResult notFound() { return new StartResult(Status.NOT_FOUND, null); }
+        static StartResult anonymousNotAllowed() { return new StartResult(Status.ANONYMOUS_NOT_ALLOWED, null); }
     }
 
     public record MessagesResult(Status status, List<ConversationRepository.MessageRow> messages, String nextCursor) {
@@ -158,6 +193,9 @@ public class ConversationService {
         static MessagesResult userNotProvisioned() { return new MessagesResult(Status.USER_NOT_PROVISIONED, List.of(), null); }
         static MessagesResult forbidden() { return new MessagesResult(Status.FORBIDDEN, List.of(), null); }
         static MessagesResult notFound() { return new MessagesResult(Status.NOT_FOUND, List.of(), null); }
+        static MessagesResult messageRequestPending() { return new MessagesResult(Status.MESSAGE_REQUEST_PENDING, List.of(), null); }
+        static MessagesResult messageRequestRejected() { return new MessagesResult(Status.MESSAGE_REQUEST_REJECTED, List.of(), null); }
+        static MessagesResult anonymousNotAllowed() { return new MessagesResult(Status.ANONYMOUS_NOT_ALLOWED, List.of(), null); }
     }
 
     public record SendResult(Status status, ConversationRepository.MessageRow message) {
@@ -165,5 +203,27 @@ public class ConversationService {
         static SendResult userNotProvisioned() { return new SendResult(Status.USER_NOT_PROVISIONED, null); }
         static SendResult forbidden() { return new SendResult(Status.FORBIDDEN, null); }
         static SendResult notFound() { return new SendResult(Status.NOT_FOUND, null); }
+        static SendResult messageRequestPending() { return new SendResult(Status.MESSAGE_REQUEST_PENDING, null); }
+        static SendResult messageRequestRejected() { return new SendResult(Status.MESSAGE_REQUEST_REJECTED, null); }
+        static SendResult anonymousNotAllowed() { return new SendResult(Status.ANONYMOUS_NOT_ALLOWED, null); }
+    }
+
+    private void maybeCreateMessageRequest(long senderId, long conversationId, long messageId) {
+        List<Long> recipients = conversations.listOtherParticipantIds(conversationId, senderId);
+        if (recipients.isEmpty()) return;
+        long recipientId = recipients.get(0);
+        var senderPrincipal = principals.createForUser(senderId);
+        var recipientPrincipal = principals.createForUser(recipientId);
+        boolean followsSender = follows.exists(recipientPrincipal.id, senderPrincipal.id);
+        if (followsSender) return;
+
+        var existing = messageRequests.findByConversationRecipient(conversationId, recipientId);
+        if (existing.isEmpty()) {
+            messageRequests.insertPending(conversationId, senderId, recipientId, messageId);
+            return;
+        }
+        if (REQUEST_STATUS_PENDING.equals(existing.get().status)) {
+            messageRequests.updatePendingMessage(conversationId, recipientId, messageId);
+        }
     }
 }

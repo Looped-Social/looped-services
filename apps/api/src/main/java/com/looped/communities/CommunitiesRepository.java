@@ -29,6 +29,8 @@ public class CommunitiesRepository {
             row.memberCount = rs.getInt("member_count");
             row.imageUrl = rs.getString("image_url");
             row.createdAt = rs.getObject("created_at", OffsetDateTime.class);
+            int ttlDays = rs.getInt("verification_ttl_days");
+            row.verificationTtlDays = rs.wasNull() ? null : ttlDays;
             return row;
         }
     };
@@ -37,14 +39,14 @@ public class CommunitiesRepository {
         String like = "%" + query.toLowerCase() + "%";
         if (cursorTs == null || cursorId == null) {
             return jdbc.query(
-                    "SELECT id, kind, name, description, member_count, image_url, created_at " +
-                            "FROM communities WHERE LOWER(name) LIKE ? OR LOWER(COALESCE(description,'')) LIKE ? " +
-                            "ORDER BY created_at DESC, id DESC LIMIT ?",
+                    "SELECT id, kind, name, description, member_count, image_url, created_at, verification_ttl_days " +
+                    "FROM communities WHERE LOWER(name) LIKE ? OR LOWER(COALESCE(description,'')) LIKE ? " +
+                    "ORDER BY created_at DESC, id DESC LIMIT ?",
                     MAPPER, like, like, limit
             );
         }
         return jdbc.query(
-                "SELECT id, kind, name, description, member_count, image_url, created_at " +
+                "SELECT id, kind, name, description, member_count, image_url, created_at, verification_ttl_days " +
                         "FROM communities WHERE (LOWER(name) LIKE ? OR LOWER(COALESCE(description,'')) LIKE ?) " +
                         "AND (created_at < ? OR (created_at = ? AND id < ?)) " +
                         "ORDER BY created_at DESC, id DESC LIMIT ?",
@@ -52,9 +54,19 @@ public class CommunitiesRepository {
         );
     }
 
+    public Optional<CommunityRow> findByKindAndName(String kind, String name) {
+        if (kind == null || name == null) return Optional.empty();
+        var list = jdbc.query(
+                "SELECT id, kind, name, description, member_count, image_url, created_at, verification_ttl_days " +
+                        "FROM communities WHERE kind = ? AND LOWER(name) = LOWER(?) LIMIT 1",
+                MAPPER, kind, name
+        );
+        return list.isEmpty() ? Optional.empty() : Optional.of(list.get(0));
+    }
+
     public Optional<CommunityRow> findById(long id) {
         var list = jdbc.query(
-                "SELECT id, kind, name, description, member_count, image_url, created_at FROM communities WHERE id = ?",
+                "SELECT id, kind, name, description, member_count, image_url, created_at, verification_ttl_days FROM communities WHERE id = ?",
                 MAPPER, id
         );
         return list.isEmpty() ? Optional.empty() : Optional.of(list.get(0));
@@ -62,7 +74,7 @@ public class CommunitiesRepository {
 
     public List<RecommendedRow> recommended(long userId, int limit) {
         return jdbc.query(
-                "SELECT c.id, c.kind, c.name, c.description, c.member_count, c.image_url, " +
+                "SELECT c.id, c.kind, c.name, c.description, c.member_count, c.image_url, c.verification_ttl_days, " +
                         "CASE WHEN cf.user_id IS NULL THEN false ELSE true END AS is_following " +
                         "FROM communities c " +
                         "LEFT JOIN community_follows cf ON cf.community_id = c.id AND cf.user_id = ? " +
@@ -75,11 +87,26 @@ public class CommunitiesRepository {
                     row.description = rs.getString("description");
                     row.memberCount = rs.getInt("member_count");
                     row.imageUrl = rs.getString("image_url");
+                    int ttlDays = rs.getInt("verification_ttl_days");
+                    row.verificationTtlDays = rs.wasNull() ? null : ttlDays;
                     row.isFollowing = rs.getBoolean("is_following");
                     return row;
                 },
                 userId, limit
         );
+    }
+
+    public long insert(String kind, String name, String description, String imageUrl, Integer verificationTtlDays) {
+        Long id = jdbc.query(
+                "INSERT INTO communities(kind, name, description, image_url, verification_ttl_days) " +
+                        "VALUES (?,?,?,?,?) RETURNING id",
+                rs -> rs.next() ? rs.getLong(1) : null,
+                kind, name, description, imageUrl, verificationTtlDays
+        );
+        if (id == null) {
+            throw new IllegalStateException("Failed to insert community");
+        }
+        return id;
     }
 
     public static class CommunityRow {
@@ -90,6 +117,7 @@ public class CommunitiesRepository {
         public int memberCount;
         public String imageUrl;
         public OffsetDateTime createdAt;
+        public Integer verificationTtlDays;
     }
 
     public static class RecommendedRow {
@@ -100,5 +128,14 @@ public class CommunitiesRepository {
         public int memberCount;
         public String imageUrl;
         public boolean isFollowing;
+        public Integer verificationTtlDays;
+    }
+
+    public boolean updateVerificationTtlDays(long communityId, Integer ttlDays) {
+        int rows = jdbc.update(
+                "UPDATE communities SET verification_ttl_days = ? WHERE id = ?",
+                ttlDays, communityId
+        );
+        return rows > 0;
     }
 }

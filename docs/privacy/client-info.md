@@ -6,7 +6,7 @@
 
 * **No identity link in our database.** Anonymous posts, comments, likes, follows, and saves don’t store your user ID anywhere.
 
-* **Company/space proof only.** Your device holds a private, anonymous “persona key” and a **membership certificate** (valid \~365 days) that proves you’re verified for a company/space—**without** revealing who you are.
+* **Community proof only.** Your device holds a private, anonymous “persona key” and a **membership certificate** (valid \~365 days) that proves you’re verified for a community—**without** revealing who you are.
 
 * **No backdoors.** We don’t keep logs or secret mappings that could connect your anonymous persona to your named account.
 
@@ -18,9 +18,9 @@
 
 1. You verify employment (email/HR/LinkedIn/manual).
 
-2. Your **device** creates an anonymous persona key and gets a **blinded** certificate proving access to a company/space for the next 12 months.
+2. Your **device** creates an anonymous persona key and gets a **blinded** certificate proving access to a community for the next 12 months.
 
-3. When you post/like/follow as “Anonymous,” your device proves “member of `<Company/Space>`” with that certificate—**not** your identity.
+3. When you post/like/follow as “Anonymous,” your device proves “member of `<Community>`” with that certificate—**not** your identity.
 
 4. Moderators can remove content or ban a misbehaving **anonymous persona**, but still can’t see who you are.
 
@@ -37,16 +37,18 @@ Want the **same** “Anonymous” identity on iPhone/iPad/Web? Use **Anonymous B
 ## **Enrollment & Rotation (client)**
 
 **Issuer key**  
-Call `GET /anon/issuer` to fetch the issuer **public key PEM** (`public_key_pem`) and `kid`. The client uses this key to blind the certificate request.
+Call `GET /anon/issuer?communityId=` to fetch the issuer **public key PEM** (`public_key_pem`) and `kid`. The client uses this key to blind the certificate request.
 
-**Enroll**  
-Use `POST /anon/enroll` with `personaPubkey` and `blindedMessage` to receive `anon_profile_id`, `handle`, `anon_cert_kid`, and `blinded_signature`. Unblind the signature on device and store it as `anon_cert`.
+**Issue + register**  
+1) `POST /anon/issue` (JWT required) with `{ communityId, blindedMessage }` to receive `{ anon_cert_kid, blinded_signature }`.  
+2) Unblind on device and store it as `anon_cert`.  
+3) `POST /anon/register` (NO JWT) with `{ personaPubkey, anonCert, anonCertKid }` to receive `{ anon_profile_id, handle, anon_cert_kid }`.
 
 **Rotate anonymous identity (new persona)**  
 To create a new anonymous account (one‑per‑user), do:
 1) `POST /anon/revoke` with anon proof (no JWT) to revoke the old persona.
 2) `POST /anon/reset` (JWT required) to clear enrollment sanction.
-3) `POST /anon/enroll` with a **new** persona key + blinded message.
+3) Repeat issue + register with a **new** persona key.
 
 ## **What we don’t do**
 
