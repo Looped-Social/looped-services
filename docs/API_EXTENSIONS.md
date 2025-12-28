@@ -9,6 +9,7 @@
   - Delete (hard delete): `POST /v1/users/me/delete` → `204`
   - Legacy: `DELETE /v1/users/me?mode=soft|hard`
   - After retention purge, `/v1/me` returns `{ provisioned: false, account_deleted: true }`.
+  - Hard delete attempts Firebase Admin deletion when configured; failures return `502 firebase_delete_failed` or `503 firebase_admin_not_configured` if required.
 - **Feedback**
   - `POST /v1/feedback` → `{ id, status: "received" }`
   - Request: `{ "title": "...", "message": "...", "email": "optional" }`

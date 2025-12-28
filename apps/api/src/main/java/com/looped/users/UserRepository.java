@@ -250,12 +250,10 @@ public class UserRepository {
         return rows > 0;
     }
 
-    public java.util.List<UserRow> deleteSoftDeletedBefore(OffsetDateTime cutoff, int limit) {
+    public java.util.List<UserRow> listSoftDeletedBefore(OffsetDateTime cutoff, int limit) {
         return jdbcTemplate.query(
-                "DELETE FROM users WHERE id IN (" +
-                        "SELECT id FROM users WHERE deleted_at IS NOT NULL AND deleted_at < ? " +
-                        "ORDER BY deleted_at ASC, id ASC LIMIT ?" +
-                        ") RETURNING " + BASE_COLUMNS,
+                "SELECT " + BASE_COLUMNS + " FROM users WHERE deleted_at IS NOT NULL AND deleted_at < ? " +
+                        "ORDER BY deleted_at ASC, id ASC LIMIT ?",
                 MAPPER, cutoff, limit
         );
     }

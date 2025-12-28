@@ -88,7 +88,17 @@ public class UsersController {
                     "message", "mode must be hard or soft"
             ));
         }
-        service.deleteMe(jwt.getSubject(), deleteMode);
+        var res = service.deleteMe(jwt.getSubject(), deleteMode);
+        if (res.status() == UsersService.DeleteStatus.FIREBASE_DELETE_FAILED) {
+            return ResponseEntity.status(HttpStatus.BAD_GATEWAY).body(Map.of(
+                    "error", "firebase_delete_failed"
+            ));
+        }
+        if (res.status() == UsersService.DeleteStatus.FIREBASE_DELETE_SKIPPED) {
+            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(Map.of(
+                    "error", "firebase_admin_not_configured"
+            ));
+        }
         return ResponseEntity.noContent().build();
     }
 
@@ -100,7 +110,17 @@ public class UsersController {
 
     @PostMapping("/me/delete")
     public ResponseEntity<?> deleteAccount(@AuthenticationPrincipal Jwt jwt) {
-        service.deleteMe(jwt.getSubject(), UsersService.DeleteMode.HARD);
+        var res = service.deleteMe(jwt.getSubject(), UsersService.DeleteMode.HARD);
+        if (res.status() == UsersService.DeleteStatus.FIREBASE_DELETE_FAILED) {
+            return ResponseEntity.status(HttpStatus.BAD_GATEWAY).body(Map.of(
+                    "error", "firebase_delete_failed"
+            ));
+        }
+        if (res.status() == UsersService.DeleteStatus.FIREBASE_DELETE_SKIPPED) {
+            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(Map.of(
+                    "error", "firebase_admin_not_configured"
+            ));
+        }
         return ResponseEntity.noContent().build();
     }
 

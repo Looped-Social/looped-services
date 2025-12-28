@@ -31,6 +31,11 @@ public class MeController {
             resp.put("account_deleted", true);
             return resp;
         }
+        if (loginStatus == UsersService.LoginStatus.PURGE_FAILED) {
+            resp.put("provisioned", false);
+            resp.put("account_delete_pending", true);
+            return resp;
+        }
         Object email = jwt.getClaims().get("email");
         if (email != null) {
             resp.put("email", email);

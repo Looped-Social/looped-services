@@ -1,5 +1,6 @@
 package com.looped.users;
 
+import com.looped.auth.FirebaseAdminService;
 import com.looped.comments.CommentsRepository;
 import com.looped.companies.CompanyRepository;
 import com.looped.posts.PostRepository;
@@ -22,6 +23,7 @@ public class UsersService {
     private final PostRepository posts;
     private final CommentsRepository comments;
     private final CompanyRepository companies;
+    private final FirebaseAdminService firebaseAdmin;
     private final int deactivatedRetentionDays;
 
     public UsersService(UserRepository users,
@@ -29,12 +31,14 @@ public class UsersService {
                         PostRepository posts,
                         CommentsRepository comments,
                         CompanyRepository companies,
+                        FirebaseAdminService firebaseAdmin,
                         @Value("${retention.deactivated-days:90}") int deactivatedRetentionDays) {
         this.users = users;
         this.verifications = verifications;
         this.posts = posts;
         this.comments = comments;
         this.companies = companies;
+        this.firebaseAdmin = firebaseAdmin;
         this.deactivatedRetentionDays = Math.max(1, deactivatedRetentionDays);
     }
 
@@ -214,6 +218,12 @@ public class UsersService {
         if (existing.get().deletedAt == null) return LoginStatus.ACTIVE;
         OffsetDateTime cutoff = OffsetDateTime.now().minusDays(deactivatedRetentionDays);
         if (existing.get().deletedAt.isBefore(cutoff)) {
+            var firebaseResult = firebaseAdmin.deleteUser(firebaseUid);
+            if (firebaseAdmin.isRequired()
+                    && (firebaseResult.status() == FirebaseAdminService.DeleteStatus.FAILED
+                    || firebaseResult.status() == FirebaseAdminService.DeleteStatus.SKIPPED)) {
+                return LoginStatus.PURGE_FAILED;
+            }
             var deleted = users.deleteByFirebaseUidIfDeletedBefore(firebaseUid, cutoff);
             deleted.ifPresent(users::insertTombstone);
             return deleted.isPresent() ? LoginStatus.PURGED : LoginStatus.MISSING;
@@ -226,10 +236,24 @@ public class UsersService {
         OffsetDateTime cutoff = OffsetDateTime.now().minusDays(deactivatedRetentionDays);
         int total = 0;
         while (true) {
-            var deleted = users.deleteSoftDeletedBefore(cutoff, 200);
-            if (deleted.isEmpty()) break;
-            deleted.forEach(users::insertTombstone);
-            total += deleted.size();
+            var candidates = users.listSoftDeletedBefore(cutoff, 200);
+            if (candidates.isEmpty()) break;
+            int deletedCount = 0;
+            for (var row : candidates) {
+                var firebaseResult = firebaseAdmin.deleteUser(row.firebaseUid);
+                if (firebaseAdmin.isRequired()
+                        && (firebaseResult.status() == FirebaseAdminService.DeleteStatus.FAILED
+                        || firebaseResult.status() == FirebaseAdminService.DeleteStatus.SKIPPED)) {
+                    continue;
+                }
+                var deleted = users.deleteById(row.id);
+                deleted.ifPresent(users::insertTombstone);
+                if (deleted.isPresent()) deletedCount += 1;
+            }
+            if (deletedCount == 0) {
+                break;
+            }
+            total += deletedCount;
         }
         return total;
     }
@@ -346,6 +370,13 @@ public class UsersService {
             users.softDelete(user.id, user.id);
             return DeleteResult.ok();
         }
+        var firebaseResult = firebaseAdmin.deleteUser(firebaseUid);
+        if (firebaseResult.status() == FirebaseAdminService.DeleteStatus.FAILED) {
+            return DeleteResult.firebaseDeleteFailed(firebaseResult.error());
+        }
+        if (firebaseResult.status() == FirebaseAdminService.DeleteStatus.SKIPPED && firebaseAdmin.isRequired()) {
+            return DeleteResult.firebaseDeleteSkipped(firebaseResult.error());
+        }
         var deleted = users.deleteById(user.id);
         deleted.ifPresent(users::insertTombstone);
         return DeleteResult.ok();
@@ -353,11 +384,17 @@ public class UsersService {
 
     public enum DeleteMode { HARD, SOFT }
 
-    public enum DeleteStatus { OK }
+    public enum DeleteStatus { OK, FIREBASE_DELETE_FAILED, FIREBASE_DELETE_SKIPPED }
 
-    public record DeleteResult(DeleteStatus status) {
-        static DeleteResult ok() { return new DeleteResult(DeleteStatus.OK); }
+    public record DeleteResult(DeleteStatus status, String error) {
+        static DeleteResult ok() { return new DeleteResult(DeleteStatus.OK, null); }
+        static DeleteResult firebaseDeleteFailed(String error) {
+            return new DeleteResult(DeleteStatus.FIREBASE_DELETE_FAILED, error);
+        }
+        static DeleteResult firebaseDeleteSkipped(String error) {
+            return new DeleteResult(DeleteStatus.FIREBASE_DELETE_SKIPPED, error);
+        }
     }
 
-    public enum LoginStatus { ACTIVE, REACTIVATED, PURGED, MISSING }
+    public enum LoginStatus { ACTIVE, REACTIVATED, PURGED, MISSING, PURGE_FAILED }
 }
