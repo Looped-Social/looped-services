@@ -78,8 +78,8 @@ public class NotificationRepository {
         return id == null ? 0L : id;
     }
 
-    public int[] insertBatch(java.util.List<NotificationInsert> inserts) {
-        if (inserts == null || inserts.isEmpty()) return new int[0];
+    public int[][] insertBatch(java.util.List<NotificationInsert> inserts) {
+        if (inserts == null || inserts.isEmpty()) return new int[0][0];
         return jdbc.batchUpdate(
                 "INSERT INTO notifications(user_id, type, payload) VALUES (?,?, ?::jsonb)",
                 inserts,
