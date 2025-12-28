@@ -144,7 +144,10 @@ class UsersIntegrationTest extends PostgresTestBase {
 
         mockMvc.perform(delete("/v1/users/me")
                         .header("Authorization", auth))
-                .andExpect(status().isNoContent());
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status", equalTo("deleted")))
+                .andExpect(jsonPath("$.firebase_deleted", equalTo(false)))
+                .andExpect(jsonPath("$.firebase_status", equalTo("skipped")));
 
         Integer count = jdbc.queryForObject("SELECT COUNT(*) FROM users WHERE firebase_uid='uid-delete'", Integer.class);
         org.junit.jupiter.api.Assertions.assertNotNull(count);
@@ -152,7 +155,10 @@ class UsersIntegrationTest extends PostgresTestBase {
 
         mockMvc.perform(delete("/v1/users/me")
                         .header("Authorization", auth))
-                .andExpect(status().isNoContent());
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status", equalTo("deleted")))
+                .andExpect(jsonPath("$.firebase_deleted", equalTo(false)))
+                .andExpect(jsonPath("$.firebase_status", equalTo("skipped")));
     }
 
     @Test
@@ -200,7 +206,10 @@ class UsersIntegrationTest extends PostgresTestBase {
 
         mockMvc.perform(post("/v1/users/me/delete")
                         .header("Authorization", auth))
-                .andExpect(status().isNoContent());
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status", equalTo("deleted")))
+                .andExpect(jsonPath("$.firebase_deleted", equalTo(false)))
+                .andExpect(jsonPath("$.firebase_status", equalTo("skipped")));
 
         Integer count = jdbc.queryForObject("SELECT COUNT(*) FROM users WHERE firebase_uid='uid-delete-ui'", Integer.class);
         org.junit.jupiter.api.Assertions.assertNotNull(count);

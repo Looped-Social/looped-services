@@ -99,7 +99,14 @@ public class UsersController {
                     "error", "firebase_admin_not_configured"
             ));
         }
-        return ResponseEntity.noContent().build();
+        if (deleteMode == UsersService.DeleteMode.SOFT) {
+            return ResponseEntity.noContent().build();
+        }
+        return ResponseEntity.ok(Map.of(
+                "status", "deleted",
+                "firebase_status", res.firebaseStatus() == null ? "unknown" : res.firebaseStatus().name().toLowerCase(java.util.Locale.ROOT),
+                "firebase_deleted", res.firebaseStatus() == UsersService.FirebaseDeleteStatus.OK
+        ));
     }
 
     @PostMapping("/me/deactivate")
@@ -121,7 +128,11 @@ public class UsersController {
                     "error", "firebase_admin_not_configured"
             ));
         }
-        return ResponseEntity.noContent().build();
+        return ResponseEntity.ok(Map.of(
+                "status", "deleted",
+                "firebase_status", res.firebaseStatus() == null ? "unknown" : res.firebaseStatus().name().toLowerCase(java.util.Locale.ROOT),
+                "firebase_deleted", res.firebaseStatus() == UsersService.FirebaseDeleteStatus.OK
+        ));
     }
 
     @GetMapping("/{id}/replies")

@@ -6,9 +6,10 @@
   - Response: user payload matching `/v1/me.user` with `first_name`, `last_name`, `date_of_birth`, `display_name`, `bio`, `is_anonymous`, `profile_image_url`, and `stats.{follower_count,following_count,posts_count,comments_count}`.
 - **Account management**
   - Deactivate (soft delete): `POST /v1/users/me/deactivate` → `204`
-  - Delete (hard delete): `POST /v1/users/me/delete` → `204`
+  - Delete (hard delete): `POST /v1/users/me/delete` → `200`
   - Legacy: `DELETE /v1/users/me?mode=soft|hard`
   - After retention purge, `/v1/me` returns `{ provisioned: false, account_deleted: true }`.
+  - Delete response: `{ "status": "deleted", "firebase_status": "ok|skipped|failed|not_requested", "firebase_deleted": true|false }`
   - Hard delete attempts Firebase Admin deletion when configured; failures return `502 firebase_delete_failed` or `503 firebase_admin_not_configured` if required.
 - **Feedback**
   - `POST /v1/feedback` → `{ id, status: "received" }`

@@ -362,39 +362,74 @@ public class UsersService {
     public DeleteResult deleteMe(String firebaseUid, DeleteMode mode) {
         var userOpt = users.findByFirebaseUidIncludingDeleted(firebaseUid);
         if (userOpt.isEmpty()) {
-            return DeleteResult.ok();
+            if (mode == DeleteMode.SOFT) {
+                return DeleteResult.ok(FirebaseDeleteStatus.NOT_REQUESTED, null);
+            }
+            var firebaseResult = firebaseAdmin.deleteUser(firebaseUid);
+            return handleFirebaseOnlyDelete(firebaseResult);
         }
         var user = userOpt.get();
         if (mode == DeleteMode.SOFT) {
-            if (user.deletedAt != null) return DeleteResult.ok();
+            if (user.deletedAt != null) return DeleteResult.ok(FirebaseDeleteStatus.NOT_REQUESTED, null);
             users.softDelete(user.id, user.id);
-            return DeleteResult.ok();
+            return DeleteResult.ok(FirebaseDeleteStatus.NOT_REQUESTED, null);
         }
         var firebaseResult = firebaseAdmin.deleteUser(firebaseUid);
-        if (firebaseResult.status() == FirebaseAdminService.DeleteStatus.FAILED) {
-            return DeleteResult.firebaseDeleteFailed(firebaseResult.error());
-        }
-        if (firebaseResult.status() == FirebaseAdminService.DeleteStatus.SKIPPED && firebaseAdmin.isRequired()) {
-            return DeleteResult.firebaseDeleteSkipped(firebaseResult.error());
+        var firebaseHandled = handleFirebaseResult(firebaseResult);
+        if (firebaseHandled.status() != DeleteStatus.OK) {
+            return firebaseHandled;
         }
         var deleted = users.deleteById(user.id);
         deleted.ifPresent(users::insertTombstone);
-        return DeleteResult.ok();
+        return DeleteResult.ok(firebaseHandled.firebaseStatus, firebaseHandled.error);
     }
 
     public enum DeleteMode { HARD, SOFT }
 
     public enum DeleteStatus { OK, FIREBASE_DELETE_FAILED, FIREBASE_DELETE_SKIPPED }
 
-    public record DeleteResult(DeleteStatus status, String error) {
-        static DeleteResult ok() { return new DeleteResult(DeleteStatus.OK, null); }
+    public enum FirebaseDeleteStatus { OK, SKIPPED, FAILED, NOT_REQUESTED }
+
+    public record DeleteResult(DeleteStatus status, FirebaseDeleteStatus firebaseStatus, String error) {
+        static DeleteResult ok(FirebaseDeleteStatus firebaseStatus, String error) {
+            return new DeleteResult(DeleteStatus.OK, firebaseStatus, error);
+        }
         static DeleteResult firebaseDeleteFailed(String error) {
-            return new DeleteResult(DeleteStatus.FIREBASE_DELETE_FAILED, error);
+            return new DeleteResult(DeleteStatus.FIREBASE_DELETE_FAILED, FirebaseDeleteStatus.FAILED, error);
         }
         static DeleteResult firebaseDeleteSkipped(String error) {
-            return new DeleteResult(DeleteStatus.FIREBASE_DELETE_SKIPPED, error);
+            return new DeleteResult(DeleteStatus.FIREBASE_DELETE_SKIPPED, FirebaseDeleteStatus.SKIPPED, error);
         }
     }
 
     public enum LoginStatus { ACTIVE, REACTIVATED, PURGED, MISSING, PURGE_FAILED }
+
+    private DeleteResult handleFirebaseResult(FirebaseAdminService.DeleteResult firebaseResult) {
+        return handleFirebaseResult(firebaseResult, false);
+    }
+
+    private DeleteResult handleFirebaseOnlyDelete(FirebaseAdminService.DeleteResult firebaseResult) {
+        return handleFirebaseResult(firebaseResult, true);
+    }
+
+    private DeleteResult handleFirebaseResult(FirebaseAdminService.DeleteResult firebaseResult, boolean firebaseOnly) {
+        if (firebaseResult.status() == FirebaseAdminService.DeleteStatus.OK) {
+            return DeleteResult.ok(FirebaseDeleteStatus.OK, null);
+        }
+        if (firebaseResult.status() == FirebaseAdminService.DeleteStatus.SKIPPED) {
+            if (firebaseAdmin.isRequired()) {
+                return DeleteResult.firebaseDeleteSkipped(firebaseResult.error());
+            }
+            return DeleteResult.ok(FirebaseDeleteStatus.SKIPPED, firebaseResult.error());
+        }
+        if (firebaseResult.status() == FirebaseAdminService.DeleteStatus.FAILED) {
+            if (firebaseAdmin.isRequired()) {
+                return DeleteResult.firebaseDeleteFailed(firebaseResult.error());
+            }
+            return DeleteResult.ok(FirebaseDeleteStatus.FAILED, firebaseResult.error());
+        }
+        return firebaseOnly
+                ? DeleteResult.ok(FirebaseDeleteStatus.NOT_REQUESTED, null)
+                : DeleteResult.ok(FirebaseDeleteStatus.NOT_REQUESTED, null);
+    }
 }
