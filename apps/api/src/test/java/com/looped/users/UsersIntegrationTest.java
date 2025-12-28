@@ -225,7 +225,10 @@ class UsersIntegrationTest extends PostgresTestBase {
         String auth = "Bearer " + token("uid-reserve");
         mockMvc.perform(post("/v1/users/me/delete")
                         .header("Authorization", auth))
-                .andExpect(status().isNoContent());
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status", equalTo("deleted")))
+                .andExpect(jsonPath("$.firebase_deleted", equalTo(false)))
+                .andExpect(jsonPath("$.firebase_status", equalTo("skipped")));
 
         mockMvc.perform(get("/v1/users/username/availability?username=reserved")
                         .header("Authorization", auth))
