@@ -69,12 +69,12 @@ public class AdminSectorCompaniesController {
         if (sector.isEmpty() || !"sector".equalsIgnoreCase(sector.get().kind)) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "not_found"));
         }
-        var company = communities.findById(body.companyId());
-        if (company.isEmpty() || !"company".equalsIgnoreCase(company.get().kind)) {
-            return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of("error", "company_not_found"));
+        var member = communities.findById(body.companyId());
+        if (member.isEmpty() || !isLinkableKind(member.get().kind)) {
+            return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of("error", "community_not_found"));
         }
         boolean inserted = links.insert(id, body.companyId());
-        audit.log(authRes.admin().id, "sector.company.add", "community", id, "company_id=" + body.companyId());
+        audit.log(authRes.admin().id, "sector.community.add", "community", id, "community_id=" + body.companyId());
         if (inserted) {
             return ResponseEntity.status(HttpStatus.CREATED).body(Map.of("company_id", body.companyId()));
         }
@@ -98,7 +98,7 @@ public class AdminSectorCompaniesController {
         if (!removed) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "not_found"));
         }
-        audit.log(authRes.admin().id, "sector.company.delete", "community", id, "company_id=" + companyId);
+        audit.log(authRes.admin().id, "sector.community.delete", "community", id, "community_id=" + companyId);
         return ResponseEntity.noContent().build();
     }
 
@@ -113,6 +113,12 @@ public class AdminSectorCompaniesController {
         map.put("created_at", row.createdAt);
         if (row.verificationTtlDays != null) map.put("verification_ttl_days", row.verificationTtlDays);
         return map;
+    }
+
+    private boolean isLinkableKind(String kind) {
+        if (kind == null) return false;
+        String normalized = kind.trim().toLowerCase(java.util.Locale.ROOT);
+        return normalized.equals("company") || normalized.equals("school");
     }
 
     public record LinkRequest(@NotNull Long companyId) {}
