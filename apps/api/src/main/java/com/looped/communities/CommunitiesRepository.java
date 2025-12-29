@@ -72,6 +72,22 @@ public class CommunitiesRepository {
         return list.isEmpty() ? Optional.empty() : Optional.of(list.get(0));
     }
 
+    public List<CommunityRow> list(OffsetDateTime cursorTs, Long cursorId, int limit) {
+        if (cursorTs == null || cursorId == null) {
+            return jdbc.query(
+                    "SELECT id, kind, name, description, member_count, image_url, created_at, verification_ttl_days " +
+                            "FROM communities ORDER BY created_at DESC, id DESC LIMIT ?",
+                    MAPPER, limit
+            );
+        }
+        return jdbc.query(
+                "SELECT id, kind, name, description, member_count, image_url, created_at, verification_ttl_days " +
+                        "FROM communities WHERE (created_at < ? OR (created_at = ? AND id < ?)) " +
+                        "ORDER BY created_at DESC, id DESC LIMIT ?",
+                MAPPER, cursorTs, cursorTs, cursorId, limit
+        );
+    }
+
     public List<RecommendedRow> recommended(long userId, int limit) {
         return jdbc.query(
                 "SELECT c.id, c.kind, c.name, c.description, c.member_count, c.image_url, c.verification_ttl_days, " +
@@ -136,6 +152,11 @@ public class CommunitiesRepository {
                 "UPDATE communities SET verification_ttl_days = ? WHERE id = ?",
                 ttlDays, communityId
         );
+        return rows > 0;
+    }
+
+    public boolean delete(long communityId) {
+        int rows = jdbc.update("DELETE FROM communities WHERE id = ?", communityId);
         return rows > 0;
     }
 }

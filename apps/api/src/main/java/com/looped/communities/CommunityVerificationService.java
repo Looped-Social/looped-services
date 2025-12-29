@@ -19,6 +19,7 @@ public class CommunityVerificationService {
 
     private final UserRepository users;
     private final CommunitiesRepository communities;
+    private final CommunityDomainsRepository communityDomains;
     private final CommunityVerificationsRepository communityVerifications;
     private final VerificationRequestsRepository requests;
     private final StringRedisTemplate redis;
@@ -28,6 +29,7 @@ public class CommunityVerificationService {
 
     public CommunityVerificationService(UserRepository users,
                                         CommunitiesRepository communities,
+                                        CommunityDomainsRepository communityDomains,
                                         CommunityVerificationsRepository communityVerifications,
                                         VerificationRequestsRepository requests,
                                         StringRedisTemplate redis,
@@ -35,6 +37,7 @@ public class CommunityVerificationService {
                                         ThirdPartyVerifier thirdPartyVerifier) {
         this.users = users;
         this.communities = communities;
+        this.communityDomains = communityDomains;
         this.communityVerifications = communityVerifications;
         this.requests = requests;
         this.redis = redis;
@@ -42,7 +45,7 @@ public class CommunityVerificationService {
         this.thirdPartyVerifier = thirdPartyVerifier;
     }
 
-    public StartResult start(String firebaseUid, long communityId, String methodStr) {
+    public StartResult start(String firebaseUid, long communityId, String methodStr, String email) {
         var method = parseMethod(methodStr);
         if (method == null) return StartResult.badRequest("unsupported_method");
 
@@ -55,6 +58,12 @@ public class CommunityVerificationService {
         String instructions = null;
         switch (method) {
             case email -> {
+                String normalizedEmail = normalizeEmail(email);
+                if (normalizedEmail == null) return StartResult.badRequest("email_required");
+                String domain = extractDomain(normalizedEmail);
+                if (domain == null) return StartResult.badRequest("invalid_email");
+                if (!communityDomains.hasDomains(communityId)) return StartResult.badRequest("domains_not_configured");
+                if (!communityDomains.isDomainAllowed(communityId, domain)) return StartResult.badRequest("email_domain_not_allowed");
                 String code = generateCode6();
                 String key = keyEmail(u.get().id, communityId);
                 redis.opsForValue().set(key, code, Duration.ofSeconds(props.getCodeTtlSeconds()));
@@ -72,7 +81,7 @@ public class CommunityVerificationService {
         return StartResult.ok(method.name(), devCode, sessionId, instructions);
     }
 
-    public FinishResult finish(String firebaseUid, long communityId, String email, String methodStr,
+    public FinishResult finish(String firebaseUid, long communityId, String requestEmail, String fallbackEmail, String methodStr,
                                String code, String mediaKey, String token) {
         var method = parseMethod(methodStr);
         if (method == null) return FinishResult.badRequest("unsupported_method");
@@ -81,6 +90,15 @@ public class CommunityVerificationService {
         if (u.isEmpty() || u.get().companyId == null) return FinishResult.userNotProvisioned();
         var community = communities.findById(communityId);
         if (community.isEmpty()) return FinishResult.communityNotFound();
+
+        String resolvedEmail = resolveRequestEmail(method, requestEmail, fallbackEmail);
+        if (method == Method.email) {
+            if (resolvedEmail == null) return FinishResult.badRequest("email_required");
+            String domain = extractDomain(resolvedEmail);
+            if (domain == null) return FinishResult.badRequest("invalid_email");
+            if (!communityDomains.hasDomains(communityId)) return FinishResult.badRequest("domains_not_configured");
+            if (!communityDomains.isDomainAllowed(communityId, domain)) return FinishResult.badRequest("email_domain_not_allowed");
+        }
 
         switch (method) {
             case email -> {
@@ -104,7 +122,7 @@ public class CommunityVerificationService {
             }
         }
         String status = (method == Method.video) ? "pending" : "approved";
-        requests.insert(u.get().id, communityId, email, method.name(), status, mediaKey, null);
+        requests.insert(u.get().id, communityId, resolvedEmail, method.name(), status, mediaKey, null);
         if ("approved".equals(status)) {
             OffsetDateTime expiresAt = resolveExpiry(community.get());
             communityVerifications.markVerified(u.get().id, communityId, method.name(), expiresAt);
@@ -134,6 +152,30 @@ public class CommunityVerificationService {
 
     private String keyEmail(long userId, long communityId) { return "verify:community:email:" + userId + ":" + communityId; }
     private String keyThirdParty(long userId, long communityId) { return "verify:community:thirdparty:" + userId + ":" + communityId; }
+
+    private String resolveRequestEmail(Method method, String requestEmail, String fallbackEmail) {
+        String normalized = normalizeEmail(requestEmail);
+        if (method == Method.email) {
+            if (normalized == null) return null;
+            return normalized;
+        }
+        if (normalized != null) return normalized;
+        return normalizeEmail(fallbackEmail);
+    }
+
+    private String normalizeEmail(String email) {
+        if (email == null) return null;
+        String trimmed = email.trim().toLowerCase(java.util.Locale.ROOT);
+        if (trimmed.isBlank()) return null;
+        return trimmed;
+    }
+
+    private String extractDomain(String email) {
+        if (email == null) return null;
+        int at = email.indexOf('@');
+        if (at <= 0 || at == email.length() - 1) return null;
+        return email.substring(at + 1);
+    }
 
     public record StartResult(Status status, String method, String devCode, String sessionId, String instructions, String error) {
         static StartResult ok(String method, String devCode, String sessionId, String instructions) {

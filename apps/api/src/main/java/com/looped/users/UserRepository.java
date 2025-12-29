@@ -182,6 +182,10 @@ public class UserRepository {
     }
 
     public boolean isHandleAvailable(String handle) {
+        return isHandleAvailable(handle, null);
+    }
+
+    public boolean isHandleAvailable(String handle, OffsetDateTime tombstoneCutoff) {
         if (handle == null || handle.isBlank()) return false;
         Integer count = jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM users WHERE LOWER(handle) = LOWER(?)",
@@ -189,11 +193,21 @@ public class UserRepository {
                 handle
         );
         if (count != null && count > 0) return false;
-        Integer tombstones = jdbcTemplate.queryForObject(
-                "SELECT COUNT(*) FROM user_tombstones WHERE LOWER(handle) = LOWER(?)",
-                Integer.class,
-                handle
-        );
+        Integer tombstones;
+        if (tombstoneCutoff == null) {
+            tombstones = jdbcTemplate.queryForObject(
+                    "SELECT COUNT(*) FROM user_tombstones WHERE LOWER(handle) = LOWER(?)",
+                    Integer.class,
+                    handle
+            );
+        } else {
+            tombstones = jdbcTemplate.queryForObject(
+                    "SELECT COUNT(*) FROM user_tombstones WHERE LOWER(handle) = LOWER(?) AND purged_at > ?",
+                    Integer.class,
+                    handle,
+                    tombstoneCutoff
+            );
+        }
         return tombstones != null && tombstones == 0;
     }
 

@@ -25,6 +25,8 @@ public class UsersService {
     private final CompanyRepository companies;
     private final FirebaseAdminService firebaseAdmin;
     private final int deactivatedRetentionDays;
+    private final int usernameTombstoneDays;
+    private final String defaultCompanyDomain;
 
     public UsersService(UserRepository users,
                         VerificationRepository verifications,
@@ -32,7 +34,9 @@ public class UsersService {
                         CommentsRepository comments,
                         CompanyRepository companies,
                         FirebaseAdminService firebaseAdmin,
-                        @Value("${retention.deactivated-days:90}") int deactivatedRetentionDays) {
+                        @Value("${retention.deactivated-days:90}") int deactivatedRetentionDays,
+                        @Value("${retention.username-tombstone-days:14}") int usernameTombstoneDays,
+                        @Value("${onboarding.default-company-domain:looped.global}") String defaultCompanyDomain) {
         this.users = users;
         this.verifications = verifications;
         this.posts = posts;
@@ -40,6 +44,8 @@ public class UsersService {
         this.companies = companies;
         this.firebaseAdmin = firebaseAdmin;
         this.deactivatedRetentionDays = Math.max(1, deactivatedRetentionDays);
+        this.usernameTombstoneDays = Math.max(1, usernameTombstoneDays);
+        this.defaultCompanyDomain = defaultCompanyDomain == null ? "" : defaultCompanyDomain.trim().toLowerCase(Locale.ROOT);
     }
 
     public ProfileResult profile(String firebaseUid, long targetUserId) {
@@ -99,20 +105,22 @@ public class UsersService {
 
         String normalizedHandle = normalizeHandle(username);
         if (normalizedHandle == null) return OnboardResult.badRequest("invalid_username");
-        if (!users.isHandleAvailable(normalizedHandle)) return OnboardResult.conflict("username_taken");
+        if (!users.isHandleAvailable(normalizedHandle, handleReuseCutoff())) return OnboardResult.conflict("username_taken");
         if (!users.isEmailAvailable(email)) return OnboardResult.conflict("email_taken");
 
-        String domain = extractDomain(email);
-        if (domain == null) return OnboardResult.badRequest("invalid_email");
-        var company = companies.findByDomain(domain);
-        if (company.isEmpty()) return OnboardResult.badRequest("company_not_found");
+        String emailDomain = extractDomain(email);
+        if (emailDomain == null) return OnboardResult.badRequest("invalid_email");
+        String companyDomain = normalizeDomain(defaultCompanyDomain);
+        if (companyDomain == null) return OnboardResult.badRequest("company_not_configured");
+        var company = companies.findByDomain(companyDomain);
+        if (company.isEmpty()) return OnboardResult.badRequest("company_not_configured");
 
         long userId;
         try {
             userId = users.insert(firebaseUid, normalizedHandle, email, company.get().id,
                     firstName.trim(), lastName.trim(), dateOfBirth);
         } catch (DataAccessException e) {
-            if (!users.isHandleAvailable(normalizedHandle)) return OnboardResult.conflict("username_taken");
+            if (!users.isHandleAvailable(normalizedHandle, handleReuseCutoff())) return OnboardResult.conflict("username_taken");
             if (!users.isEmailAvailable(email)) return OnboardResult.conflict("email_taken");
             return OnboardResult.conflict("conflict");
         }
@@ -124,7 +132,7 @@ public class UsersService {
     public AvailabilityResult usernameAvailability(String username) {
         String normalizedHandle = normalizeHandle(username);
         if (normalizedHandle == null) return AvailabilityResult.invalid();
-        boolean available = users.isHandleAvailable(normalizedHandle);
+        boolean available = users.isHandleAvailable(normalizedHandle, handleReuseCutoff());
         return AvailabilityResult.ok(normalizedHandle, available);
     }
 
@@ -264,6 +272,10 @@ public class UsersService {
         return user;
     }
 
+    private OffsetDateTime handleReuseCutoff() {
+        return OffsetDateTime.now().minusDays(usernameTombstoneDays);
+    }
+
     private UserProfile buildProfile(UserRepository.UserRow row, VerificationRepository.Row verification) {
         var verificationData = verification == null ? null : new Verification(verification.method, verification.verified, verification.verifiedAt);
         var stats = new ProfileStats(
@@ -304,6 +316,17 @@ public class UsersService {
         int at = trimmed.indexOf('@');
         if (at <= 0 || at == trimmed.length() - 1) return null;
         return trimmed.substring(at + 1);
+    }
+
+    private String normalizeDomain(String domain) {
+        if (domain == null) return null;
+        String trimmed = domain.trim().toLowerCase(Locale.ROOT);
+        if (trimmed.startsWith("@")) {
+            trimmed = trimmed.substring(1);
+        }
+        if (trimmed.isBlank()) return null;
+        if (!trimmed.matches("^[a-z0-9.-]+$")) return null;
+        return trimmed;
     }
 
     public enum Status { OK, USER_NOT_PROVISIONED, NOT_FOUND, FORBIDDEN }

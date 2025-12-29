@@ -78,6 +78,13 @@ verification:
   echo-code: ${VERIFICATION_ECHO_CODE:true}
   code-ttl-seconds: ${VERIFICATION_CODE_TTL_SECONDS:600}
 
+onboarding:
+  default-company-domain: ${ONBOARDING_DEFAULT_COMPANY_DOMAIN:looped.global}
+
+retention:
+  deactivated-days: ${RETENTION_DEACTIVATED_DAYS:90}
+  username-tombstone-days: ${RETENTION_USERNAME_TOMBSTONE_DAYS:14}
+
 anon:
   issuer:
     kid: ${ANON_ISSUER_KID:dev-issuer}

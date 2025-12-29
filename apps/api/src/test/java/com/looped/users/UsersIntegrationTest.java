@@ -235,6 +235,13 @@ class UsersIntegrationTest extends PostgresTestBase {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.available", equalTo(false)));
 
+        jdbc.update("UPDATE user_tombstones SET purged_at = now() - interval '15 days' WHERE handle = 'reserved'");
+
+        mockMvc.perform(get("/v1/users/username/availability?username=reserved")
+                        .header("Authorization", auth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.available", equalTo(true)));
+
         String onboardBody = """
                 {
                   "username": "newuser1",

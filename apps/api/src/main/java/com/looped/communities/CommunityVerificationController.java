@@ -39,7 +39,7 @@ public class CommunityVerificationController {
     public ResponseEntity<?> start(@AuthenticationPrincipal Jwt jwt,
                                    @PathVariable("communityId") long communityId,
                                    @Valid @RequestBody StartRequest body) {
-        var res = service.start(jwt.getSubject(), communityId, body.method());
+        var res = service.start(jwt.getSubject(), communityId, body.method(), body.email());
         if (res.status() == CommunityVerificationService.Status.USER_NOT_PROVISIONED) {
             return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "user_not_provisioned"));
         }
@@ -66,7 +66,7 @@ public class CommunityVerificationController {
                                     @PathVariable("communityId") long communityId,
                                     @Valid @RequestBody FinishRequest body) {
         String email = jwt.getClaimAsString("email");
-        var res = service.finish(jwt.getSubject(), communityId, email, body.method(), body.code(), body.mediaKey(), body.token());
+        var res = service.finish(jwt.getSubject(), communityId, body.email(), email, body.method(), body.code(), body.mediaKey(), body.token());
         if (res.status() == CommunityVerificationService.Status.USER_NOT_PROVISIONED) {
             return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "user_not_provisioned"));
         }
@@ -110,6 +110,6 @@ public class CommunityVerificationController {
         return ResponseEntity.ok(Map.of("items", items));
     }
 
-    public record StartRequest(@NotBlank String method) {}
-    public record FinishRequest(@NotBlank String method, String code, String mediaKey, String token) {}
+    public record StartRequest(@NotBlank String method, String email) {}
+    public record FinishRequest(@NotBlank String method, String code, String mediaKey, String token, String email) {}
 }
