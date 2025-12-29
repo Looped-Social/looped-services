@@ -167,4 +167,34 @@ class CommunityVerificationIntegrationTest extends PostgresTestBase {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error", equalTo("domains_not_configured")));
     }
+
+    @Test
+    void sector_verification_inherits_company_domains() throws Exception {
+        long companyId = jdbc.queryForObject("INSERT INTO companies(name, domain) VALUES ('Delta', 'delta.com') RETURNING id", Long.class);
+        jdbc.update("INSERT INTO users(firebase_uid, handle, company_id) VALUES ('uid-sector','sara',?)", companyId);
+        long sectorId = jdbc.queryForObject(
+                "INSERT INTO communities(kind, name, description) VALUES ('sector','Retail','Retail') RETURNING id",
+                Long.class
+        );
+        long companyCommunityId = jdbc.queryForObject(
+                "INSERT INTO communities(kind, name, description) VALUES ('company','Walmart','Walmart') RETURNING id",
+                Long.class
+        );
+        jdbc.update("INSERT INTO community_sector_links(sector_id, company_id) VALUES (?, ?)", sectorId, companyCommunityId);
+        jdbc.update("INSERT INTO community_domains(community_id, domain) VALUES (?, ?)", companyCommunityId, "walmart.com");
+
+        String auth = "Bearer " + tokenWithEmail("uid-sector", "ignored@gmail.com");
+        String startBody = """
+                {
+                  "method": "email",
+                  "email": "sara@walmart.com"
+                }
+                """;
+        mockMvc.perform(post("/v1/communities/" + sectorId + "/verification/start")
+                        .header("Authorization", auth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(startBody))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status", equalTo("pending")));
+    }
 }

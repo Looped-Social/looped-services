@@ -43,6 +43,17 @@ public class CommunityDomainsRepository {
         );
     }
 
+    public List<String> listDomainsForCommunities(List<Long> communityIds) {
+        if (communityIds == null || communityIds.isEmpty()) return List.of();
+        String placeholders = String.join(",", java.util.Collections.nCopies(communityIds.size(), "?"));
+        Object[] params = communityIds.toArray();
+        return jdbc.query(
+                "SELECT DISTINCT domain FROM community_domains WHERE community_id IN (" + placeholders + ") ORDER BY domain ASC",
+                (rs, rowNum) -> rs.getString("domain"),
+                params
+        );
+    }
+
     public boolean insert(long communityId, String domain) {
         String normalized = normalizeDomain(domain);
         if (normalized == null) return false;
@@ -63,6 +74,35 @@ public class CommunityDomainsRepository {
                 normalized
         );
         return rows > 0;
+    }
+
+    public boolean hasDomainsForCommunities(List<Long> communityIds) {
+        if (communityIds == null || communityIds.isEmpty()) return false;
+        String placeholders = String.join(",", java.util.Collections.nCopies(communityIds.size(), "?"));
+        Object[] params = communityIds.toArray();
+        Integer count = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM community_domains WHERE community_id IN (" + placeholders + ")",
+                Integer.class,
+                params
+        );
+        return count != null && count > 0;
+    }
+
+    public boolean isDomainAllowedForCommunities(List<Long> communityIds, String domain) {
+        String normalized = normalizeDomain(domain);
+        if (normalized == null || communityIds == null || communityIds.isEmpty()) return false;
+        String placeholders = String.join(",", java.util.Collections.nCopies(communityIds.size(), "?"));
+        Object[] params = new Object[communityIds.size() + 1];
+        params[0] = normalized;
+        for (int i = 0; i < communityIds.size(); i++) {
+            params[i + 1] = communityIds.get(i);
+        }
+        Integer count = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM community_domains WHERE domain = ? AND community_id IN (" + placeholders + ")",
+                Integer.class,
+                params
+        );
+        return count != null && count > 0;
     }
 
     public String normalizeDomain(String domain) {

@@ -20,6 +20,7 @@ public class CommunityVerificationService {
     private final UserRepository users;
     private final CommunitiesRepository communities;
     private final CommunityDomainsRepository communityDomains;
+    private final CommunitySectorLinksRepository sectorLinks;
     private final CommunityVerificationsRepository communityVerifications;
     private final VerificationRequestsRepository requests;
     private final StringRedisTemplate redis;
@@ -30,6 +31,7 @@ public class CommunityVerificationService {
     public CommunityVerificationService(UserRepository users,
                                         CommunitiesRepository communities,
                                         CommunityDomainsRepository communityDomains,
+                                        CommunitySectorLinksRepository sectorLinks,
                                         CommunityVerificationsRepository communityVerifications,
                                         VerificationRequestsRepository requests,
                                         StringRedisTemplate redis,
@@ -38,6 +40,7 @@ public class CommunityVerificationService {
         this.users = users;
         this.communities = communities;
         this.communityDomains = communityDomains;
+        this.sectorLinks = sectorLinks;
         this.communityVerifications = communityVerifications;
         this.requests = requests;
         this.redis = redis;
@@ -51,7 +54,8 @@ public class CommunityVerificationService {
 
         var u = users.findByFirebaseUid(firebaseUid);
         if (u.isEmpty() || u.get().companyId == null) return StartResult.userNotProvisioned();
-        if (communities.findById(communityId).isEmpty()) return StartResult.communityNotFound();
+        var community = communities.findById(communityId);
+        if (community.isEmpty()) return StartResult.communityNotFound();
 
         String devCode = null;
         String sessionId = null;
@@ -62,8 +66,8 @@ public class CommunityVerificationService {
                 if (normalizedEmail == null) return StartResult.badRequest("email_required");
                 String domain = extractDomain(normalizedEmail);
                 if (domain == null) return StartResult.badRequest("invalid_email");
-                if (!communityDomains.hasDomains(communityId)) return StartResult.badRequest("domains_not_configured");
-                if (!communityDomains.isDomainAllowed(communityId, domain)) return StartResult.badRequest("email_domain_not_allowed");
+                if (!hasEffectiveDomains(community.get())) return StartResult.badRequest("domains_not_configured");
+                if (!isDomainAllowed(community.get(), domain)) return StartResult.badRequest("email_domain_not_allowed");
                 String code = generateCode6();
                 String key = keyEmail(u.get().id, communityId);
                 redis.opsForValue().set(key, code, Duration.ofSeconds(props.getCodeTtlSeconds()));
@@ -96,8 +100,8 @@ public class CommunityVerificationService {
             if (resolvedEmail == null) return FinishResult.badRequest("email_required");
             String domain = extractDomain(resolvedEmail);
             if (domain == null) return FinishResult.badRequest("invalid_email");
-            if (!communityDomains.hasDomains(communityId)) return FinishResult.badRequest("domains_not_configured");
-            if (!communityDomains.isDomainAllowed(communityId, domain)) return FinishResult.badRequest("email_domain_not_allowed");
+            if (!hasEffectiveDomains(community.get())) return FinishResult.badRequest("domains_not_configured");
+            if (!isDomainAllowed(community.get(), domain)) return FinishResult.badRequest("email_domain_not_allowed");
         }
 
         switch (method) {
@@ -152,6 +156,22 @@ public class CommunityVerificationService {
 
     private String keyEmail(long userId, long communityId) { return "verify:community:email:" + userId + ":" + communityId; }
     private String keyThirdParty(long userId, long communityId) { return "verify:community:thirdparty:" + userId + ":" + communityId; }
+
+    private boolean hasEffectiveDomains(CommunitiesRepository.CommunityRow community) {
+        if (!"sector".equalsIgnoreCase(community.kind)) {
+            return communityDomains.hasDomains(community.id);
+        }
+        if (communityDomains.hasDomains(community.id)) return true;
+        var companyIds = sectorLinks.listCompanyIds(community.id);
+        return communityDomains.hasDomainsForCommunities(companyIds);
+    }
+
+    private boolean isDomainAllowed(CommunitiesRepository.CommunityRow community, String domain) {
+        if (communityDomains.isDomainAllowed(community.id, domain)) return true;
+        if (!"sector".equalsIgnoreCase(community.kind)) return false;
+        var companyIds = sectorLinks.listCompanyIds(community.id);
+        return communityDomains.isDomainAllowedForCommunities(companyIds, domain);
+    }
 
     private String resolveRequestEmail(Method method, String requestEmail, String fallbackEmail) {
         String normalized = normalizeEmail(requestEmail);

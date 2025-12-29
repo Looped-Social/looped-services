@@ -54,6 +54,26 @@ public class CommunitiesRepository {
         );
     }
 
+    public List<CommunityRow> searchByKind(String kind, String query, OffsetDateTime cursorTs, Long cursorId, int limit) {
+        if (kind == null || kind.isBlank()) return List.of();
+        String like = "%" + query.toLowerCase() + "%";
+        if (cursorTs == null || cursorId == null) {
+            return jdbc.query(
+                    "SELECT id, kind, name, description, member_count, image_url, created_at, verification_ttl_days " +
+                            "FROM communities WHERE kind = ? AND (LOWER(name) LIKE ? OR LOWER(COALESCE(description,'')) LIKE ?) " +
+                            "ORDER BY created_at DESC, id DESC LIMIT ?",
+                    MAPPER, kind, like, like, limit
+            );
+        }
+        return jdbc.query(
+                "SELECT id, kind, name, description, member_count, image_url, created_at, verification_ttl_days " +
+                        "FROM communities WHERE kind = ? AND (LOWER(name) LIKE ? OR LOWER(COALESCE(description,'')) LIKE ?) " +
+                        "AND (created_at < ? OR (created_at = ? AND id < ?)) " +
+                        "ORDER BY created_at DESC, id DESC LIMIT ?",
+                MAPPER, kind, like, like, cursorTs, cursorTs, cursorId, limit
+        );
+    }
+
     public Optional<CommunityRow> findByKindAndName(String kind, String name) {
         if (kind == null || name == null) return Optional.empty();
         var list = jdbc.query(
@@ -85,6 +105,23 @@ public class CommunitiesRepository {
                         "FROM communities WHERE (created_at < ? OR (created_at = ? AND id < ?)) " +
                         "ORDER BY created_at DESC, id DESC LIMIT ?",
                 MAPPER, cursorTs, cursorTs, cursorId, limit
+        );
+    }
+
+    public List<CommunityRow> listByKind(String kind, OffsetDateTime cursorTs, Long cursorId, int limit) {
+        if (kind == null || kind.isBlank()) return List.of();
+        if (cursorTs == null || cursorId == null) {
+            return jdbc.query(
+                    "SELECT id, kind, name, description, member_count, image_url, created_at, verification_ttl_days " +
+                            "FROM communities WHERE kind = ? ORDER BY created_at DESC, id DESC LIMIT ?",
+                    MAPPER, kind, limit
+            );
+        }
+        return jdbc.query(
+                "SELECT id, kind, name, description, member_count, image_url, created_at, verification_ttl_days " +
+                        "FROM communities WHERE kind = ? AND (created_at < ? OR (created_at = ? AND id < ?)) " +
+                        "ORDER BY created_at DESC, id DESC LIMIT ?",
+                MAPPER, kind, cursorTs, cursorTs, cursorId, limit
         );
     }
 
