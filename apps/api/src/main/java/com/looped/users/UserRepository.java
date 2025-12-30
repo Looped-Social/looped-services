@@ -114,6 +114,13 @@ public class UserRepository {
         );
     }
 
+    public void updateIdentity(long userId, String handle, String firstName, String lastName, java.time.LocalDate dateOfBirth) {
+        jdbcTemplate.update(
+                "UPDATE users SET handle = ?, first_name = ?, last_name = ?, date_of_birth = ? WHERE id = ?",
+                handle, firstName, lastName, dateOfBirth, userId
+        );
+    }
+
     public java.util.List<UserRow> searchCompanyUsers(long companyId, String query, java.time.OffsetDateTime cursorTs, Long cursorId, int limit) {
         String like = "%" + query.toLowerCase() + "%";
         if (cursorTs == null || cursorId == null) {

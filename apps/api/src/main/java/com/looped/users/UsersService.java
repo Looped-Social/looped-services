@@ -95,6 +95,33 @@ public class UsersService {
         return UpdateProfileResult.ok(buildProfile(updated, verification));
     }
 
+    public UpdateIdentityResult updateIdentity(String firebaseUid, String username,
+                                               String firstName, String lastName, LocalDate dateOfBirth) {
+        var actor = requireProvisionedUser(firebaseUid);
+        if (actor.isEmpty()) return UpdateIdentityResult.userNotProvisioned();
+
+        String normalizedHandle = normalizeHandle(username);
+        if (normalizedHandle == null) return UpdateIdentityResult.invalidUsername();
+
+        String currentHandle = actor.get().handle == null ? "" : actor.get().handle.toLowerCase(Locale.ROOT);
+        if (!normalizedHandle.equals(currentHandle) && !users.isHandleAvailable(normalizedHandle, handleReuseCutoff())) {
+            return UpdateIdentityResult.usernameTaken();
+        }
+
+        try {
+            users.updateIdentity(actor.get().id, normalizedHandle, firstName.trim(), lastName.trim(), dateOfBirth);
+        } catch (DataAccessException e) {
+            if (!normalizedHandle.equals(currentHandle) && !users.isHandleAvailable(normalizedHandle, handleReuseCutoff())) {
+                return UpdateIdentityResult.usernameTaken();
+            }
+            return UpdateIdentityResult.conflict();
+        }
+
+        var updated = users.findById(actor.get().id).orElse(actor.get());
+        var verification = verifications.findByUserId(actor.get().id).orElse(null);
+        return UpdateIdentityResult.ok(buildProfile(updated, verification));
+    }
+
     public OnboardResult onboard(String firebaseUid, String email, String username,
                                  String firstName, String lastName, LocalDate dateOfBirth) {
         if (firebaseUid == null || firebaseUid.isBlank()) return OnboardResult.badRequest("invalid_user");
@@ -341,6 +368,15 @@ public class UsersService {
     public record UpdateProfileResult(Status status, UserProfile profile) {
         static UpdateProfileResult ok(UserProfile profile) { return new UpdateProfileResult(Status.OK, profile); }
         static UpdateProfileResult userNotProvisioned() { return new UpdateProfileResult(Status.USER_NOT_PROVISIONED, null); }
+    }
+
+    public enum UpdateIdentityStatus { OK, USER_NOT_PROVISIONED, INVALID_USERNAME, USERNAME_TAKEN, CONFLICT }
+    public record UpdateIdentityResult(UpdateIdentityStatus status, UserProfile profile) {
+        static UpdateIdentityResult ok(UserProfile profile) { return new UpdateIdentityResult(UpdateIdentityStatus.OK, profile); }
+        static UpdateIdentityResult userNotProvisioned() { return new UpdateIdentityResult(UpdateIdentityStatus.USER_NOT_PROVISIONED, null); }
+        static UpdateIdentityResult invalidUsername() { return new UpdateIdentityResult(UpdateIdentityStatus.INVALID_USERNAME, null); }
+        static UpdateIdentityResult usernameTaken() { return new UpdateIdentityResult(UpdateIdentityStatus.USERNAME_TAKEN, null); }
+        static UpdateIdentityResult conflict() { return new UpdateIdentityResult(UpdateIdentityStatus.CONFLICT, null); }
     }
 
     public enum OnboardStatus { OK, CONFLICT, BAD_REQUEST }

@@ -71,6 +71,28 @@ public class UsersController {
         };
     }
 
+    @PutMapping("/me/identity")
+    public ResponseEntity<?> updateIdentity(
+            @AuthenticationPrincipal Jwt jwt,
+            @Validated @RequestBody UpdateIdentityRequest body
+    ) {
+        var res = service.updateIdentity(jwt.getSubject(), body.username(), body.firstName(), body.lastName(), body.dateOfBirth());
+        return switch (res.status()) {
+            case USER_NOT_PROVISIONED -> ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
+                    "error", "user_not_provisioned",
+                    "message", "Complete onboarding before updating profile"
+            ));
+            case INVALID_USERNAME -> ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of(
+                    "error", "invalid_username"
+            ));
+            case USERNAME_TAKEN -> ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
+                    "error", "username_taken"
+            ));
+            case OK -> ResponseEntity.ok(UserPayloads.fromProfile(res.profile()));
+            default -> ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        };
+    }
+
     @DeleteMapping("/me")
     public ResponseEntity<?> deleteMe(
             @AuthenticationPrincipal Jwt jwt,
@@ -345,6 +367,13 @@ public class UsersController {
             @Size(max = 500) String bio,
             @NotNull Boolean isAnonymous,
             Boolean showFollowerCount
+    ) {}
+
+    public record UpdateIdentityRequest(
+            @NotBlank @Size(min = 3, max = 30) String username,
+            @NotBlank @Size(max = 50) String firstName,
+            @NotBlank @Size(max = 50) String lastName,
+            @NotNull LocalDate dateOfBirth
     ) {}
 
     public record OnboardRequest(
