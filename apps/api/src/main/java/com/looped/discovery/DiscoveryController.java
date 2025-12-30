@@ -46,16 +46,17 @@ public class DiscoveryController {
         int lim = Math.max(1, Math.min(limit, 100));
         boolean kindProvided = kind != null && !kind.isBlank();
         String normalizedKind = normalizeKind(kind);
+        String specializationType = kind != null ? normalizeSpecializationTypeFromKind(kind) : null;
         if (kindProvided && normalizedKind == null) {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of(
                     "error", "invalid_kind",
-                    "message", "kind must be company, school, sector, profession, or unknown"
+                    "message", "kind must be company, school, sector, profession, specialization, major, department, or unknown"
             ));
         }
         if ("unknown".equals(normalizedKind)) {
             normalizedKind = null;
         }
-        var res = service.searchCommunities(jwt.getSubject(), query, normalizedKind, cursor, lim);
+        var res = service.searchCommunities(jwt.getSubject(), query, normalizedKind, specializationType, cursor, lim);
         return switch (res.status()) {
             case USER_NOT_PROVISIONED -> ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
                     "error", "user_not_provisioned",
@@ -176,6 +177,7 @@ public class DiscoveryController {
         map.put("name", row.name);
         map.put("description", row.description);
         map.put("member_count", row.memberCount);
+        if (row.specializationType != null) map.put("specialization_type", row.specializationType);
         String resolved = row.imageUrl;
         if ((resolved == null || resolved.isBlank()) && fallbacks != null) {
             resolved = fallbacks.get(row.id);
@@ -201,6 +203,7 @@ public class DiscoveryController {
         map.put("description", row.description);
         map.put("member_count", row.memberCount);
         map.put("is_following", row.isFollowing);
+        if (row.specializationType != null) map.put("specialization_type", row.specializationType);
         String resolved = row.imageUrl;
         if ((resolved == null || resolved.isBlank()) && fallbacks != null) {
             resolved = fallbacks.get(row.id);
@@ -221,9 +224,24 @@ public class DiscoveryController {
         if (normalized.equals("unknown")) {
             return "unknown";
         }
+        if (normalized.equals("major") || normalized.equals("department")) {
+            normalized = "specialization";
+        }
         if (!normalized.equals("company") && !normalized.equals("school") && !normalized.equals("sector")) {
-            return null;
+            if (!normalized.equals("specialization")) {
+                return null;
+            }
         }
         return normalized;
+    }
+
+    private String normalizeSpecializationTypeFromKind(String raw) {
+        if (raw == null) return null;
+        String normalized = raw.trim().toLowerCase(Locale.ROOT);
+        if (normalized.isBlank()) return null;
+        if (normalized.equals("major") || normalized.equals("department")) {
+            return normalized;
+        }
+        return null;
     }
 }

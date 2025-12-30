@@ -68,14 +68,19 @@ public class AdminCommunitiesController {
         }
         List<CommunitiesRepository.CommunityRow> rows;
         String normalizedKind = kind != null ? normalizeKind(kind) : null;
+        String specializationType = kind != null ? normalizeSpecializationTypeFromKind(kind) : null;
         if (kind != null && normalizedKind == null) {
             return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of("error", "invalid_kind"));
         }
         boolean hasQuery = query != null && !query.isBlank();
         if (normalizedKind != null) {
             rows = hasQuery
-                    ? communities.searchByKind(normalizedKind, query.trim(), cursorTs, cursorId, lim)
-                    : communities.listByKind(normalizedKind, cursorTs, cursorId, lim);
+                    ? (specializationType == null
+                        ? communities.searchByKind(normalizedKind, query.trim(), cursorTs, cursorId, lim)
+                        : communities.searchByKindAndSpecializationType(normalizedKind, specializationType, query.trim(), cursorTs, cursorId, lim))
+                    : (specializationType == null
+                        ? communities.listByKind(normalizedKind, cursorTs, cursorId, lim)
+                        : communities.listByKindAndSpecializationType(normalizedKind, specializationType, cursorTs, cursorId, lim));
         } else {
             rows = hasQuery
                     ? communities.search(query.trim(), cursorTs, cursorId, lim)
@@ -122,6 +127,10 @@ public class AdminCommunitiesController {
         if (kind == null) {
             return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of("error", "invalid_kind"));
         }
+        String specializationType = normalizeSpecializationType(body.specializationType());
+        if ("specialization".equals(kind) && specializationType == null) {
+            return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of("error", "specialization_type_required"));
+        }
         String name = normalizeName(body.name());
         if (name == null) {
             return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of("error", "name_required"));
@@ -132,10 +141,10 @@ public class AdminCommunitiesController {
         if (ttlDays != null && ttlDays < 1) {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of("error", "invalid_ttl_days"));
         }
-        if (communities.findByKindAndName(kind, name).isPresent()) {
+        if (communities.findByKindAndName(kind, name, specializationType).isPresent()) {
             return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "community_exists"));
         }
-        long id = communities.insert(kind, name, description, imageUrl, ttlDays);
+        long id = communities.insert(kind, name, description, imageUrl, ttlDays, specializationType);
         audit.log(authRes.admin().id, "community.create", "community", id, null);
         return ResponseEntity.status(HttpStatus.CREATED).body(Map.of("id", id));
     }
@@ -200,6 +209,7 @@ public class AdminCommunitiesController {
         map.put("name", row.name);
         if (row.description != null) map.put("description", row.description);
         map.put("member_count", row.memberCount);
+        if (row.specializationType != null) map.put("specialization_type", row.specializationType);
         String resolved = row.imageUrl;
         if ((resolved == null || resolved.isBlank()) && fallbacks != null) {
             resolved = fallbacks.get(row.id);
@@ -219,7 +229,10 @@ public class AdminCommunitiesController {
         if (normalized.equals("profession") || normalized.equals("proffesion")) {
             normalized = "sector";
         }
-        if (!normalized.equals("company") && !normalized.equals("school") && !normalized.equals("sector")) {
+        if (normalized.equals("major") || normalized.equals("department")) {
+            normalized = "specialization";
+        }
+        if (!normalized.equals("company") && !normalized.equals("school") && !normalized.equals("sector") && !normalized.equals("specialization")) {
             return null;
         }
         return normalized;
@@ -237,8 +250,23 @@ public class AdminCommunitiesController {
         return trimmed.isBlank() ? null : trimmed;
     }
 
+    private String normalizeSpecializationType(String raw) {
+        if (raw == null) return null;
+        String normalized = raw.trim().toLowerCase(Locale.ROOT);
+        if (normalized.isBlank()) return null;
+        if (!normalized.equals("major") && !normalized.equals("department")) return null;
+        return normalized;
+    }
+
+    private String normalizeSpecializationTypeFromKind(String raw) {
+        if (raw == null) return null;
+        String normalized = raw.trim().toLowerCase(Locale.ROOT);
+        if (normalized.equals("major") || normalized.equals("department")) return normalized;
+        return null;
+    }
+
     public record CreateCommunityRequest(@NotBlank String kind, @NotBlank String name, String description, String imageUrl,
-                                         Integer verificationTtlDays) {}
+                                         Integer verificationTtlDays, String specializationType) {}
 
     public record UpdateCommunityRequest(String description, Integer verificationTtlDays) {}
 }

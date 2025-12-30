@@ -56,6 +56,9 @@ public class CommunityVerificationService {
         if (u.isEmpty() || u.get().companyId == null) return StartResult.userNotProvisioned();
         var community = communities.findById(communityId);
         if (community.isEmpty()) return StartResult.communityNotFound();
+        if ("specialization".equalsIgnoreCase(community.get().kind)) {
+            return StartResult.badRequest("verification_not_supported");
+        }
 
         String devCode = null;
         String sessionId = null;
@@ -94,6 +97,9 @@ public class CommunityVerificationService {
         if (u.isEmpty() || u.get().companyId == null) return FinishResult.userNotProvisioned();
         var community = communities.findById(communityId);
         if (community.isEmpty()) return FinishResult.communityNotFound();
+        if ("specialization".equalsIgnoreCase(community.get().kind)) {
+            return FinishResult.badRequest("verification_not_supported");
+        }
 
         String resolvedEmail = resolveRequestEmail(method, requestEmail, fallbackEmail);
         if (method == Method.email) {

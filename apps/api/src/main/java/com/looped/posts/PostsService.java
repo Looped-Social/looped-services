@@ -109,7 +109,7 @@ public class PostsService {
         long userId = u.get().id;
         long companyId = Optional.ofNullable(u.get().companyId).orElse(0L);
 
-        if (!communityVerifications.isVerified(userId, communityId)) {
+        if (requiresVerification(community.get()) && !communityVerifications.isVerified(userId, communityId)) {
             return CreateResult.notVerified();
         }
 
@@ -175,6 +175,10 @@ public class PostsService {
     private boolean mediaOwnerIsNull(long mediaAssetId) {
         Long ownerId = media.findOwnerId(mediaAssetId);
         return ownerId == null;
+    }
+
+    private boolean requiresVerification(CommunitiesRepository.CommunityRow community) {
+        return community != null && !"specialization".equalsIgnoreCase(community.kind);
     }
 
     private void indexHashtags(long postId, long companyId, String content) {

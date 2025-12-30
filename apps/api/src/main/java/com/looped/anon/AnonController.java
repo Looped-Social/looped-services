@@ -72,13 +72,15 @@ public class AnonController {
                     "message", "Complete onboarding before enrolling"
             ));
         }
-        if (communities.findById(body.communityId()).isEmpty()) {
+        var community = communities.findById(body.communityId());
+        if (community.isEmpty()) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of(
                     "error", "community_not_found",
                     "message", "Community not found"
             ));
         }
-        if (!communityVerifications.isVerified(user.get().id, body.communityId())) {
+        if (requiresVerification(community.get())
+                && !communityVerifications.isVerified(user.get().id, body.communityId())) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
                     "error", "community_not_verified",
                     "message", "You must be verified before enrolling"
@@ -147,6 +149,10 @@ public class AnonController {
                 "expires_at", info.expiresAt()
         );
         return ResponseEntity.ok(out);
+    }
+
+    private boolean requiresVerification(CommunitiesRepository.CommunityRow community) {
+        return community != null && !"specialization".equalsIgnoreCase(community.kind);
     }
 
     @PostMapping("/register")

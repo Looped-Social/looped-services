@@ -1,6 +1,7 @@
 package com.looped.comments;
 
 import com.looped.anon.AnonProofService;
+import com.looped.communities.CommunitiesRepository;
 import com.looped.communities.CommunityVerificationsRepository;
 import com.looped.notifications.NotificationPublisher;
 import com.looped.principals.PrincipalRepository;
@@ -19,6 +20,7 @@ public class CommentsService {
     private final CommentsRepository comments;
     private final PostRepository posts;
     private final UserRepository users;
+    private final CommunitiesRepository communities;
     private final CommunityVerificationsRepository communityVerifications;
     private final PrincipalRepository principals;
     private final AnonProofService anonProofs;
@@ -27,6 +29,7 @@ public class CommentsService {
     public CommentsService(CommentsRepository comments,
                            PostRepository posts,
                            UserRepository users,
+                           CommunitiesRepository communities,
                            CommunityVerificationsRepository communityVerifications,
                            PrincipalRepository principals,
                            AnonProofService anonProofs,
@@ -34,6 +37,7 @@ public class CommentsService {
         this.comments = comments;
         this.posts = posts;
         this.users = users;
+        this.communities = communities;
         this.communityVerifications = communityVerifications;
         this.principals = principals;
         this.anonProofs = anonProofs;
@@ -96,7 +100,8 @@ public class CommentsService {
             if (firebaseUid == null) return CreateResult.userNotProvisioned();
             var actor = users.findByFirebaseUid(firebaseUid);
             if (actor.isEmpty() || actor.get().companyId == null) return CreateResult.userNotProvisioned();
-            if (!communityVerifications.isVerified(actor.get().id, post.get().communityId)) {
+            if (requiresVerification(post.get().communityId)
+                    && !communityVerifications.isVerified(actor.get().id, post.get().communityId)) {
                 return CreateResult.notVerified();
             }
             actorPrincipalId = principals.createForUser(actor.get().id).id;
@@ -158,6 +163,12 @@ public class CommentsService {
             next = Pagination.encode(last.createdAt, last.id);
         }
         return RepliesResult.ok(rows, next);
+    }
+
+    private boolean requiresVerification(Long communityId) {
+        if (communityId == null) return false;
+        var community = communities.findById(communityId);
+        return community.isPresent() && !"specialization".equalsIgnoreCase(community.get().kind);
     }
 
     public RepliesResult userReplies(String firebaseUid, long targetUserId, String cursor, int limit, AnonProofService.AnonActionProof anonProof) {

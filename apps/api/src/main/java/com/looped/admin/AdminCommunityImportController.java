@@ -89,17 +89,25 @@ public class AdminCommunityImportController {
             for (CSVRecord record : parser) {
                 summary.rowsTotal += 1;
                 int row = (int) record.getRecordNumber() + 1;
-                String kind = normalizeKind(field(record, headerMap, "community_type"));
+                String rawKind = field(record, headerMap, "community_type");
+                String rawSpecializationType = field(record, headerMap, "specialization_type");
+                KindResult kindResult = normalizeKind(rawKind, rawSpecializationType);
+                String kind = kindResult != null ? kindResult.kind : null;
+                String specializationType = kindResult != null ? kindResult.specializationType : null;
                 String name = normalizeName(field(record, headerMap, "display_name"));
                 if (kind == null || name == null) {
                     summary.addError(row, "invalid_kind_or_name");
+                    continue;
+                }
+                if ("specialization".equals(kind) && specializationType == null) {
+                    summary.addError(row, "specialization_type_required");
                     continue;
                 }
                 String description = normalizeDescription(field(record, headerMap, "description"));
                 String sectorName = normalizeName(field(record, headerMap, "sector"));
                 String domainsRaw = field(record, headerMap, "authorized_domains");
 
-                CommunityResult communityResult = getOrCreateCommunity(kind, name, description);
+                CommunityResult communityResult = getOrCreateCommunity(kind, specializationType, name, description);
                 if (communityResult.created) summary.communitiesCreated += 1;
                 else summary.communitiesSkipped += 1;
 
@@ -116,7 +124,7 @@ public class AdminCommunityImportController {
                 }
 
                 if (isSectorLinkableKind(kind) && sectorName != null) {
-                    CommunityResult sectorResult = getOrCreateCommunity("sector", sectorName, null);
+                    CommunityResult sectorResult = getOrCreateCommunity("sector", null, sectorName, null);
                     if (sectorResult.created) summary.sectorsCreated += 1;
                     if (links.insert(sectorResult.id, communityResult.id)) {
                         summary.linksCreated += 1;
@@ -156,17 +164,23 @@ public class AdminCommunityImportController {
         return trimmed.isBlank() ? null : trimmed;
     }
 
-    private String normalizeKind(String raw) {
-        if (raw == null) return null;
-        String normalized = raw.trim().toLowerCase(Locale.ROOT);
+    private KindResult normalizeKind(String rawKind, String rawSpecializationType) {
+        if (rawKind == null) return null;
+        String normalized = rawKind.trim().toLowerCase(Locale.ROOT);
         if (normalized.isBlank()) return null;
         if (normalized.equals("profession") || normalized.equals("proffesion")) {
             normalized = "sector";
         }
+        if (normalized.equals("major") || normalized.equals("department")) {
+            return new KindResult("specialization", normalized);
+        }
+        if (normalized.equals("specialization")) {
+            return new KindResult("specialization", normalizeSpecializationType(rawSpecializationType));
+        }
         if (!normalized.equals("company") && !normalized.equals("school") && !normalized.equals("sector")) {
             return null;
         }
-        return normalized;
+        return new KindResult(normalized, null);
     }
 
     private String normalizeName(String raw) {
@@ -179,6 +193,14 @@ public class AdminCommunityImportController {
         if (raw == null) return null;
         String trimmed = raw.trim();
         return trimmed.isBlank() ? null : trimmed;
+    }
+
+    private String normalizeSpecializationType(String raw) {
+        if (raw == null) return null;
+        String normalized = raw.trim().toLowerCase(Locale.ROOT);
+        if (normalized.isBlank()) return null;
+        if (!normalized.equals("major") && !normalized.equals("department")) return null;
+        return normalized;
     }
 
     private List<String> parseDomains(String raw) {
@@ -196,16 +218,16 @@ public class AdminCommunityImportController {
         return "company".equals(kind) || "school".equals(kind);
     }
 
-    private CommunityResult getOrCreateCommunity(String kind, String name, String description) {
-        var existing = communities.findByKindAndName(kind, name);
+    private CommunityResult getOrCreateCommunity(String kind, String specializationType, String name, String description) {
+        var existing = communities.findByKindAndName(kind, name, specializationType);
         if (existing.isPresent()) {
             return new CommunityResult(existing.get().id, false);
         }
         long id;
         try {
-            id = communities.insert(kind, name, description, null, null);
+            id = communities.insert(kind, name, description, null, null, specializationType);
         } catch (org.springframework.dao.DuplicateKeyException e) {
-            var fallback = communities.findByKindAndName(kind, name);
+            var fallback = communities.findByKindAndName(kind, name, specializationType);
             if (fallback.isPresent()) {
                 return new CommunityResult(fallback.get().id, false);
             }
@@ -215,6 +237,7 @@ public class AdminCommunityImportController {
     }
 
     private record CommunityResult(long id, boolean created) {}
+    private record KindResult(String kind, String specializationType) {}
 
     private static class ImportSummary {
         int rowsTotal;

@@ -18,6 +18,7 @@ import java.time.Instant;
 import java.util.List;
 
 import static org.hamcrest.Matchers.containsInAnyOrder;
+import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.hasSize;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -112,5 +113,62 @@ class CommunityFollowsIntegrationTest extends PostgresTestBase {
                         .header("Authorization", auth))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.following").value(false));
+    }
+
+    @Test
+    void follow_specialization_enforces_cooldown() throws Exception {
+        long companyId = jdbc.queryForObject(
+                "INSERT INTO companies(name, domain) VALUES ('Delta', 'delta.com') RETURNING id",
+                Long.class);
+        jdbc.update("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?)",
+                "uid-specialization-1", "mara", companyId);
+        long majorOne = jdbc.queryForObject(
+                "INSERT INTO communities(kind, specialization_type, name) VALUES ('specialization','major','Data Science') RETURNING id",
+                Long.class);
+        long majorTwo = jdbc.queryForObject(
+                "INSERT INTO communities(kind, specialization_type, name) VALUES ('specialization','major','Statistics') RETURNING id",
+                Long.class);
+
+        String auth = "Bearer " + token("uid-specialization-1");
+
+        mockMvc.perform(post("/v1/communities/" + majorOne + "/follow")
+                        .header("Authorization", auth))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.following").value(true));
+
+        mockMvc.perform(post("/v1/communities/" + majorTwo + "/follow")
+                        .header("Authorization", auth))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error", equalTo("specialization_cooldown")))
+                .andExpect(jsonPath("$.specialization_type", equalTo("major")));
+    }
+
+    @Test
+    void follow_specialization_enforces_limit() throws Exception {
+        long companyId = jdbc.queryForObject(
+                "INSERT INTO companies(name, domain) VALUES ('Echo', 'echo.com') RETURNING id",
+                Long.class);
+        jdbc.update("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?)",
+                "uid-specialization-2", "nina", companyId);
+        long majorOne = jdbc.queryForObject(
+                "INSERT INTO communities(kind, specialization_type, name) VALUES ('specialization','major','Economics') RETURNING id",
+                Long.class);
+        long majorTwo = jdbc.queryForObject(
+                "INSERT INTO communities(kind, specialization_type, name) VALUES ('specialization','major','Finance') RETURNING id",
+                Long.class);
+        long majorThree = jdbc.queryForObject(
+                "INSERT INTO communities(kind, specialization_type, name) VALUES ('specialization','major','Accounting') RETURNING id",
+                Long.class);
+        long userId = jdbc.queryForObject("SELECT id FROM users WHERE firebase_uid=?", Long.class, "uid-specialization-2");
+        jdbc.update("INSERT INTO community_follows(user_id, community_id) VALUES (?,?)", userId, majorOne);
+        jdbc.update("INSERT INTO community_follows(user_id, community_id) VALUES (?,?)", userId, majorTwo);
+
+        String auth = "Bearer " + token("uid-specialization-2");
+        mockMvc.perform(post("/v1/communities/" + majorThree + "/follow")
+                        .header("Authorization", auth))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error", equalTo("specialization_limit")))
+                .andExpect(jsonPath("$.specialization_type", equalTo("major")))
+                .andExpect(jsonPath("$.limit", equalTo(2)));
     }
 }

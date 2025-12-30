@@ -25,6 +25,7 @@ public class CommunityFollowsRepository {
             row.communityId = rs.getLong("community_id");
             row.name = rs.getString("name");
             row.kind = rs.getString("kind");
+            row.specializationType = rs.getString("specialization_type");
             row.memberCount = rs.getInt("member_count");
             row.isPinned = rs.getBoolean("is_pinned");
             int order = rs.getInt("sort_order");
@@ -38,8 +39,11 @@ public class CommunityFollowsRepository {
     public List<FollowRow> findFollowed(long userId, OffsetDateTime cursorTs, Long cursorId, int limit) {
         String base = """
                 SELECT cf.id AS follow_id, cf.community_id, cf.is_pinned, cf.sort_order, cf.created_at AS followed_at,
-                       c.name, c.kind, c.member_count,
-                       (COALESCE(cv.verified, false) AND (cv.expires_at IS NULL OR cv.expires_at > now())) AS can_post
+                       c.name, c.kind, c.specialization_type, c.member_count,
+                       CASE
+                           WHEN c.kind = 'specialization' THEN true
+                           ELSE (COALESCE(cv.verified, false) AND (cv.expires_at IS NULL OR cv.expires_at > now()))
+                       END AS can_post
                 FROM community_follows cf
                 JOIN communities c ON c.id = cf.community_id
                 LEFT JOIN community_verifications cv
@@ -64,6 +68,28 @@ public class CommunityFollowsRepository {
         return rows > 0;
     }
 
+    public boolean exists(long userId, long communityId) {
+        Integer count = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM community_follows WHERE user_id = ? AND community_id = ?",
+                Integer.class,
+                userId,
+                communityId
+        );
+        return count != null && count > 0;
+    }
+
+    public int countSpecializations(long userId, String specializationType) {
+        Integer count = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM community_follows cf " +
+                        "JOIN communities c ON c.id = cf.community_id " +
+                        "WHERE cf.user_id = ? AND c.kind = 'specialization' AND c.specialization_type = ?",
+                Integer.class,
+                userId,
+                specializationType
+        );
+        return count == null ? 0 : count;
+    }
+
     public boolean delete(long userId, long communityId) {
         int rows = jdbc.update(
                 "DELETE FROM community_follows WHERE user_id=? AND community_id=?",
@@ -77,6 +103,7 @@ public class CommunityFollowsRepository {
         public long communityId;
         public String name;
         public String kind;
+        public String specializationType;
         public int memberCount;
         public boolean isPinned;
         public Integer sortOrder;
