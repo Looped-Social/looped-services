@@ -192,6 +192,28 @@ public class CommunitiesRepository {
         return rows > 0;
     }
 
+    public boolean updateDetails(long communityId, boolean descriptionProvided, String description, Integer ttlDays) {
+        boolean hasUpdate = descriptionProvided || ttlDays != null;
+        if (!hasUpdate) return false;
+        StringBuilder sql = new StringBuilder("UPDATE communities SET ");
+        java.util.List<Object> params = new java.util.ArrayList<>();
+        boolean first = true;
+        if (descriptionProvided) {
+            sql.append("description = ?");
+            params.add(description);
+            first = false;
+        }
+        if (ttlDays != null) {
+            if (!first) sql.append(", ");
+            sql.append("verification_ttl_days = ?");
+            params.add(ttlDays);
+        }
+        sql.append(" WHERE id = ?");
+        params.add(communityId);
+        int rows = jdbc.update(sql.toString(), params.toArray());
+        return rows > 0;
+    }
+
     public boolean updateImageUrl(long communityId, String imageUrl) {
         int rows = jdbc.update(
                 "UPDATE communities SET image_url = ? WHERE id = ?",

@@ -153,16 +153,28 @@ public class AdminCommunitiesController {
         if (ttlDays != null && ttlDays < 1) {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of("error", "invalid_ttl_days"));
         }
-        boolean updated = communities.updateVerificationTtlDays(id, ttlDays);
+        boolean descriptionProvided = body.description() != null;
+        String description = normalizeDescription(body.description());
+        if (!descriptionProvided && ttlDays == null) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of("error", "no_changes"));
+        }
+        boolean updated = communities.updateDetails(id, descriptionProvided, description, ttlDays);
         if (!updated) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "not_found"));
         }
+        StringBuilder meta = new StringBuilder();
+        if (descriptionProvided) meta.append("description_updated");
+        if (ttlDays != null) {
+            if (meta.length() > 0) meta.append(",");
+            meta.append("verification_ttl_days=").append(ttlDays);
+        }
         audit.log(authRes.admin().id, "community.update", "community", id,
-                ttlDays == null ? "verification_ttl_days=null" : "verification_ttl_days=" + ttlDays);
-        return ResponseEntity.ok(Map.of(
-                "id", id,
-                "verification_ttl_days", ttlDays
-        ));
+                meta.length() == 0 ? null : meta.toString());
+        Map<String, Object> out = new HashMap<>();
+        out.put("id", id);
+        if (descriptionProvided) out.put("description", description);
+        if (ttlDays != null) out.put("verification_ttl_days", ttlDays);
+        return ResponseEntity.ok(out);
     }
 
     @DeleteMapping("/{id}")
@@ -228,5 +240,5 @@ public class AdminCommunitiesController {
     public record CreateCommunityRequest(@NotBlank String kind, @NotBlank String name, String description, String imageUrl,
                                          Integer verificationTtlDays) {}
 
-    public record UpdateCommunityRequest(Integer verificationTtlDays) {}
+    public record UpdateCommunityRequest(String description, Integer verificationTtlDays) {}
 }

@@ -23,7 +23,7 @@ public class DiscoveryService {
         this.users = users;
     }
 
-    public CommunitySearchResult searchCommunities(String firebaseUid, String query, String cursor, int limit) {
+    public CommunitySearchResult searchCommunities(String firebaseUid, String query, String kind, String cursor, int limit) {
         var actor = users.findByFirebaseUid(firebaseUid);
         if (actor.isEmpty()) return CommunitySearchResult.userNotProvisioned();
         OffsetDateTime cTs = null; Long cId = null;
@@ -34,7 +34,9 @@ public class DiscoveryService {
                 cId = decoded.id();
             } catch (IllegalArgumentException ignored) {}
         }
-        var rows = communities.search(query, cTs, cId, limit);
+        var rows = kind == null
+                ? communities.search(query, cTs, cId, limit)
+                : communities.searchByKind(kind, query, cTs, cId, limit);
         String next = null;
         if (rows.size() == limit) {
             var last = rows.get(rows.size() - 1);

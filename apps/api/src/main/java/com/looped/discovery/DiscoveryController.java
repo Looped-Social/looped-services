@@ -15,6 +15,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 @RestController
@@ -32,6 +33,7 @@ public class DiscoveryController {
     public ResponseEntity<?> searchCommunities(
             @AuthenticationPrincipal Jwt jwt,
             @RequestParam("query") String query,
+            @RequestParam(value = "kind", required = false) String kind,
             @RequestParam(value = "cursor", required = false) String cursor,
             @RequestParam(value = "limit", required = false, defaultValue = "20") int limit
     ) {
@@ -42,7 +44,18 @@ public class DiscoveryController {
             ));
         }
         int lim = Math.max(1, Math.min(limit, 100));
-        var res = service.searchCommunities(jwt.getSubject(), query, cursor, lim);
+        boolean kindProvided = kind != null && !kind.isBlank();
+        String normalizedKind = normalizeKind(kind);
+        if (kindProvided && normalizedKind == null) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of(
+                    "error", "invalid_kind",
+                    "message", "kind must be company, school, sector, profession, or unknown"
+            ));
+        }
+        if ("unknown".equals(normalizedKind)) {
+            normalizedKind = null;
+        }
+        var res = service.searchCommunities(jwt.getSubject(), query, normalizedKind, cursor, lim);
         return switch (res.status()) {
             case USER_NOT_PROVISIONED -> ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
                     "error", "user_not_provisioned",
@@ -91,10 +104,11 @@ public class DiscoveryController {
     public ResponseEntity<?> searchLoops(
             @AuthenticationPrincipal Jwt jwt,
             @RequestParam("query") String query,
+            @RequestParam(value = "kind", required = false) String kind,
             @RequestParam(value = "cursor", required = false) String cursor,
             @RequestParam(value = "limit", required = false, defaultValue = "20") int limit
     ) {
-        return searchCommunities(jwt, query, cursor, limit);
+        return searchCommunities(jwt, query, kind, cursor, limit);
     }
 
     @GetMapping("/hashtags/search")
@@ -195,5 +209,21 @@ public class DiscoveryController {
         }
         if (resolved != null && !resolved.isBlank()) map.put("image_url", resolved);
         return map;
+    }
+
+    private String normalizeKind(String raw) {
+        if (raw == null) return null;
+        String normalized = raw.trim().toLowerCase(Locale.ROOT);
+        if (normalized.isBlank()) return null;
+        if (normalized.equals("profession") || normalized.equals("proffesion")) {
+            normalized = "sector";
+        }
+        if (normalized.equals("unknown")) {
+            return "unknown";
+        }
+        if (!normalized.equals("company") && !normalized.equals("school") && !normalized.equals("sector")) {
+            return null;
+        }
+        return normalized;
     }
 }
