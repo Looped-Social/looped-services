@@ -6,7 +6,7 @@ import org.springframework.context.annotation.Configuration;
 @Configuration
 @ConfigurationProperties(prefix = "verification")
 public class VerificationProperties {
-    private boolean echoCode = true; // dev convenience only
+    private boolean echoCode = false; // dev convenience only
     private int codeTtlSeconds = 600; // 10 minutes
 
     public boolean isEchoCode() {
@@ -25,4 +25,3 @@ public class VerificationProperties {
         this.codeTtlSeconds = codeTtlSeconds;
     }
 }
-

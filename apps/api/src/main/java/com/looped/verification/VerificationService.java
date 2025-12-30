@@ -1,5 +1,6 @@
 package com.looped.verification;
 
+import com.looped.email.EmailService;
 import com.looped.users.UserRepository;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
@@ -12,7 +13,7 @@ import java.util.UUID;
 @Service
 public class VerificationService {
     public enum Method { email, video, thirdparty }
-    public enum Status { OK, USER_NOT_PROVISIONED, BAD_REQUEST, INVALID_CODE }
+    public enum Status { OK, USER_NOT_PROVISIONED, BAD_REQUEST, INVALID_CODE, SEND_FAILED }
 
     private final UserRepository users;
     private final VerificationRepository repo;
@@ -20,16 +21,19 @@ public class VerificationService {
     private final StringRedisTemplate redis;
     private final VerificationProperties props;
     private final ThirdPartyVerifier thirdPartyVerifier;
+    private final EmailService emailService;
     private final SecureRandom random = new SecureRandom();
 
     public VerificationService(UserRepository users, VerificationRepository repo, VerificationRequestsRepository requests,
-                               StringRedisTemplate redis, VerificationProperties props, ThirdPartyVerifier thirdPartyVerifier) {
+                               StringRedisTemplate redis, VerificationProperties props, ThirdPartyVerifier thirdPartyVerifier,
+                               EmailService emailService) {
         this.users = users;
         this.repo = repo;
         this.requests = requests;
         this.redis = redis;
         this.props = props;
         this.thirdPartyVerifier = thirdPartyVerifier;
+        this.emailService = emailService;
     }
 
     public StartResult start(String firebaseUid, String methodStr) {
@@ -50,6 +54,17 @@ public class VerificationService {
                 String code = generateCode6();
                 String key = keyEmail(userId);
                 redis.opsForValue().set(key, code, Duration.ofSeconds(props.getCodeTtlSeconds()));
+                if (!emailService.isEnabled()) {
+                    if (!props.isEchoCode()) return StartResult.sendFailed();
+                } else {
+                    try {
+                        if (u.get().email != null) {
+                            emailService.sendUserVerificationEmail(u.get().email, code);
+                        }
+                    } catch (RuntimeException ex) {
+                        return StartResult.sendFailed();
+                    }
+                }
                 if (props.isEchoCode()) devCode = code;
                 instructions = "Check your email for a 6-digit code and call finish with that code.";
             }
@@ -122,6 +137,7 @@ public class VerificationService {
         static StartResult ok(String method, String devCode, String sessionId, String instructions) { return new StartResult(Status.OK, method, devCode, sessionId, instructions, null); }
         static StartResult userNotProvisioned() { return new StartResult(Status.USER_NOT_PROVISIONED, null, null, null, null, null); }
         static StartResult badRequest(String err) { return new StartResult(Status.BAD_REQUEST, null, null, null, null, err); }
+        static StartResult sendFailed() { return new StartResult(Status.SEND_FAILED, null, null, null, null, "email_send_failed"); }
     }
 
     public record FinishResult(Status status, Boolean verified, String error) {

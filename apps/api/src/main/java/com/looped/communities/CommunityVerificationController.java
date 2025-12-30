@@ -49,6 +49,9 @@ public class CommunityVerificationController {
         if (res.status() == CommunityVerificationService.Status.BAD_REQUEST) {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of("error", res.error()));
         }
+        if (res.status() == CommunityVerificationService.Status.SEND_FAILED) {
+            return ResponseEntity.status(HttpStatus.BAD_GATEWAY).body(Map.of("error", res.error()));
+        }
         if (res.status() != CommunityVerificationService.Status.OK) {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }

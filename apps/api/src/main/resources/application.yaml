@@ -79,8 +79,14 @@ rate-limit:
     max-requests: ${RL_USER_MAX_REQUESTS:180}
 
 verification:
-  echo-code: ${VERIFICATION_ECHO_CODE:true}
+  echo-code: ${VERIFICATION_ECHO_CODE:false}
   code-ttl-seconds: ${VERIFICATION_CODE_TTL_SECONDS:600}
+
+email:
+  enabled: ${EMAIL_ENABLED:true}
+  from: ${EMAIL_FROM:}
+  reply-to: ${EMAIL_REPLY_TO:}
+  verify-base-url: ${EMAIL_VERIFY_BASE_URL:}
 
 onboarding:
   default-company-domain: ${ONBOARDING_DEFAULT_COMPANY_DOMAIN:looped.global}

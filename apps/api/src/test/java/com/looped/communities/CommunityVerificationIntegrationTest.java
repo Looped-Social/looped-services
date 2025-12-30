@@ -31,7 +31,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 @SpringBootTest(properties = {
         "auth.issuer=http://test-issuer",
-        "auth.audience=test-app"
+        "auth.audience=test-app",
+        "verification.echo-code=true",
+        "email.enabled=false"
 })
 @AutoConfigureMockMvc
 @org.springframework.context.annotation.Import(TestSecurityConfig.class)

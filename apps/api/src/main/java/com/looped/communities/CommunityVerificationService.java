@@ -1,5 +1,6 @@
 package com.looped.communities;
 
+import com.looped.email.EmailService;
 import com.looped.verification.ThirdPartyVerifier;
 import com.looped.verification.VerificationProperties;
 import com.looped.verification.VerificationRequestsRepository;
@@ -15,7 +16,7 @@ import java.util.UUID;
 @Service
 public class CommunityVerificationService {
     public enum Method { email, video, thirdparty }
-    public enum Status { OK, USER_NOT_PROVISIONED, COMMUNITY_NOT_FOUND, BAD_REQUEST, INVALID_CODE }
+    public enum Status { OK, USER_NOT_PROVISIONED, COMMUNITY_NOT_FOUND, BAD_REQUEST, INVALID_CODE, SEND_FAILED }
 
     private final UserRepository users;
     private final CommunitiesRepository communities;
@@ -26,6 +27,7 @@ public class CommunityVerificationService {
     private final StringRedisTemplate redis;
     private final VerificationProperties props;
     private final ThirdPartyVerifier thirdPartyVerifier;
+    private final EmailService emailService;
     private final SecureRandom random = new SecureRandom();
 
     public CommunityVerificationService(UserRepository users,
@@ -36,7 +38,8 @@ public class CommunityVerificationService {
                                         VerificationRequestsRepository requests,
                                         StringRedisTemplate redis,
                                         VerificationProperties props,
-                                        ThirdPartyVerifier thirdPartyVerifier) {
+                                        ThirdPartyVerifier thirdPartyVerifier,
+                                        EmailService emailService) {
         this.users = users;
         this.communities = communities;
         this.communityDomains = communityDomains;
@@ -46,6 +49,7 @@ public class CommunityVerificationService {
         this.redis = redis;
         this.props = props;
         this.thirdPartyVerifier = thirdPartyVerifier;
+        this.emailService = emailService;
     }
 
     public StartResult start(String firebaseUid, long communityId, String methodStr, String email) {
@@ -74,6 +78,17 @@ public class CommunityVerificationService {
                 String code = generateCode6();
                 String key = keyEmail(u.get().id, communityId);
                 redis.opsForValue().set(key, code, Duration.ofSeconds(props.getCodeTtlSeconds()));
+                String emailKey = keyEmailAddress(u.get().id, communityId);
+                redis.opsForValue().set(emailKey, normalizedEmail, Duration.ofSeconds(props.getCodeTtlSeconds()));
+                if (!emailService.isEnabled()) {
+                    if (!props.isEchoCode()) return StartResult.sendFailed();
+                } else {
+                    try {
+                        emailService.sendCommunityVerificationEmail(normalizedEmail, communityId, community.get().name, code);
+                    } catch (RuntimeException ex) {
+                        return StartResult.sendFailed();
+                    }
+                }
                 if (props.isEchoCode()) devCode = code;
                 instructions = "Check your email for a 6-digit code and call finish with that code.";
             }
@@ -103,6 +118,10 @@ public class CommunityVerificationService {
 
         String resolvedEmail = resolveRequestEmail(method, requestEmail, fallbackEmail);
         if (method == Method.email) {
+            if (resolvedEmail == null) {
+                String cached = redis.opsForValue().get(keyEmailAddress(u.get().id, communityId));
+                if (cached != null) resolvedEmail = cached;
+            }
             if (resolvedEmail == null) return FinishResult.badRequest("email_required");
             String domain = extractDomain(resolvedEmail);
             if (domain == null) return FinishResult.badRequest("invalid_email");
@@ -117,6 +136,7 @@ public class CommunityVerificationService {
                 String expected = redis.opsForValue().get(key);
                 if (expected == null || !expected.equals(code)) return FinishResult.invalidCode();
                 redis.delete(key);
+                redis.delete(keyEmailAddress(u.get().id, communityId));
             }
             case video -> {
                 if (mediaKey == null || mediaKey.isBlank()) return FinishResult.badRequest("media_key_required");
@@ -161,6 +181,7 @@ public class CommunityVerificationService {
     }
 
     private String keyEmail(long userId, long communityId) { return "verify:community:email:" + userId + ":" + communityId; }
+    private String keyEmailAddress(long userId, long communityId) { return "verify:community:email:addr:" + userId + ":" + communityId; }
     private String keyThirdParty(long userId, long communityId) { return "verify:community:thirdparty:" + userId + ":" + communityId; }
 
     private boolean hasEffectiveDomains(CommunitiesRepository.CommunityRow community) {
@@ -210,6 +231,7 @@ public class CommunityVerificationService {
         static StartResult userNotProvisioned() { return new StartResult(Status.USER_NOT_PROVISIONED, null, null, null, null, null); }
         static StartResult communityNotFound() { return new StartResult(Status.COMMUNITY_NOT_FOUND, null, null, null, null, null); }
         static StartResult badRequest(String err) { return new StartResult(Status.BAD_REQUEST, null, null, null, null, err); }
+        static StartResult sendFailed() { return new StartResult(Status.SEND_FAILED, null, null, null, null, "email_send_failed"); }
     }
 
     public record FinishResult(Status status, Boolean verified, OffsetDateTime expiresAt, String error) {
