@@ -36,6 +36,10 @@ s3:
 cloudfront:
   domain: ${CLOUDFRONT_DOMAIN:}
 
+logoDev:
+  token: ${LOGO_DEV_TOKEN:}
+  retina: ${LOGO_DEV_RETINA:true}
+
 media:
   maxImageBytes: ${MEDIA_MAX_IMAGE_BYTES:10485760}   # 10 MB
   maxVideoBytes: ${MEDIA_MAX_VIDEO_BYTES:104857600}  # 100 MB

@@ -529,6 +529,116 @@ Response (200)
 }
 ```
 
+## Community logos (Admin)
+
+### GET /v1/admin/communities/{id}/logos
+List uploaded logos and the current selection. Requires `create_community`.
+
+Response (200)
+```json
+{
+  "community_id": 2,
+  "kind": "company",
+  "logo_dev_url": "https://img.logo.dev/shopify.com?token=pk_123&retina=true",
+  "selected_source": "logo_dev",
+  "selected_image_url": "https://img.logo.dev/shopify.com?token=pk_123&retina=true",
+  "selected_upload_id": 10,
+  "uploads": [
+    {
+      "id": 10,
+      "media_asset_id": 55,
+      "key": "media/communities/logos/uuid",
+      "mime_type": "image/png",
+      "cdn_url": "https://cdn.looped.com/media/communities/logos/uuid",
+      "created_at": "2024-02-01T12:00:00Z"
+    }
+  ]
+}
+```
+
+Notes
+- `logo_dev_url` is provided only for `company` and `school` communities with a domain.
+- `selected_source` is one of `logo_dev`, `upload`, `custom`, or `none`.
+
+### POST /v1/admin/communities/{id}/logos/presign
+Presign an upload for a community logo (images only). Requires `create_community`.
+
+Request
+```json
+{
+  "contentType": "image/png",
+  "sizeBytes": 12345
+}
+```
+
+Response (200)
+```json
+{
+  "key": "media/communities/logos/uuid",
+  "uploadUrl": "https://s3.amazonaws.com/...",
+  "headers": { "Content-Type": "image/png" },
+  "callbackSignature": "base64"
+}
+```
+
+### POST /v1/admin/communities/{id}/logos/callback
+Record the uploaded logo asset. Requires `create_community`.
+
+Request
+```json
+{
+  "key": "media/communities/logos/uuid",
+  "mimeType": "image/png",
+  "width": 512,
+  "height": 512
+}
+```
+
+Response (201)
+```json
+{
+  "status": "created",
+  "media_asset_id": 55,
+  "key": "media/communities/logos/uuid",
+  "mime_type": "image/png",
+  "cdn_url": "https://cdn.looped.com/media/communities/logos/uuid"
+}
+```
+
+### PATCH /v1/admin/communities/{id}/logo
+Select the community logo (upload, Logo.dev fallback, or custom URL). Requires `create_community`.
+
+Request (upload)
+```json
+{
+  "imageKey": "media/communities/logos/uuid"
+}
+```
+
+Request (Logo.dev)
+```json
+{
+  "useLogoDev": true
+}
+```
+
+Request (custom URL)
+```json
+{
+  "imageUrl": "https://example.com/logo.png"
+}
+```
+
+Response (200)
+```json
+{
+  "community_id": 2,
+  "selected_source": "upload",
+  "image_url": "https://cdn.looped.com/media/communities/logos/uuid",
+  "selected_upload_id": 10
+}
+```
+
 ## Analytics (Admin)
 
 All analytics endpoints require `view_reports`.

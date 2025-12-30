@@ -1,6 +1,7 @@
 package com.looped.admin;
 
 import com.looped.communities.CommunitiesRepository;
+import com.looped.communities.CommunityLogoResolver;
 import com.looped.shared.Pagination;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
@@ -31,11 +32,16 @@ import java.util.Map;
 public class AdminCommunitiesController {
     private final AdminAuthService auth;
     private final CommunitiesRepository communities;
+    private final CommunityLogoResolver logos;
     private final AdminAuditRepository audit;
 
-    public AdminCommunitiesController(AdminAuthService auth, CommunitiesRepository communities, AdminAuditRepository audit) {
+    public AdminCommunitiesController(AdminAuthService auth,
+                                      CommunitiesRepository communities,
+                                      CommunityLogoResolver logos,
+                                      AdminAuditRepository audit) {
         this.auth = auth;
         this.communities = communities;
+        this.logos = logos;
         this.audit = audit;
     }
 
@@ -80,7 +86,10 @@ public class AdminCommunitiesController {
             var last = rows.get(rows.size() - 1);
             next = Pagination.encode(last.createdAt, last.id);
         }
-        List<Map<String, Object>> items = rows.stream().map(this::payload).toList();
+        var fallback = logos.resolveFallbacks(rows.stream()
+                .map(row -> new CommunityLogoResolver.CommunityRef(row.id, row.kind, row.imageUrl))
+                .toList());
+        List<Map<String, Object>> items = rows.stream().map(row -> payload(row, fallback)).toList();
         Map<String, Object> body = new HashMap<>();
         body.put("items", items);
         if (next != null) body.put("next_cursor", next);
@@ -98,7 +107,7 @@ public class AdminCommunitiesController {
         if (row.isEmpty()) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "not_found"));
         }
-        return ResponseEntity.ok(payload(row.get()));
+        return ResponseEntity.ok(payload(row.get(), null));
     }
 
     @PostMapping
@@ -172,14 +181,20 @@ public class AdminCommunitiesController {
         return ResponseEntity.ok(Map.of("status", "deleted"));
     }
 
-    private Map<String, Object> payload(CommunitiesRepository.CommunityRow row) {
+    private Map<String, Object> payload(CommunitiesRepository.CommunityRow row, Map<Long, String> fallbacks) {
         Map<String, Object> map = new HashMap<>();
         map.put("id", row.id);
         map.put("kind", row.kind);
         map.put("name", row.name);
         if (row.description != null) map.put("description", row.description);
         map.put("member_count", row.memberCount);
-        if (row.imageUrl != null) map.put("image_url", row.imageUrl);
+        String resolved = row.imageUrl;
+        if ((resolved == null || resolved.isBlank()) && fallbacks != null) {
+            resolved = fallbacks.get(row.id);
+        } else if (resolved == null || resolved.isBlank()) {
+            resolved = logos.resolve(row.id, row.kind, row.imageUrl);
+        }
+        if (resolved != null && !resolved.isBlank()) map.put("image_url", resolved);
         map.put("created_at", row.createdAt);
         if (row.verificationTtlDays != null) map.put("verification_ttl_days", row.verificationTtlDays);
         return map;

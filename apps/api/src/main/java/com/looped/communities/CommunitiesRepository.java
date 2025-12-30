@@ -192,6 +192,14 @@ public class CommunitiesRepository {
         return rows > 0;
     }
 
+    public boolean updateImageUrl(long communityId, String imageUrl) {
+        int rows = jdbc.update(
+                "UPDATE communities SET image_url = ? WHERE id = ?",
+                imageUrl, communityId
+        );
+        return rows > 0;
+    }
+
     public boolean delete(long communityId) {
         int rows = jdbc.update("DELETE FROM communities WHERE id = ?", communityId);
         return rows > 0;

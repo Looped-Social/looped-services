@@ -1,5 +1,6 @@
 package com.looped.admin;
 
+import com.looped.communities.CommunityLogoResolver;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -23,10 +24,14 @@ import java.util.Map;
 public class AdminAnalyticsController {
     private final AdminAuthService auth;
     private final AdminAnalyticsRepository analytics;
+    private final CommunityLogoResolver logos;
 
-    public AdminAnalyticsController(AdminAuthService auth, AdminAnalyticsRepository analytics) {
+    public AdminAnalyticsController(AdminAuthService auth,
+                                    AdminAnalyticsRepository analytics,
+                                    CommunityLogoResolver logos) {
         this.auth = auth;
         this.analytics = analytics;
+        this.logos = logos;
     }
 
     @GetMapping("/communities/leaderboard")
@@ -58,12 +63,21 @@ public class AdminAnalyticsController {
         if (communityId != null && rows.isEmpty()) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "community_not_found"));
         }
+        var fallback = logos.resolveFallbacks(rows.stream()
+                .map(row -> new CommunityLogoResolver.CommunityRef(row.id, row.kind, row.imageUrl))
+                .toList());
         List<Map<String, Object>> items = rows.stream().map(r -> {
             Map<String, Object> map = new HashMap<>();
             map.put("id", r.id);
             map.put("kind", r.kind);
             map.put("name", r.name);
-            if (r.imageUrl != null) map.put("image_url", r.imageUrl);
+            String resolved = r.imageUrl;
+            if ((resolved == null || resolved.isBlank()) && fallback != null) {
+                resolved = fallback.get(r.id);
+            } else if (resolved == null || resolved.isBlank()) {
+                resolved = logos.resolve(r.id, r.kind, r.imageUrl);
+            }
+            if (resolved != null && !resolved.isBlank()) map.put("image_url", resolved);
             map.put("likes_count", r.likesCount);
             map.put("shares_count", r.sharesCount);
             map.put("followers_count", r.followersCount);

@@ -3,8 +3,11 @@ package com.looped.communities;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
+import java.util.Optional;
 
 @Repository
 public class CommunityDomainsRepository {
@@ -41,6 +44,32 @@ public class CommunityDomainsRepository {
                 (rs, rowNum) -> rs.getString("domain"),
                 communityId
         );
+    }
+
+    public Optional<String> firstDomain(long communityId) {
+        var rows = jdbc.query(
+                "SELECT domain FROM community_domains WHERE community_id = ? ORDER BY domain ASC LIMIT 1",
+                (rs, rowNum) -> rs.getString("domain"),
+                communityId
+        );
+        return rows.isEmpty() ? Optional.empty() : Optional.ofNullable(rows.get(0));
+    }
+
+    public Map<Long, String> firstDomainsForCommunities(List<Long> communityIds) {
+        if (communityIds == null || communityIds.isEmpty()) return Map.of();
+        String placeholders = String.join(",", java.util.Collections.nCopies(communityIds.size(), "?"));
+        Object[] params = communityIds.toArray();
+        var rows = jdbc.query(
+                "SELECT community_id, domain FROM community_domains WHERE community_id IN (" + placeholders + ") " +
+                        "ORDER BY community_id ASC, domain ASC",
+                (rs, rowNum) -> Map.entry(rs.getLong("community_id"), rs.getString("domain")),
+                params
+        );
+        Map<Long, String> out = new HashMap<>();
+        for (var entry : rows) {
+            out.putIfAbsent(entry.getKey(), entry.getValue());
+        }
+        return out;
     }
 
     public List<String> listDomainsForCommunities(List<Long> communityIds) {

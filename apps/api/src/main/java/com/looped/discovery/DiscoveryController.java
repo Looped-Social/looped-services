@@ -1,6 +1,7 @@
 package com.looped.discovery;
 
 import com.looped.communities.CommunitiesRepository;
+import com.looped.communities.CommunityLogoResolver;
 import com.looped.posts.PostPayloads;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -20,9 +21,11 @@ import java.util.Map;
 @RequestMapping("/v1")
 public class DiscoveryController {
     private final DiscoveryService service;
+    private final CommunityLogoResolver logos;
 
-    public DiscoveryController(DiscoveryService service) {
+    public DiscoveryController(DiscoveryService service, CommunityLogoResolver logos) {
         this.service = service;
+        this.logos = logos;
     }
 
     @GetMapping("/communities/search")
@@ -46,7 +49,12 @@ public class DiscoveryController {
                     "message", "Complete onboarding before searching communities"
             ));
             case OK -> {
-                List<Map<String, Object>> items = res.items().stream().map(this::communityPayload).toList();
+                var fallback = logos.resolveFallbacks(res.items().stream()
+                        .map(row -> new CommunityLogoResolver.CommunityRef(row.id, row.kind, row.imageUrl))
+                        .toList());
+                List<Map<String, Object>> items = res.items().stream()
+                        .map(row -> communityPayload(row, fallback))
+                        .toList();
                 Map<String, Object> body = new HashMap<>();
                 body.put("items", items);
                 if (res.nextCursor() != null) body.put("next_cursor", res.nextCursor());
@@ -68,7 +76,12 @@ public class DiscoveryController {
                     "message", "Complete onboarding before viewing recommended communities"
             ));
             case OK -> {
-                List<Map<String, Object>> items = res.items().stream().map(this::recommendedPayload).toList();
+                var fallback = logos.resolveFallbacks(res.items().stream()
+                        .map(row -> new CommunityLogoResolver.CommunityRef(row.id, row.kind, row.imageUrl))
+                        .toList());
+                List<Map<String, Object>> items = res.items().stream()
+                        .map(row -> recommendedPayload(row, fallback))
+                        .toList();
                 yield ResponseEntity.ok(Map.of("items", items));
             }
         };
@@ -142,14 +155,20 @@ public class DiscoveryController {
         };
     }
 
-    private Map<String, Object> communityPayload(CommunitiesRepository.CommunityRow row) {
+    private Map<String, Object> communityPayload(CommunitiesRepository.CommunityRow row, Map<Long, String> fallbacks) {
         Map<String, Object> map = new HashMap<>();
         map.put("id", row.id);
         map.put("kind", row.kind);
         map.put("name", row.name);
         map.put("description", row.description);
         map.put("member_count", row.memberCount);
-        if (row.imageUrl != null) map.put("image_url", row.imageUrl);
+        String resolved = row.imageUrl;
+        if ((resolved == null || resolved.isBlank()) && fallbacks != null) {
+            resolved = fallbacks.get(row.id);
+        } else if (resolved == null || resolved.isBlank()) {
+            resolved = logos.resolve(row.id, row.kind, row.imageUrl);
+        }
+        if (resolved != null && !resolved.isBlank()) map.put("image_url", resolved);
         return map;
     }
 
@@ -160,7 +179,7 @@ public class DiscoveryController {
         return map;
     }
 
-    private Map<String, Object> recommendedPayload(CommunitiesRepository.RecommendedRow row) {
+    private Map<String, Object> recommendedPayload(CommunitiesRepository.RecommendedRow row, Map<Long, String> fallbacks) {
         Map<String, Object> map = new HashMap<>();
         map.put("id", row.id);
         map.put("kind", row.kind);
@@ -168,7 +187,13 @@ public class DiscoveryController {
         map.put("description", row.description);
         map.put("member_count", row.memberCount);
         map.put("is_following", row.isFollowing);
-        if (row.imageUrl != null) map.put("image_url", row.imageUrl);
+        String resolved = row.imageUrl;
+        if ((resolved == null || resolved.isBlank()) && fallbacks != null) {
+            resolved = fallbacks.get(row.id);
+        } else if (resolved == null || resolved.isBlank()) {
+            resolved = logos.resolve(row.id, row.kind, row.imageUrl);
+        }
+        if (resolved != null && !resolved.isBlank()) map.put("image_url", resolved);
         return map;
     }
 }

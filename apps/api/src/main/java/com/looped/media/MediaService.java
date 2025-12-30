@@ -62,7 +62,36 @@ public class MediaService {
         }
 
         String key = "media/original/" + UUID.randomUUID();
+        return presignKey(contentType, key);
+    }
 
+    public PresignResult presignImage(String contentType, long sizeBytes, String prefix) {
+        if (contentType == null || contentType.isBlank()) {
+            return PresignResult.badRequest("content_type_required");
+        }
+        if (!ALLOWED_IMAGE.contains(contentType)) {
+            return PresignResult.badRequest("unsupported_content_type");
+        }
+        if (sizeBytes <= 0 || sizeBytes > maxImageBytes) {
+            return PresignResult.badRequest("size_exceeds_limit");
+        }
+        String resolvedPrefix = normalizePrefix(prefix);
+        String key = resolvedPrefix + UUID.randomUUID();
+        return presignKey(contentType, key);
+    }
+
+    private String normalizePrefix(String prefix) {
+        String resolved = prefix == null ? "" : prefix.trim();
+        if (resolved.startsWith("/")) {
+            resolved = resolved.substring(1);
+        }
+        if (!resolved.isEmpty() && !resolved.endsWith("/")) {
+            resolved = resolved + "/";
+        }
+        return resolved;
+    }
+
+    private PresignResult presignKey(String contentType, String key) {
         // Build presign URL
         PutObjectRequest put = PutObjectRequest.builder()
                 .bucket(bucket)

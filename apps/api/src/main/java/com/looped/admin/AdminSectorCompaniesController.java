@@ -1,6 +1,7 @@
 package com.looped.admin;
 
 import com.looped.communities.CommunitiesRepository;
+import com.looped.communities.CommunityLogoResolver;
 import com.looped.communities.CommunitySectorLinksRepository;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
@@ -28,15 +29,18 @@ public class AdminSectorCompaniesController {
     private final AdminAuthService auth;
     private final CommunitiesRepository communities;
     private final CommunitySectorLinksRepository links;
+    private final CommunityLogoResolver logos;
     private final AdminAuditRepository audit;
 
     public AdminSectorCompaniesController(AdminAuthService auth,
                                           CommunitiesRepository communities,
                                           CommunitySectorLinksRepository links,
+                                          CommunityLogoResolver logos,
                                           AdminAuditRepository audit) {
         this.auth = auth;
         this.communities = communities;
         this.links = links;
+        this.logos = logos;
         this.audit = audit;
     }
 
@@ -52,7 +56,11 @@ public class AdminSectorCompaniesController {
         if (sector.isEmpty() || !"sector".equalsIgnoreCase(sector.get().kind)) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "not_found"));
         }
-        List<Map<String, Object>> items = links.listCompanies(id).stream().map(this::payload).toList();
+        var rows = links.listCompanies(id);
+        var fallback = logos.resolveFallbacks(rows.stream()
+                .map(row -> new CommunityLogoResolver.CommunityRef(row.id, row.kind, row.imageUrl))
+                .toList());
+        List<Map<String, Object>> items = rows.stream().map(row -> payload(row, fallback)).toList();
         return ResponseEntity.ok(Map.of("items", items));
     }
 
@@ -102,14 +110,20 @@ public class AdminSectorCompaniesController {
         return ResponseEntity.noContent().build();
     }
 
-    private Map<String, Object> payload(CommunitiesRepository.CommunityRow row) {
+    private Map<String, Object> payload(CommunitiesRepository.CommunityRow row, Map<Long, String> fallbacks) {
         Map<String, Object> map = new HashMap<>();
         map.put("id", row.id);
         map.put("kind", row.kind);
         map.put("name", row.name);
         if (row.description != null) map.put("description", row.description);
         map.put("member_count", row.memberCount);
-        if (row.imageUrl != null) map.put("image_url", row.imageUrl);
+        String resolved = row.imageUrl;
+        if ((resolved == null || resolved.isBlank()) && fallbacks != null) {
+            resolved = fallbacks.get(row.id);
+        } else if (resolved == null || resolved.isBlank()) {
+            resolved = logos.resolve(row.id, row.kind, row.imageUrl);
+        }
+        if (resolved != null && !resolved.isBlank()) map.put("image_url", resolved);
         map.put("created_at", row.createdAt);
         if (row.verificationTtlDays != null) map.put("verification_ttl_days", row.verificationTtlDays);
         return map;
