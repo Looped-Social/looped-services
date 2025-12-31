@@ -87,6 +87,7 @@ email:
   from: ${EMAIL_FROM:}
   reply-to: ${EMAIL_REPLY_TO:}
   verify-base-url: ${EMAIL_VERIFY_BASE_URL:}
+  configuration-set: ${EMAIL_CONFIGURATION_SET:}
 
 onboarding:
   default-company-domain: ${ONBOARDING_DEFAULT_COMPANY_DOMAIN:looped.global}

@@ -1,5 +1,7 @@
 package com.looped.email;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import software.amazon.awssdk.services.ses.SesClient;
 import software.amazon.awssdk.services.ses.model.Body;
@@ -7,12 +9,14 @@ import software.amazon.awssdk.services.ses.model.Content;
 import software.amazon.awssdk.services.ses.model.Destination;
 import software.amazon.awssdk.services.ses.model.Message;
 import software.amazon.awssdk.services.ses.model.SendEmailRequest;
+import software.amazon.awssdk.services.ses.model.SendEmailResponse;
 
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 
 @Service
 public class EmailService {
+    private static final Logger log = LoggerFactory.getLogger(EmailService.class);
     private final SesClient ses;
     private final EmailProperties props;
 
@@ -61,7 +65,13 @@ public class EmailService {
         if (props.getReplyTo() != null && !props.getReplyTo().isBlank()) {
             request.replyToAddresses(props.getReplyTo());
         }
-        ses.sendEmail(request.build());
+        if (props.getConfigurationSet() != null && !props.getConfigurationSet().isBlank()) {
+            request.configurationSetName(props.getConfigurationSet().trim());
+        }
+        SendEmailResponse res = ses.sendEmail(request.build());
+        if (res != null && res.messageId() != null) {
+            log.info("SES sent messageId={} to={}", res.messageId(), to);
+        }
     }
 
     private String buildVerifyLink(Long communityId, String code) {

@@ -10,6 +10,7 @@ public class EmailProperties {
     private String from;
     private String replyTo;
     private String verifyBaseUrl;
+    private String configurationSet;
 
     public boolean isEnabled() {
         return enabled;
@@ -41,5 +42,13 @@ public class EmailProperties {
 
     public void setVerifyBaseUrl(String verifyBaseUrl) {
         this.verifyBaseUrl = verifyBaseUrl;
+    }
+
+    public String getConfigurationSet() {
+        return configurationSet;
+    }
+
+    public void setConfigurationSet(String configurationSet) {
+        this.configurationSet = configurationSet;
     }
 }
