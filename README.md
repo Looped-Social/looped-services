@@ -45,6 +45,12 @@
 - Run tests (requires Docker for Testcontainers): `./mvnw -q -T 1C test`
 - API URL: `http://localhost:8080` — health: `GET /health` → `ok`
 
+### Local dev (minimal)
+- `cp .env.example .env`
+- `docker compose up -d`
+- `set -a; source .env; set +a`
+- `./mvnw -q -pl apps/api -am spring-boot:run`
+
 ### Makefile shortcuts
 - Start deps: `make up`
 - Start only Postgres: `make database` (aliases: `make db`, `make datbase`)

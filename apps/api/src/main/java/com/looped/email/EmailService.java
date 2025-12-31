@@ -29,23 +29,23 @@ public class EmailService {
         return props.isEnabled() && props.getFrom() != null && !props.getFrom().isBlank();
     }
 
-    public void sendCommunityVerificationEmail(String to, long communityId, String communityName, String code) {
+    public void sendCommunityVerificationEmail(String to, long communityId, String communityName, String code, int ttlSeconds) {
         if (!isEnabled()) return;
         String subject = communityName == null || communityName.isBlank()
                 ? "Verify your community email"
                 : "Verify your " + communityName + " email";
         String link = buildVerifyLink(communityId, code);
-        String text = buildTextBody(communityName, code, link);
-        String html = buildHtmlBody(communityName, code, link);
+        String text = buildTextBody(communityName, code, link, ttlSeconds);
+        String html = buildHtmlBody(communityName, code, link, ttlSeconds);
         sendEmail(to, subject, text, html);
     }
 
-    public void sendUserVerificationEmail(String to, String code) {
+    public void sendUserVerificationEmail(String to, String code, int ttlSeconds) {
         if (!isEnabled()) return;
-        String subject = "Verify your email";
+        String subject = "Verify your Looped signup";
         String link = buildVerifyLink(null, code);
-        String text = buildTextBody(null, code, link);
-        String html = buildHtmlBody(null, code, link);
+        String text = buildTextBody(null, code, link, ttlSeconds);
+        String html = buildHtmlBody(null, code, link, ttlSeconds);
         sendEmail(to, subject, text, html);
     }
 
@@ -87,38 +87,73 @@ public class EmailService {
         return out.toString();
     }
 
-    private String buildTextBody(String communityName, String code, String link) {
+    private String buildTextBody(String communityName, String code, String link, int ttlSeconds) {
         StringBuilder out = new StringBuilder();
         if (communityName != null && !communityName.isBlank()) {
             out.append("Verify your ").append(communityName).append(" email\n\n");
         } else {
-            out.append("Verify your email\n\n");
+            out.append("Verify your Looped signup\n\n");
         }
         out.append("Your verification code: ").append(code).append("\n");
-        out.append("This code expires soon.\n");
+        out.append(expirySentence(ttlSeconds)).append("\n");
         if (link != null) {
             out.append("\nOr click this link:\n").append(link).append("\n");
         }
-        out.append("\nIf you did not request this, you can ignore this email.\n");
+        out.append("\nIf you did not sign up for Looped, you can ignore this email.\n");
         return out.toString();
     }
 
-    private String buildHtmlBody(String communityName, String code, String link) {
+    private String buildHtmlBody(String communityName, String code, String link, int ttlSeconds) {
         StringBuilder out = new StringBuilder();
-        out.append("<html><body>");
+        out.append("<html><body style=\"margin:0;padding:0;background-color:#ffffff;color:#1f2937;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Helvetica,Arial,sans-serif;\">");
+        out.append("<table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" width=\"100%\" style=\"background-color:#ffffff;\">");
+        out.append("<tr><td align=\"center\" style=\"padding:32px 16px;\">");
+        out.append("<table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" width=\"560\" style=\"width:560px;max-width:560px;\">");
         if (communityName != null && !communityName.isBlank()) {
-            out.append("<p>Verify your ").append(escape(communityName)).append(" email</p>");
+            out.append("<tr><td style=\"font-size:22px;font-weight:700;color:#1f2937;padding-bottom:8px;\">Verify your ")
+                    .append(escape(communityName)).append(" email</td></tr>");
         } else {
-            out.append("<p>Verify your email</p>");
+            out.append("<tr><td style=\"font-size:22px;font-weight:700;color:#1f2937;padding-bottom:8px;\">Verify your Looped signup</td></tr>");
         }
-        out.append("<p><strong>Verification code:</strong> ").append(escape(code)).append("</p>");
-        out.append("<p>This code expires soon.</p>");
+        out.append("<tr><td style=\"font-size:14px;color:#6b7280;padding-bottom:20px;\">Use the code below to finish verifying your email.</td></tr>");
+        out.append("<tr><td align=\"center\" style=\"padding-bottom:16px;\">");
+        out.append(buildCodeBoxes(code));
+        out.append("</td></tr>");
+        out.append("<tr><td align=\"center\" style=\"font-size:12px;color:#9ca3af;padding-bottom:20px;\">")
+                .append(escape(expirySentence(ttlSeconds))).append("</td></tr>");
         if (link != null) {
-            out.append("<p><a href=\"").append(escape(link)).append("\">Verify now</a></p>");
+            out.append("<tr><td style=\"font-size:13px;color:#6b7280;padding-bottom:20px;\">Or verify using this link: ")
+                    .append("<a href=\"").append(escape(link)).append("\" style=\"color:#ea404a;text-decoration:none;\">")
+                    .append("Verify now</a></td></tr>");
         }
-        out.append("<p>If you did not request this, you can ignore this email.</p>");
+        out.append("<tr><td style=\"font-size:13px;color:#6b7280;\">If you did not sign up for Looped, you can ignore this email.</td></tr>");
+        out.append("</table></td></tr></table>");
         out.append("</body></html>");
         return out.toString();
+    }
+
+    private String buildCodeBoxes(String code) {
+        if (code == null || code.isBlank()) return "";
+        StringBuilder out = new StringBuilder();
+        out.append("<table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" style=\"margin:0 auto;\">");
+        out.append("<tr>");
+        for (int i = 0; i < code.length(); i++) {
+            String ch = escape(code.substring(i, i + 1));
+            out.append("<td style=\"padding:0 4px;\">")
+                    .append("<div style=\"width:44px;height:52px;border:1px solid #ea404a;border-radius:8px;")
+                    .append("background-color:#ffffff;color:#1f2937;font-size:20px;font-weight:600;")
+                    .append("line-height:52px;text-align:center;\">")
+                    .append(ch)
+                    .append("</div></td>");
+        }
+        out.append("</tr></table>");
+        return out.toString();
+    }
+
+    private String expirySentence(int ttlSeconds) {
+        if (ttlSeconds <= 0) return "This code expires soon.";
+        int minutes = (int) Math.ceil(ttlSeconds / 60.0);
+        return "This code is valid for " + minutes + " minute" + (minutes == 1 ? "" : "s") + ".";
     }
 
     private String escape(String raw) {

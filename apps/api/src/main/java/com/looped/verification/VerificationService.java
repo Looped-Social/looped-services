@@ -59,7 +59,7 @@ public class VerificationService {
                 } else {
                     try {
                         if (u.get().email != null) {
-                            emailService.sendUserVerificationEmail(u.get().email, code);
+                            emailService.sendUserVerificationEmail(u.get().email, code, props.getCodeTtlSeconds());
                         }
                     } catch (RuntimeException ex) {
                         return StartResult.sendFailed();

@@ -84,7 +84,7 @@ public class CommunityVerificationService {
                     if (!props.isEchoCode()) return StartResult.sendFailed();
                 } else {
                     try {
-                        emailService.sendCommunityVerificationEmail(normalizedEmail, communityId, community.get().name, code);
+                        emailService.sendCommunityVerificationEmail(normalizedEmail, communityId, community.get().name, code, props.getCodeTtlSeconds());
                     } catch (RuntimeException ex) {
                         return StartResult.sendFailed();
                     }
