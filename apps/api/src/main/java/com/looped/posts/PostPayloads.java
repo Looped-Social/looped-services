@@ -13,8 +13,16 @@ public final class PostPayloads {
         out.put("author_principal_id", row.authorPrincipalId);
         out.put("author_handle", row.authorHandle);
         out.put("author_display_name", row.authorDisplayName);
+        if (row.authorIsAnonymous) {
+            out.put("author_first_name", "Anonymous");
+            out.put("author_last_name", null);
+        } else {
+            out.put("author_first_name", row.authorFirstName);
+            out.put("author_last_name", row.authorLastName);
+        }
         out.put("author_profile_image_url", row.authorProfileImageUrl);
         out.put("author_is_anonymous", row.authorIsAnonymous);
+        out.put("is_anonymous", row.authorIsAnonymous);
         if (!row.authorIsAnonymous && row.authorDisplayCommunityId != null) {
             Map<String, Object> display = new HashMap<>();
             display.put("id", row.authorDisplayCommunityId);
@@ -28,11 +36,14 @@ public final class PostPayloads {
         out.put("anon_profile_id", row.anonProfileId);
         out.put("company_id", row.companyId);
         out.put("community_id", row.communityId);
+        out.put("community_name", row.communityName);
+        out.put("community_kind", row.communityKind);
         out.put("content", row.content);
         out.put("media_asset_id", row.mediaAssetId);
         out.put("likes_count", row.likesCount);
         out.put("comments_count", row.commentsCount);
         out.put("share_count", row.shareCount);
+        out.put("is_saved", false);
         out.put("created_at", row.createdAt);
         return out;
     }

@@ -102,7 +102,7 @@ public class PostsService {
                 notifyPostFromFollowed(p.authorPrincipalId, p.id);
                 notifyMentions(p.authorPrincipalId, null, effectiveCompanyId, content, p.id);
             } catch (RuntimeException ignored) {}
-            return CreateResult.ok(p.id, true);
+            return CreateResult.ok(p, true);
         }
 
         var u = users.findByFirebaseUid(firebaseUid);
@@ -130,7 +130,7 @@ public class PostsService {
                     try {
                         long postId = Long.parseLong(val);
                         var existing = posts.findById(postId).orElse(null);
-                        if (existing != null) return CreateResult.ok(existing.id, false);
+                        if (existing != null) return CreateResult.ok(existing, false);
                     } catch (NumberFormatException ignored) {}
                 }
                 return CreateResult.inFlight();
@@ -152,7 +152,7 @@ public class PostsService {
                 notifyPostFromFollowed(p.authorPrincipalId, p.id);
                 notifyMentions(p.authorPrincipalId, userId, companyId, content, p.id);
             } catch (RuntimeException ignored) {}
-            return CreateResult.ok(p.id, true);
+            return CreateResult.ok(p, true);
         } catch (DataAccessException e) {
             if (useIdem) {
                 try { redis.delete(redisKey); } catch (RuntimeException ignored) {}
@@ -284,8 +284,8 @@ public class PostsService {
         COMMUNITY_NOT_FOUND,
         NOT_VERIFIED
     }
-    public record CreateResult(Status status, Long id, boolean created) {
-        static CreateResult ok(long id, boolean created) { return new CreateResult(Status.OK, id, created); }
+    public record CreateResult(Status status, PostRepository.PostRow post, boolean created) {
+        static CreateResult ok(PostRepository.PostRow post, boolean created) { return new CreateResult(Status.OK, post, created); }
         static CreateResult userNotProvisioned() { return new CreateResult(Status.USER_NOT_PROVISIONED, null, false); }
         static CreateResult inFlight() { return new CreateResult(Status.IDEMPOTENCY_IN_FLIGHT, null, false); }
         static CreateResult idempotencyRequired() { return new CreateResult(Status.IDEMPOTENCY_REQUIRED, null, false); }

@@ -93,13 +93,8 @@ public class PostsController {
                     "message", "Anonymous media assets must not be user-owned"
             ));
             case OK -> {
-                java.util.Map<String, Object> out = new java.util.HashMap<>();
-                out.put("id", res.id());
-                out.put("content", body.content());
-                // media_asset_id may be null; HashMap permits nulls, Map.of does not
-                out.put("media_asset_id", body.mediaAssetId());
-                out.put("community_id", communityId);
-                yield new ResponseEntity<>(out, res.created() ? HttpStatus.CREATED : HttpStatus.OK);
+                var payload = PostPayloads.from(res.post());
+                yield new ResponseEntity<>(payload, res.created() ? HttpStatus.CREATED : HttpStatus.OK);
             }
             default -> ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
                     "error", "unexpected_status",

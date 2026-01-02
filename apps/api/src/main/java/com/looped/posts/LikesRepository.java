@@ -56,10 +56,13 @@ public class LikesRepository {
 
     private static final String BASE_QUERY = "SELECT " +
             "p.id AS post_id, p.author_id, p.author_principal_id, p.is_anon, p.anon_profile_id, p.anon_company_id, " +
-            "p.company_id, p.community_id, p.content, p.media_asset_id, p.likes_count, p.comments_count, p.share_count, " +
+            "p.company_id, p.community_id, c.name AS community_name, c.kind AS community_kind, " +
+            "p.content, p.media_asset_id, p.likes_count, p.comments_count, p.share_count, " +
             "p.created_at AS post_created_at, " +
             "COALESCE(u.handle, ap.handle) AS author_handle, " +
             "u.display_name AS author_display_name, " +
+            "u.first_name AS author_first_name, " +
+            "u.last_name AS author_last_name, " +
             "u.profile_image_url AS author_profile_image_url, " +
             "dc.id AS author_display_community_id, " +
             "dc.name AS author_display_community_name, " +
@@ -68,6 +71,7 @@ public class LikesRepository {
             "CASE WHEN p.is_anon THEN true ELSE COALESCE(u.is_anonymous, false) END AS author_is_anonymous, " +
             "l.created_at AS liked_created_at " +
             "FROM post_likes l JOIN posts p ON p.id = l.post_id " +
+            "LEFT JOIN communities c ON c.id = p.community_id " +
             "LEFT JOIN users u ON u.id = p.author_id AND u.deleted_at IS NULL " +
             "LEFT JOIN community_verifications cv ON cv.user_id = u.id AND cv.community_id = u.display_community_id " +
             "AND cv.verified = true AND (cv.expires_at IS NULL OR cv.expires_at > now()) " +
@@ -90,6 +94,8 @@ public class LikesRepository {
             post.companyId = rs.getLong("company_id");
             long community = rs.getLong("community_id");
             post.communityId = rs.wasNull() ? null : community;
+            post.communityName = rs.getString("community_name");
+            post.communityKind = rs.getString("community_kind");
             post.content = rs.getString("content");
             long media = rs.getLong("media_asset_id");
             post.mediaAssetId = rs.wasNull() ? null : media;
@@ -99,6 +105,8 @@ public class LikesRepository {
             post.createdAt = rs.getObject("post_created_at", OffsetDateTime.class);
             post.authorHandle = rs.getString("author_handle");
             post.authorDisplayName = rs.getString("author_display_name");
+            post.authorFirstName = rs.getString("author_first_name");
+            post.authorLastName = rs.getString("author_last_name");
             post.authorProfileImageUrl = rs.getString("author_profile_image_url");
             long displayCommunityId = rs.getLong("author_display_community_id");
             post.authorDisplayCommunityId = rs.wasNull() ? null : displayCommunityId;
