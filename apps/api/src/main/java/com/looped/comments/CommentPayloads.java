@@ -13,8 +13,10 @@ public final class CommentPayloads {
         out.put("content", row.comment.content);
         out.put("created_at", row.comment.createdAt);
         out.put("likes_count", row.comment.likesCount);
+        out.put("reply_count", row.comment.replyCount);
         out.put("user_liked", row.viewerLiked);
         out.put("liked_by_creator", row.likedByCreator);
+        out.put("is_deleted", row.comment.deletedAt != null);
         out.put("author_principal_id", row.author.principalId);
         out.put("author_is_anonymous", row.author.isAnonymous);
         out.put("is_anonymous", row.author.isAnonymous);

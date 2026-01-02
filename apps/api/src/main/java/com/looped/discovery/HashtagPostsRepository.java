@@ -17,4 +17,8 @@ public class HashtagPostsRepository {
                 hashtagId, postId
         );
     }
+
+    public void deleteByPostId(long postId) {
+        jdbc.update("DELETE FROM hashtag_posts WHERE post_id = ?", postId);
+    }
 }

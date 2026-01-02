@@ -13,7 +13,8 @@ import java.util.Optional;
 public class UserRepository {
     private final JdbcTemplate jdbcTemplate;
     private static final String BASE_COLUMNS = "id, firebase_uid, handle, email, company_id, first_name, last_name, " +
-            "date_of_birth, display_name, bio, is_anonymous, show_follower_count, profile_image_url, created_at, deleted_at, deleted_by";
+            "date_of_birth, display_name, bio, is_anonymous, show_follower_count, profile_image_url, " +
+            "display_community_id, created_at, deleted_at, deleted_by";
 
     public UserRepository(JdbcTemplate jdbcTemplate) {
         this.jdbcTemplate = jdbcTemplate;
@@ -37,6 +38,8 @@ public class UserRepository {
             row.isAnonymous = rs.getBoolean("is_anonymous");
             row.showFollowerCount = rs.getBoolean("show_follower_count");
             row.profileImageUrl = rs.getString("profile_image_url");
+            long displayCommunity = rs.getLong("display_community_id");
+            row.displayCommunityId = rs.wasNull() ? null : displayCommunity;
             row.createdAt = rs.getObject("created_at", OffsetDateTime.class);
             row.deletedAt = rs.getObject("deleted_at", OffsetDateTime.class);
             long deletedBy = rs.getLong("deleted_by");
@@ -112,6 +115,34 @@ public class UserRepository {
                         "show_follower_count = COALESCE(?, show_follower_count) WHERE id = ?",
                 displayName, bio, isAnonymous, showFollowerCount, userId
         );
+    }
+
+    public void updateDisplayCommunity(long userId, Long communityId) {
+        jdbcTemplate.update(
+                "UPDATE users SET display_community_id = ? WHERE id = ?",
+                communityId, userId
+        );
+    }
+
+    public java.util.Optional<DisplayCommunityRow> findDisplayCommunityForUser(long userId) {
+        var list = jdbcTemplate.query(
+                "SELECT c.id, c.name, c.kind, c.specialization_type " +
+                        "FROM users u " +
+                        "JOIN community_verifications cv ON cv.user_id = u.id AND cv.community_id = u.display_community_id " +
+                        "JOIN communities c ON c.id = cv.community_id " +
+                        "WHERE u.id = ? AND cv.verified = true " +
+                        "AND (cv.expires_at IS NULL OR cv.expires_at > now())",
+                (rs, rowNum) -> {
+                    DisplayCommunityRow row = new DisplayCommunityRow();
+                    row.id = rs.getLong("id");
+                    row.name = rs.getString("name");
+                    row.kind = rs.getString("kind");
+                    row.specializationType = rs.getString("specialization_type");
+                    return row;
+                },
+                userId
+        );
+        return list.isEmpty() ? java.util.Optional.empty() : java.util.Optional.of(list.get(0));
     }
 
     public void updateIdentity(long userId, String handle, String firstName, String lastName, java.time.LocalDate dateOfBirth) {
@@ -423,8 +454,16 @@ public class UserRepository {
         public boolean isAnonymous;
         public boolean showFollowerCount;
         public String profileImageUrl;
+        public Long displayCommunityId;
         public OffsetDateTime createdAt;
         public OffsetDateTime deletedAt;
         public Long deletedBy;
+    }
+
+    public static class DisplayCommunityRow {
+        public long id;
+        public String name;
+        public String kind;
+        public String specializationType;
     }
 }

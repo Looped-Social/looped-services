@@ -81,8 +81,14 @@
     - Response: `{ anon_profile_id, handle, anon_cert_kid, expires_at }`
   - **Anonymous actions** (NO JWT; reject Authorization with `400 { error: "anon_jwt_not_allowed" }`):
     - `POST /v1/posts` with `{ isAnon: true, anonProfileId, anonCert, anonCertKid, anonSig, anonTimestamp }`
+    - `PUT /v1/posts/{id}` with `{ content, asAnon: true, anonProfileId, anonCert, anonCertKid, anonSig }`
+    - `DELETE /v1/posts/{id}` with `{ asAnon: true, anonProfileId, anonCert, anonCertKid, anonSig }`
+    - `DELETE /v1/posts/{id}/like` with `{ asAnon: true, anonProfileId, anonCert, anonCertKid, anonSig }`
     - `POST /v1/posts/{id}/comments` with `{ content, parentId?, asAnon: true, anonProfileId, anonCert, anonCertKid, anonSig }`
+    - `PUT /v1/comments/{id}` with `{ content, asAnon: true, anonProfileId, anonCert, anonCertKid, anonSig }`
+    - `DELETE /v1/comments/{id}` with `{ asAnon: true, anonProfileId, anonCert, anonCertKid, anonSig }`
     - `POST /v1/comments/{id}/like` with `{ asAnon: true, anonProfileId, anonCert, anonCertKid, anonSig }`
+    - `DELETE /v1/comments/{id}/like` with `{ asAnon: true, anonProfileId, anonCert, anonCertKid, anonSig }`
     - `POST /v1/posts/{id}/like` with `{ asAnon: true, anonProfileId, anonCert, anonCertKid, anonSig }`
     - `POST /v1/posts/{id}/save` with `{ asAnon: true, anonProfileId, anonCert, anonCertKid, anonSig }`
     - `DELETE /v1/posts/{id}/save` with `{ asAnon: true, anonProfileId, anonCert, anonCertKid, anonSig }`
@@ -95,13 +101,24 @@
   - Comment payload additions:
     - `author_principal_id`, `author_is_anonymous`, and `author.principal_id`.
     - `author.id` is the `anon_profile_id` when `author_is_anonymous=true`; otherwise it is the user id.
+    - `is_deleted` indicates a soft-deleted comment (content is empty when deleted).
   - Anonymous proof action strings:
     - `comment` (target: post_id), `comment_like` (target: comment_id)
+    - `comment_edit` (target: comment_id), `comment_delete` (target: comment_id), `comment_unlike` (target: comment_id)
     - `comment_list` (target: post_id), `comment_replies` (target: comment_id), `comment_user_replies` (target: user_id)
+    - `post_delete` (target: post_id)
+    - `post_edit` (target: post_id)
+    - `unlike` (target: post_id)
 - **Profile stats & DTO extensions**
   - User DTO now includes `stats` block with follower/following/posts/comments counts; display/bio/anonymity fields included across `/v1/me`, `/v1/users/{id}`, and update alias responses.
+  - User DTO may include `display_community` `{ id, name, kind, specialization_type? }` when the user has a verified display community selected.
   - Post DTOs include `comments_count` and `share_count`.
+  - Post DTOs may include `author_display_community` `{ id, name, kind, specialization_type? }` when the author has a verified display community selected.
 - **Comments history**
   - `GET /v1/users/{id}/comments?cursor=&limit=` → `{ items: [{ id, post_id, content, created_at, parent_id? }], next_cursor }`
+- **Community permissions**
+  - `GET /v1/communities/{id}/permissions` → `{ can_post: true|false, requires_verification: true|false }`
+- **Profile display community**
+  - `PUT /v1/users/me/display-community` with `{ communityId: <id|null> }` → user payload (same shape as `/v1/me.user`). `null` clears the display community.
 
 All endpoints enforce Firebase auth + company scoping unless explicitly noted (anonymous actions and `/anon/register` are JWT-free). Pagination uses `cursor`/`limit` with `{ items, next_cursor }` envelopes.

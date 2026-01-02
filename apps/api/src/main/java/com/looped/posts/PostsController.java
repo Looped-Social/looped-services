@@ -123,6 +123,105 @@ public class PostsController {
         };
     }
 
+    @PutMapping("/{id}")
+    public ResponseEntity<?> edit(
+            @AuthenticationPrincipal Jwt jwt,
+            @PathVariable("id") long id,
+            @Validated @RequestBody EditRequest body
+    ) {
+        boolean isAnon = body.asAnon() != null && body.asAnon();
+        if (isAnon && !body.hasAnonProof()) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
+                    "error", "invalid_anon_proof",
+                    "message", "Invalid anonymous proof"
+            ));
+        }
+        if (isAnon && jwt != null) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of(
+                    "error", "anon_jwt_not_allowed",
+                    "message", "Do not send Authorization for anonymous actions"
+            ));
+        }
+        if (!isAnon && jwt == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of(
+                    "error", "unauthorized",
+                    "message", "Authorization is required"
+            ));
+        }
+        var res = postsService.edit(jwt == null ? null : jwt.getSubject(), id, body.content(), body.toAnonProof());
+        return switch (res.status()) {
+            case USER_NOT_PROVISIONED -> ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
+                    "error", "user_not_provisioned",
+                    "message", "Complete onboarding before editing posts"
+            ));
+            case NOT_FOUND -> ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of(
+                    "error", "not_found"
+            ));
+            case FORBIDDEN -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
+                    "error", "forbidden",
+                    "message", "Only the post author may edit"
+            ));
+            case INVALID_ANON_PROOF -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
+                    "error", "invalid_anon_proof",
+                    "message", "Invalid anonymous proof"
+            ));
+            case POST_REMOVED -> ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
+                    "error", "post_removed",
+                    "message", "Post has been removed"
+            ));
+            case OK -> ResponseEntity.ok(PostPayloads.from(res.post()));
+        };
+    }
+
+    @DeleteMapping("/{id}")
+    public ResponseEntity<?> delete(
+            @AuthenticationPrincipal Jwt jwt,
+            @PathVariable("id") long id,
+            @RequestBody(required = false) DeleteRequest body
+    ) {
+        boolean isAnon = body != null && Boolean.TRUE.equals(body.asAnon());
+        if (isAnon && (body == null || !body.hasAnonProof())) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
+                    "error", "invalid_anon_proof",
+                    "message", "Invalid anonymous proof"
+            ));
+        }
+        if (isAnon && jwt != null) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of(
+                    "error", "anon_jwt_not_allowed",
+                    "message", "Do not send Authorization for anonymous actions"
+            ));
+        }
+        if (!isAnon && jwt == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of(
+                    "error", "unauthorized",
+                    "message", "Authorization is required"
+            ));
+        }
+        var res = postsService.delete(jwt == null ? null : jwt.getSubject(), id, body == null ? null : body.toAnonProof());
+        return switch (res.status()) {
+            case USER_NOT_PROVISIONED -> ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
+                    "error", "user_not_provisioned",
+                    "message", "Complete onboarding before deleting posts"
+            ));
+            case NOT_FOUND -> ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of(
+                    "error", "not_found"
+            ));
+            case FORBIDDEN -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
+                    "error", "forbidden",
+                    "message", "Only the post author may delete"
+            ));
+            case INVALID_ANON_PROOF -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
+                    "error", "invalid_anon_proof",
+                    "message", "Invalid anonymous proof"
+            ));
+            case OK -> ResponseEntity.ok(Map.of(
+                    "id", id,
+                    "deleted", res.deleted()
+            ));
+        };
+    }
+
     public record CreateRequest(@NotBlank @Size(max = 1000) String content,
                                Long mediaAssetId,
                                Long communityId,
@@ -133,4 +232,39 @@ public class PostsController {
                                String anonCertKid,
                                String anonSig,
                                Long anonTimestamp) {}
+
+    public record EditRequest(@NotBlank @Size(max = 1000) String content,
+                              Boolean asAnon,
+                              Long anonProfileId,
+                              String anonCert,
+                              String anonCertKid,
+                              String anonSig) {
+        com.looped.anon.AnonProofService.AnonActionProof toAnonProof() {
+            if (asAnon == null || !asAnon) return null;
+            return new com.looped.anon.AnonProofService.AnonActionProof(anonProfileId, anonCert, anonCertKid, anonSig);
+        }
+
+        boolean hasAnonProof() {
+            if (asAnon == null || !asAnon) return false;
+            return anonProfileId != null
+                    && anonCert != null && !anonCert.isBlank()
+                    && anonCertKid != null && !anonCertKid.isBlank()
+                    && anonSig != null && !anonSig.isBlank();
+        }
+    }
+
+    public record DeleteRequest(Boolean asAnon, Long anonProfileId, String anonCert, String anonCertKid, String anonSig) {
+        com.looped.anon.AnonProofService.AnonActionProof toAnonProof() {
+            if (asAnon == null || !asAnon) return null;
+            return new com.looped.anon.AnonProofService.AnonActionProof(anonProfileId, anonCert, anonCertKid, anonSig);
+        }
+
+        boolean hasAnonProof() {
+            if (asAnon == null || !asAnon) return false;
+            return anonProfileId != null
+                    && anonCert != null && !anonCert.isBlank()
+                    && anonCertKid != null && !anonCertKid.isBlank()
+                    && anonSig != null && !anonSig.isBlank();
+        }
+    }
 }

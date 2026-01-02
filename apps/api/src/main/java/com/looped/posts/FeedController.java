@@ -26,6 +26,7 @@ public class FeedController {
             @AuthenticationPrincipal Jwt jwt,
             @RequestParam(value = "cursor", required = false) String cursor,
             @RequestParam(value = "limit", required = false, defaultValue = "20") int limit,
+            @RequestParam(value = "mode", required = false, defaultValue = "for_you") String mode,
             @RequestParam(value = "communityId", required = false) Long communityId,
             @RequestParam(value = "community_id", required = false) Long communityIdAlt,
             @RequestParam(value = "loopId", required = false) Long loopIdLegacy,
@@ -36,7 +37,7 @@ public class FeedController {
         if (resolvedCommunityId == null) {
             resolvedCommunityId = loopIdLegacy != null ? loopIdLegacy : loopIdLegacyAlt;
         }
-        var res = feedService.feed(jwt.getSubject(), cursor, lim, resolvedCommunityId);
+        var res = feedService.feed(jwt.getSubject(), cursor, lim, resolvedCommunityId, mode);
         if (res.status() == FeedService.Status.USER_NOT_PROVISIONED) {
             return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
                     "error", "user_not_provisioned",

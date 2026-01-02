@@ -191,4 +191,63 @@ class CommentsIntegrationTest extends PostgresTestBase {
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.error").value("community_not_verified"));
     }
+
+    @Test
+    void edit_delete_and_unlike_comments() throws Exception {
+        long companyId = jdbc.queryForObject("INSERT INTO companies(name, domain) VALUES ('EditCo','edit.co') RETURNING id", Long.class);
+        long authorId = jdbc.queryForObject("INSERT INTO users(firebase_uid, handle, company_id, display_name) VALUES (?,?,?,?) RETURNING id",
+                Long.class, "uid-edit-author", "editauthor", companyId, "Author");
+        long commenterId = jdbc.queryForObject("INSERT INTO users(firebase_uid, handle, company_id, display_name) VALUES (?,?,?,?) RETURNING id",
+                Long.class, "uid-edit-commenter", "editcommenter", companyId, "Commenter");
+        long authorPrincipal = jdbc.queryForObject("INSERT INTO principals(kind, user_id) VALUES ('user', ?) RETURNING id", Long.class, authorId);
+        long communityId = jdbc.queryForObject("INSERT INTO communities(kind, name) VALUES ('company', 'EditCo') RETURNING id", Long.class);
+        jdbc.update("INSERT INTO community_verifications(user_id, community_id, method, verified, verified_at) VALUES (?,?,?,?, now())",
+                authorId, communityId, "manual", true);
+        jdbc.update("INSERT INTO community_verifications(user_id, community_id, method, verified, verified_at) VALUES (?,?,?,?, now())",
+                commenterId, communityId, "manual", true);
+        long postId = jdbc.queryForObject("INSERT INTO posts(author_id, author_principal_id, company_id, community_id, content) VALUES (?,?,?,?,?) RETURNING id",
+                Long.class, authorId, authorPrincipal, companyId, communityId, "post body");
+
+        String commenterAuth = "Bearer " + token("uid-edit-commenter");
+        String authorAuth = "Bearer " + token("uid-edit-author");
+
+        var createResp = mockMvc.perform(post("/v1/posts/" + postId + "/comments")
+                        .header("Authorization", commenterAuth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"content\":\"original\"}"))
+                .andExpect(status().isCreated())
+                .andReturn();
+        long commentId = mapper.readTree(createResp.getResponse().getContentAsString()).get("id").asLong();
+
+        mockMvc.perform(put("/v1/comments/" + commentId)
+                        .header("Authorization", commenterAuth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"content\":\"edited\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content").value("edited"));
+
+        mockMvc.perform(post("/v1/comments/" + commentId + "/like")
+                        .header("Authorization", authorAuth))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.likes_count").value(1))
+                .andExpect(jsonPath("$.user_liked").value(true));
+
+        mockMvc.perform(delete("/v1/comments/" + commentId + "/like")
+                        .header("Authorization", authorAuth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.likes_count").value(0))
+                .andExpect(jsonPath("$.user_liked").value(false))
+                .andExpect(jsonPath("$.liked_by_creator").value(false));
+
+        mockMvc.perform(delete("/v1/comments/" + commentId)
+                        .header("Authorization", commenterAuth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.deleted").value(true));
+        assertEquals(0, jdbc.queryForObject("SELECT comments_count FROM posts WHERE id=?", Integer.class, postId));
+
+        mockMvc.perform(get("/v1/posts/" + postId + "/comments")
+                        .header("Authorization", authorAuth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].is_deleted").value(true));
+    }
 }

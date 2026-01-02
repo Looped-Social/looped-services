@@ -71,6 +71,30 @@ public class UsersController {
         };
     }
 
+    @PutMapping("/me/display-community")
+    public ResponseEntity<?> updateDisplayCommunity(
+            @AuthenticationPrincipal Jwt jwt,
+            @RequestBody UpdateDisplayCommunityRequest body
+    ) {
+        Long communityId = body == null ? null : body.communityId();
+        var res = service.updateDisplayCommunity(jwt.getSubject(), communityId);
+        return switch (res.status()) {
+            case USER_NOT_PROVISIONED -> ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
+                    "error", "user_not_provisioned",
+                    "message", "Complete onboarding before updating profile"
+            ));
+            case COMMUNITY_NOT_FOUND -> ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of(
+                    "error", "community_not_found"
+            ));
+            case COMMUNITY_NOT_VERIFIED -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
+                    "error", "community_not_verified",
+                    "message", "You must be verified in this community"
+            ));
+            case OK -> ResponseEntity.ok(UserPayloads.fromProfile(res.profile()));
+            default -> ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        };
+    }
+
     @PutMapping("/me/identity")
     public ResponseEntity<?> updateIdentity(
             @AuthenticationPrincipal Jwt jwt,
@@ -368,6 +392,8 @@ public class UsersController {
             @NotNull Boolean isAnonymous,
             Boolean showFollowerCount
     ) {}
+
+    public record UpdateDisplayCommunityRequest(Long communityId) {}
 
     public record UpdateIdentityRequest(
             @NotBlank @Size(min = 3, max = 30) String username,

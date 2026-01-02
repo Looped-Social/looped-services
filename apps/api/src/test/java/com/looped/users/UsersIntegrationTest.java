@@ -108,7 +108,7 @@ class UsersIntegrationTest extends PostgresTestBase {
                         .header("Authorization", "Bearer " + token("uid-actor")))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items", hasSize(2)))
-                .andExpect(jsonPath("$.items[0].content", equalTo("post-3")))
+                .andExpect(jsonPath("$.items[0].content", equalTo("post-1")))
                 .andExpect(jsonPath("$.items[1].content", equalTo("post-2")))
                 .andExpect(jsonPath("$.next_cursor", notNullValue()))
                 .andReturn();
@@ -119,7 +119,7 @@ class UsersIntegrationTest extends PostgresTestBase {
                         .header("Authorization", "Bearer " + token("uid-actor")))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items", hasSize(1)))
-                .andExpect(jsonPath("$.items[0].content", equalTo("post-1")))
+                .andExpect(jsonPath("$.items[0].content", equalTo("post-3")))
                 .andExpect(jsonPath("$.next_cursor").doesNotExist());
     }
 

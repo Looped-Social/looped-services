@@ -30,6 +30,16 @@ public final class UserPayloads {
             verification.put("verified_at", profile.verification().verifiedAt());
             map.put("verification", verification);
         }
+        if (profile.displayCommunity() != null) {
+            Map<String, Object> display = new HashMap<>();
+            display.put("id", profile.displayCommunity().id());
+            display.put("name", profile.displayCommunity().name());
+            display.put("kind", profile.displayCommunity().kind());
+            if (profile.displayCommunity().specializationType() != null) {
+                display.put("specialization_type", profile.displayCommunity().specializationType());
+            }
+            map.put("display_community", display);
+        }
         if (profile.stats() != null) {
             Map<String, Object> stats = new HashMap<>();
             stats.put("follower_count", profile.stats().followerCount());
@@ -59,6 +69,7 @@ public final class UserPayloads {
         map.put("post_id", row.postId);
         map.put("content", row.content);
         map.put("created_at", row.createdAt);
+        map.put("is_deleted", row.deletedAt != null);
         if (row.parentId != null) map.put("parent_id", row.parentId);
         return map;
     }

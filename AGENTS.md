@@ -2,6 +2,8 @@
 
 Looped is an iOS‑first, workplace‑verified social app. The backend is a modular monolith built with Java 25 and Spring Boot 3.5.6, deployed on ECS Fargate behind an ALB. We use Neon Postgres (Aurora later), ElastiCache Redis, S3 + CloudFront for media, Firebase Auth for authentication (JWT/JWKS), and optional SQS workers for push notifications (APNs). Start with simple polling/SSE for realtime; add WebSockets later. Privacy is a first‑class constraint: verify JWTs on every request, avoid PII in logs, and enforce idempotency and media guardrails. See docs/ARCHITECTURE.md for the authoritative Architecture Context.
 
+When asked for docs or endpoints for the frontend, respond with technically specific API details: method + route, auth requirements, required headers, query params, request payload schema, response payload schema, and key status/error cases (include examples when helpful).
+
 ## System Diagram
 
 ```
@@ -56,12 +58,15 @@ iOS (Swift/SwiftUI)
 - Consumes HTTP (API)
   - Auth: POST /v1/auth/login, GET /v1/me
   - Verification: POST /v1/verification/start, POST /v1/verification/finish
-  - Feed & Posts: GET /v1/feed?cursor=, POST /v1/posts, GET /v1/posts/{id}, POST /v1/posts/{id}/like
+  - Feed & Posts: GET /v1/feed?cursor=, POST /v1/posts, GET /v1/posts/{id}, PUT /v1/posts/{id}, DELETE /v1/posts/{id}, POST /v1/posts/{id}/like, DELETE /v1/posts/{id}/like
+  - Comments: GET /v1/posts/{id}/comments, POST /v1/posts/{id}/comments, PUT /v1/comments/{id}, DELETE /v1/comments/{id}, GET /v1/comments/{id}/replies, POST /v1/comments/{id}/like, DELETE /v1/comments/{id}/like
   - Profiles: GET /v1/users/{id}, GET /v1/users/{id}/posts
+  - Profile display: PUT /v1/users/me/display-community
   - Collections: GET /v1/posts/liked, GET /v1/posts/saved, POST /v1/posts/{id}/save, DELETE /v1/posts/{id}/save
   - Media: POST /v1/media/presign, POST /v1/media/callback
   - Moderation: POST /v1/reports, GET /v1/reports, PUT /v1/reports/{id}/resolve
   - Devices: POST /v1/devices
+  - Communities: GET /v1/communities/{id}/permissions
 - Produces HTTP (API)
   - Sends Idempotency-Key for POST /v1/posts and POST /v1/devices
   - Sends APNs device token to POST /v1/devices
@@ -250,11 +255,23 @@ iOS (Swift/SwiftUI)
 - Verification
   - POST /v1/verification/start
   - POST /v1/verification/finish
+- Communities
+  - GET /v1/communities/{id}/permissions
 - Feed & Posts
   - GET /v1/feed?cursor=
   - POST /v1/posts
   - GET /v1/posts/{id}
+  - PUT /v1/posts/{id}
+  - DELETE /v1/posts/{id}
   - POST /v1/posts/{id}/like
+  - DELETE /v1/posts/{id}/like
+  - GET /v1/posts/{id}/comments
+  - POST /v1/posts/{id}/comments
+  - PUT /v1/comments/{id}
+  - DELETE /v1/comments/{id}
+  - GET /v1/comments/{id}/replies
+  - POST /v1/comments/{id}/like
+  - DELETE /v1/comments/{id}/like
 - Media
   - POST /v1/media/presign
   - POST /v1/media/callback
@@ -265,6 +282,8 @@ iOS (Swift/SwiftUI)
 - Profiles
   - GET /v1/users/{id}
   - GET /v1/users/{id}/posts
+- Profile display
+  - PUT /v1/users/me/display-community
 - Collections
   - GET /v1/posts/liked
   - GET /v1/posts/saved

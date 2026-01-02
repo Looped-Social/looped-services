@@ -25,13 +25,16 @@ import java.util.Map;
 public class CommunityVerificationController {
     private final CommunityVerificationService service;
     private final UserRepository users;
+    private final CommunitiesRepository communities;
     private final CommunityVerificationsRepository verifications;
 
     public CommunityVerificationController(CommunityVerificationService service,
                                            UserRepository users,
+                                           CommunitiesRepository communities,
                                            CommunityVerificationsRepository verifications) {
         this.service = service;
         this.users = users;
+        this.communities = communities;
         this.verifications = verifications;
     }
 
@@ -111,6 +114,25 @@ public class CommunityVerificationController {
             return item;
         }).toList();
         return ResponseEntity.ok(Map.of("items", items));
+    }
+
+    @GetMapping("/{communityId}/permissions")
+    public ResponseEntity<?> permissions(@AuthenticationPrincipal Jwt jwt,
+                                         @PathVariable("communityId") long communityId) {
+        var actor = users.findByFirebaseUid(jwt.getSubject());
+        if (actor.isEmpty() || actor.get().companyId == null) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "user_not_provisioned"));
+        }
+        var community = communities.findById(communityId);
+        if (community.isEmpty()) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "community_not_found"));
+        }
+        boolean requiresVerification = !"specialization".equalsIgnoreCase(community.get().kind);
+        boolean canPost = !requiresVerification || verifications.isVerified(actor.get().id, communityId);
+        return ResponseEntity.ok(Map.of(
+                "can_post", canPost,
+                "requires_verification", requiresVerification
+        ));
     }
 
     public record StartRequest(@NotBlank String method, String email) {}

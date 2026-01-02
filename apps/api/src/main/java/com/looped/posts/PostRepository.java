@@ -24,9 +24,16 @@ public class PostRepository {
             "COALESCE(u.handle, ap.handle) AS author_handle, " +
             "u.display_name AS author_display_name, " +
             "u.profile_image_url AS author_profile_image_url, " +
+            "dc.id AS author_display_community_id, " +
+            "dc.name AS author_display_community_name, " +
+            "dc.kind AS author_display_community_kind, " +
+            "dc.specialization_type AS author_display_community_specialization_type, " +
             "CASE WHEN p.is_anon THEN true ELSE COALESCE(u.is_anonymous, false) END AS author_is_anonymous " +
             "FROM posts p " +
             "LEFT JOIN users u ON u.id = p.author_id AND u.deleted_at IS NULL " +
+            "LEFT JOIN community_verifications cv ON cv.user_id = u.id AND cv.community_id = u.display_community_id " +
+            "AND cv.verified = true AND (cv.expires_at IS NULL OR cv.expires_at > now()) " +
+            "LEFT JOIN communities dc ON dc.id = cv.community_id " +
             "LEFT JOIN anonymous_profiles ap ON ap.id = p.anon_profile_id ";
 
     private static final RowMapper<PostRow> MAPPER = new RowMapper<>() {
@@ -59,6 +66,11 @@ public class PostRepository {
             p.authorHandle = rs.getString("author_handle");
             p.authorDisplayName = rs.getString("author_display_name");
             p.authorProfileImageUrl = rs.getString("author_profile_image_url");
+            long displayCommunityId = rs.getLong("author_display_community_id");
+            p.authorDisplayCommunityId = rs.wasNull() ? null : displayCommunityId;
+            p.authorDisplayCommunityName = rs.getString("author_display_community_name");
+            p.authorDisplayCommunityKind = rs.getString("author_display_community_kind");
+            p.authorDisplayCommunitySpecializationType = rs.getString("author_display_community_specialization_type");
             p.authorIsAnonymous = rs.getBoolean("author_is_anonymous");
             return p;
         }
@@ -110,6 +122,25 @@ public class PostRepository {
         );
     }
 
+    public java.util.List<PostRow> findNew(Long communityId, java.time.OffsetDateTime cursorTs, Long cursorId, int limit) {
+        String base = BASE_SELECT + "WHERE p.removed_at IS NULL AND (p.author_id IS NULL OR u.id IS NOT NULL) ";
+        if (communityId != null) {
+            base += "AND p.community_id = ? ";
+        }
+        if (cursorTs == null || cursorId == null) {
+            if (communityId != null) {
+                return jdbc.query(base + "ORDER BY p.created_at DESC, p.id DESC LIMIT ?", MAPPER, communityId, limit);
+            }
+            return jdbc.query(base + "ORDER BY p.created_at DESC, p.id DESC LIMIT ?", MAPPER, limit);
+        }
+        String paging = "AND (p.created_at < ? OR (p.created_at = ? AND p.id < ?)) " +
+                "ORDER BY p.created_at DESC, p.id DESC LIMIT ?";
+        if (communityId != null) {
+            return jdbc.query(base + paging, MAPPER, communityId, cursorTs, cursorTs, cursorId, limit);
+        }
+        return jdbc.query(base + paging, MAPPER, cursorTs, cursorTs, cursorId, limit);
+    }
+
     public java.util.List<PostRow> findPopular(java.time.OffsetDateTime asOf, java.time.OffsetDateTime since, Long cursorScore, java.time.OffsetDateTime cursorTs, Long cursorId, int limit) {
         String scoreExpr = "((p.likes_count * 2 + p.comments_count + p.share_count) * 1000 - " +
                 "FLOOR(EXTRACT(EPOCH FROM (?::timestamptz - p.created_at)) / 3600))";
@@ -118,9 +149,14 @@ public class PostRepository {
                 "p.removed_at, p.removed_by, p.removed_reason, " +
                 "COALESCE(u.handle, ap.handle) AS author_handle, u.display_name AS author_display_name, " +
                 "u.profile_image_url AS author_profile_image_url, " +
+                "dc.id AS author_display_community_id, dc.name AS author_display_community_name, " +
+                "dc.kind AS author_display_community_kind, dc.specialization_type AS author_display_community_specialization_type, " +
                 "CASE WHEN p.is_anon THEN true ELSE COALESCE(u.is_anonymous, false) END AS author_is_anonymous, " +
                 scoreExpr + " AS score FROM posts p " +
                 "LEFT JOIN users u ON u.id = p.author_id AND u.deleted_at IS NULL " +
+                "LEFT JOIN community_verifications cv ON cv.user_id = u.id AND cv.community_id = u.display_community_id " +
+                "AND cv.verified = true AND (cv.expires_at IS NULL OR cv.expires_at > now()) " +
+                "LEFT JOIN communities dc ON dc.id = cv.community_id " +
                 "LEFT JOIN anonymous_profiles ap ON ap.id = p.anon_profile_id " +
                 "WHERE p.created_at >= ? AND p.removed_at IS NULL AND (p.author_id IS NULL OR u.id IS NOT NULL)";
         if (cursorScore == null || cursorTs == null || cursorId == null) {
@@ -128,7 +164,9 @@ public class PostRepository {
                     "SELECT id, author_id, author_principal_id, is_anon, anon_profile_id, anon_company_id, company_id, community_id, " +
                             "content, media_asset_id, likes_count, comments_count, share_count, created_at, " +
                             "removed_at, removed_by, removed_reason, " +
-                            "author_handle, author_display_name, author_profile_image_url, author_is_anonymous " +
+                            "author_handle, author_display_name, author_profile_image_url, " +
+                            "author_display_community_id, author_display_community_name, author_display_community_kind, " +
+                            "author_display_community_specialization_type, author_is_anonymous " +
                             "FROM (" + base + ") s ORDER BY score DESC, created_at DESC, id DESC LIMIT ?",
                     MAPPER, asOf, since, limit
             );
@@ -137,10 +175,57 @@ public class PostRepository {
                 "SELECT id, author_id, author_principal_id, is_anon, anon_profile_id, anon_company_id, company_id, community_id, " +
                         "content, media_asset_id, likes_count, comments_count, share_count, created_at, " +
                         "removed_at, removed_by, removed_reason, " +
-                        "author_handle, author_display_name, author_profile_image_url, author_is_anonymous " +
+                        "author_handle, author_display_name, author_profile_image_url, " +
+                        "author_display_community_id, author_display_community_name, author_display_community_kind, " +
+                        "author_display_community_specialization_type, author_is_anonymous " +
                         "FROM (" + base + ") s WHERE (score < ? OR (score = ? AND (created_at < ? OR (created_at = ? AND id < ?)))) " +
                         "ORDER BY score DESC, created_at DESC, id DESC LIMIT ?",
                 MAPPER, asOf, since, cursorScore, cursorScore, cursorTs, cursorTs, cursorId, limit
+        );
+    }
+
+    public java.util.List<PostRow> findPopularByCommunity(long communityId, java.time.OffsetDateTime asOf, java.time.OffsetDateTime since,
+                                                          Long cursorScore, java.time.OffsetDateTime cursorTs, Long cursorId, int limit) {
+        String scoreExpr = "((p.likes_count * 2 + p.comments_count + p.share_count) * 1000 - " +
+                "FLOOR(EXTRACT(EPOCH FROM (?::timestamptz - p.created_at)) / 3600))";
+        String base = "SELECT p.id, p.author_id, p.author_principal_id, p.is_anon, p.anon_profile_id, p.anon_company_id, " +
+                "p.company_id, p.community_id, p.content, p.media_asset_id, p.likes_count, p.comments_count, p.share_count, p.created_at, " +
+                "p.removed_at, p.removed_by, p.removed_reason, " +
+                "COALESCE(u.handle, ap.handle) AS author_handle, u.display_name AS author_display_name, " +
+                "u.profile_image_url AS author_profile_image_url, " +
+                "dc.id AS author_display_community_id, dc.name AS author_display_community_name, " +
+                "dc.kind AS author_display_community_kind, dc.specialization_type AS author_display_community_specialization_type, " +
+                "CASE WHEN p.is_anon THEN true ELSE COALESCE(u.is_anonymous, false) END AS author_is_anonymous, " +
+                scoreExpr + " AS score FROM posts p " +
+                "LEFT JOIN users u ON u.id = p.author_id AND u.deleted_at IS NULL " +
+                "LEFT JOIN community_verifications cv ON cv.user_id = u.id AND cv.community_id = u.display_community_id " +
+                "AND cv.verified = true AND (cv.expires_at IS NULL OR cv.expires_at > now()) " +
+                "LEFT JOIN communities dc ON dc.id = cv.community_id " +
+                "LEFT JOIN anonymous_profiles ap ON ap.id = p.anon_profile_id " +
+                "WHERE p.created_at >= ? AND p.removed_at IS NULL AND p.community_id = ? " +
+                "AND (p.author_id IS NULL OR u.id IS NOT NULL)";
+        if (cursorScore == null || cursorTs == null || cursorId == null) {
+            return jdbc.query(
+                    "SELECT id, author_id, author_principal_id, is_anon, anon_profile_id, anon_company_id, company_id, community_id, " +
+                            "content, media_asset_id, likes_count, comments_count, share_count, created_at, " +
+                            "removed_at, removed_by, removed_reason, " +
+                            "author_handle, author_display_name, author_profile_image_url, " +
+                            "author_display_community_id, author_display_community_name, author_display_community_kind, " +
+                            "author_display_community_specialization_type, author_is_anonymous " +
+                            "FROM (" + base + ") s ORDER BY score DESC, created_at DESC, id DESC LIMIT ?",
+                    MAPPER, asOf, since, communityId, limit
+            );
+        }
+        return jdbc.query(
+                "SELECT id, author_id, author_principal_id, is_anon, anon_profile_id, anon_company_id, company_id, community_id, " +
+                        "content, media_asset_id, likes_count, comments_count, share_count, created_at, " +
+                        "removed_at, removed_by, removed_reason, " +
+                        "author_handle, author_display_name, author_profile_image_url, " +
+                        "author_display_community_id, author_display_community_name, author_display_community_kind, " +
+                        "author_display_community_specialization_type, author_is_anonymous " +
+                        "FROM (" + base + ") s WHERE (score < ? OR (score = ? AND (created_at < ? OR (created_at = ? AND id < ?)))) " +
+                        "ORDER BY score DESC, created_at DESC, id DESC LIMIT ?",
+                MAPPER, asOf, since, communityId, cursorScore, cursorScore, cursorTs, cursorTs, cursorId, limit
         );
     }
 
@@ -148,14 +233,14 @@ public class PostRepository {
         if (cursorTs == null || cursorId == null) {
             return jdbc.query(
                     BASE_SELECT + "WHERE p.author_id=? AND p.removed_at IS NULL AND u.id IS NOT NULL " +
-                            "ORDER BY p.created_at ASC, p.id ASC LIMIT ?",
+                            "ORDER BY p.created_at DESC, p.id DESC LIMIT ?",
                     MAPPER, authorId, limit
             );
         } else {
             return jdbc.query(
                     BASE_SELECT + "WHERE p.author_id=? AND p.removed_at IS NULL AND u.id IS NOT NULL " +
-                            "AND (p.created_at > ? OR (p.created_at = ? AND p.id > ?)) " +
-                            "ORDER BY p.created_at ASC, p.id ASC LIMIT ?",
+                            "AND (p.created_at < ? OR (p.created_at = ? AND p.id < ?)) " +
+                            "ORDER BY p.created_at DESC, p.id DESC LIMIT ?",
                     MAPPER, authorId, cursorTs, cursorTs, cursorId, limit
             );
         }
@@ -165,14 +250,14 @@ public class PostRepository {
         if (cursorTs == null || cursorId == null) {
             return jdbc.query(
                     BASE_SELECT + "WHERE p.author_principal_id=? AND p.removed_at IS NULL AND (p.author_id IS NULL OR u.id IS NOT NULL) " +
-                            "ORDER BY p.created_at ASC, p.id ASC LIMIT ?",
+                            "ORDER BY p.created_at DESC, p.id DESC LIMIT ?",
                     MAPPER, authorPrincipalId, limit
             );
         } else {
             return jdbc.query(
                     BASE_SELECT + "WHERE p.author_principal_id=? AND p.removed_at IS NULL AND (p.author_id IS NULL OR u.id IS NOT NULL) " +
-                            "AND (p.created_at > ? OR (p.created_at = ? AND p.id > ?)) " +
-                        "ORDER BY p.created_at ASC, p.id ASC LIMIT ?",
+                            "AND (p.created_at < ? OR (p.created_at = ? AND p.id < ?)) " +
+                        "ORDER BY p.created_at DESC, p.id DESC LIMIT ?",
                 MAPPER, authorPrincipalId, cursorTs, cursorTs, cursorId, limit
             );
         }
@@ -203,11 +288,16 @@ public class PostRepository {
                 "p.company_id, p.community_id, p.content, p.media_asset_id, p.likes_count, p.comments_count, p.share_count, p.created_at, " +
                 "COALESCE(u.handle, ap.handle) AS author_handle, u.display_name AS author_display_name, " +
                 "u.profile_image_url AS author_profile_image_url, " +
+                "dc.id AS author_display_community_id, dc.name AS author_display_community_name, " +
+                "dc.kind AS author_display_community_kind, dc.specialization_type AS author_display_community_specialization_type, " +
                 "CASE WHEN p.is_anon THEN true ELSE COALESCE(u.is_anonymous, false) END AS author_is_anonymous, " +
                 "c.name AS community_name, c.kind AS community_kind, " +
                 scoreExpr + " AS score FROM posts p " +
                 "JOIN communities c ON c.id = p.community_id " +
                 "LEFT JOIN users u ON u.id = p.author_id AND u.deleted_at IS NULL " +
+                "LEFT JOIN community_verifications cv ON cv.user_id = u.id AND cv.community_id = u.display_community_id " +
+                "AND cv.verified = true AND (cv.expires_at IS NULL OR cv.expires_at > now()) " +
+                "LEFT JOIN communities dc ON dc.id = cv.community_id " +
                 "LEFT JOIN anonymous_profiles ap ON ap.id = p.anon_profile_id " +
                 "WHERE p.media_asset_id IS NOT NULL AND p.created_at >= ? AND p.removed_at IS NULL AND (p.author_id IS NULL OR u.id IS NOT NULL) ";
         if (communityId != null) {
@@ -228,6 +318,10 @@ public class PostRepository {
         jdbc.update("UPDATE posts SET comments_count = comments_count + 1 WHERE id = ?", postId);
     }
 
+    public void decrementCommentsCount(long postId) {
+        jdbc.update("UPDATE posts SET comments_count = GREATEST(comments_count - 1, 0) WHERE id = ?", postId);
+    }
+
     public boolean remove(long postId, Long adminId, String reason) {
         int rows = jdbc.update(
                 "UPDATE posts SET removed_at = now(), removed_by = ?, removed_reason = ? " +
@@ -243,6 +337,13 @@ public class PostRepository {
                 postId
         );
         return rows > 0;
+    }
+
+    public boolean updateContent(long postId, String content) {
+        return jdbc.update(
+                "UPDATE posts SET content = ? WHERE id = ? AND removed_at IS NULL",
+                content, postId
+        ) > 0;
     }
 
     public static class PostRow {
@@ -266,6 +367,10 @@ public class PostRepository {
         public String authorHandle;
         public String authorDisplayName;
         public String authorProfileImageUrl;
+        public Long authorDisplayCommunityId;
+        public String authorDisplayCommunityName;
+        public String authorDisplayCommunityKind;
+        public String authorDisplayCommunitySpecializationType;
         public boolean authorIsAnonymous;
     }
 
@@ -300,6 +405,11 @@ public class PostRepository {
             p.authorHandle = rs.getString("author_handle");
             p.authorDisplayName = rs.getString("author_display_name");
             p.authorProfileImageUrl = rs.getString("author_profile_image_url");
+            long displayCommunityId = rs.getLong("author_display_community_id");
+            p.authorDisplayCommunityId = rs.wasNull() ? null : displayCommunityId;
+            p.authorDisplayCommunityName = rs.getString("author_display_community_name");
+            p.authorDisplayCommunityKind = rs.getString("author_display_community_kind");
+            p.authorDisplayCommunitySpecializationType = rs.getString("author_display_community_specialization_type");
             p.authorIsAnonymous = rs.getBoolean("author_is_anonymous");
             p.communityName = rs.getString("community_name");
             p.communityKind = rs.getString("community_kind");

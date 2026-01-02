@@ -32,6 +32,7 @@ public class CommunityFollowsRepository {
             row.sortOrder = rs.wasNull() ? null : order;
             row.canPost = rs.getBoolean("can_post");
             row.followedAt = rs.getObject("followed_at", OffsetDateTime.class);
+            row.lastActivity = rs.getObject("last_activity", OffsetDateTime.class);
             return row;
         }
     };
@@ -40,6 +41,7 @@ public class CommunityFollowsRepository {
         String base = """
                 SELECT cf.id AS follow_id, cf.community_id, cf.is_pinned, cf.sort_order, cf.created_at AS followed_at,
                        c.name, c.kind, c.specialization_type, c.member_count,
+                       cf.created_at AS last_activity,
                        CASE
                            WHEN c.kind = 'specialization' THEN true
                            ELSE (COALESCE(cv.verified, false) AND (cv.expires_at IS NULL OR cv.expires_at > now()))
@@ -57,6 +59,60 @@ public class CommunityFollowsRepository {
                 base + "AND (cf.created_at < ? OR (cf.created_at = ? AND cf.id < ?)) " +
                         "ORDER BY cf.created_at DESC, cf.id DESC LIMIT ?",
                 MAPPER, userId, cursorTs, cursorTs, cursorId, limit
+        );
+    }
+
+    public List<FollowRow> findFollowedRelevant(long userId, CommunityFollowCursor.Cursor cursor, int limit) {
+        String base = """
+                WITH rows AS (
+                    SELECT cf.id AS follow_id, cf.community_id, cf.is_pinned, cf.sort_order, cf.created_at AS followed_at,
+                           c.name, c.kind, c.specialization_type, c.member_count,
+                           COALESCE(lp.last_post_at, cf.created_at) AS last_activity,
+                           CASE
+                               WHEN c.kind = 'specialization' THEN true
+                               ELSE (COALESCE(cv.verified, false) AND (cv.expires_at IS NULL OR cv.expires_at > now()))
+                           END AS can_post,
+                           CASE WHEN cf.is_pinned THEN 0 ELSE 1 END AS pinned_rank,
+                           CASE WHEN cf.sort_order IS NULL THEN 1 ELSE 0 END AS sort_rank,
+                           COALESCE(cf.sort_order, 2147483647) AS sort_order_value
+                    FROM community_follows cf
+                    JOIN communities c ON c.id = cf.community_id
+                    LEFT JOIN community_verifications cv
+                        ON cv.user_id = cf.user_id AND cv.community_id = cf.community_id
+                    LEFT JOIN LATERAL (
+                        SELECT p.created_at AS last_post_at
+                        FROM posts p
+                        WHERE p.community_id = cf.community_id
+                        ORDER BY p.created_at DESC, p.id DESC
+                        LIMIT 1
+                    ) lp ON true
+                    WHERE cf.user_id = ?
+                )
+                SELECT * FROM rows
+                """;
+        String order = "ORDER BY pinned_rank ASC, sort_rank ASC, sort_order_value ASC, last_activity DESC, follow_id DESC LIMIT ?";
+        if (cursor == null) {
+            return jdbc.query(base + order, MAPPER, userId, limit);
+        }
+        String where = """
+                WHERE (
+                    pinned_rank > ?
+                    OR (pinned_rank = ? AND sort_rank > ?)
+                    OR (pinned_rank = ? AND sort_rank = ? AND sort_order_value > ?)
+                    OR (pinned_rank = ? AND sort_rank = ? AND sort_order_value = ? AND last_activity < ?)
+                    OR (pinned_rank = ? AND sort_rank = ? AND sort_order_value = ? AND last_activity = ? AND follow_id < ?)
+                )
+                """;
+        return jdbc.query(
+                base + where + order,
+                MAPPER,
+                userId,
+                cursor.pinnedRank(),
+                cursor.pinnedRank(), cursor.sortRank(),
+                cursor.pinnedRank(), cursor.sortRank(), cursor.sortOrderValue(),
+                cursor.pinnedRank(), cursor.sortRank(), cursor.sortOrderValue(), cursor.lastActivity(),
+                cursor.pinnedRank(), cursor.sortRank(), cursor.sortOrderValue(), cursor.lastActivity(), cursor.followId(),
+                limit
         );
     }
 
@@ -109,5 +165,6 @@ public class CommunityFollowsRepository {
         public Integer sortOrder;
         public boolean canPost;
         public OffsetDateTime followedAt;
+        public OffsetDateTime lastActivity;
     }
 }

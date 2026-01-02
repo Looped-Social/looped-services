@@ -29,10 +29,11 @@ public class CommunityFollowsController {
     public ResponseEntity<?> followedCommunities(
             @AuthenticationPrincipal Jwt jwt,
             @RequestParam(value = "cursor", required = false) String cursor,
-            @RequestParam(value = "limit", required = false, defaultValue = "50") int limit
+            @RequestParam(value = "limit", required = false, defaultValue = "50") int limit,
+            @RequestParam(value = "order", required = false, defaultValue = "relevant") String order
     ) {
         int lim = Math.max(1, Math.min(limit, 200));
-        var res = service.followed(jwt.getSubject(), cursor, lim);
+        var res = service.followed(jwt.getSubject(), cursor, lim, order);
         if (res.status() == CommunityFollowsService.Status.USER_NOT_PROVISIONED) {
             return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
                     "error", "user_not_provisioned",
@@ -56,9 +57,10 @@ public class CommunityFollowsController {
     public ResponseEntity<?> followedLoops(
             @AuthenticationPrincipal Jwt jwt,
             @RequestParam(value = "cursor", required = false) String cursor,
-            @RequestParam(value = "limit", required = false, defaultValue = "50") int limit
+            @RequestParam(value = "limit", required = false, defaultValue = "50") int limit,
+            @RequestParam(value = "order", required = false, defaultValue = "relevant") String order
     ) {
-        return followedCommunities(jwt, cursor, limit);
+        return followedCommunities(jwt, cursor, limit, order);
     }
 
     @PostMapping("/communities/{id}/follow")

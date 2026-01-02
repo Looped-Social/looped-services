@@ -117,6 +117,9 @@ public class CommentsService {
 
         var inserted = comments.insert(postId, actorUserId, actorPrincipalId, effectiveCompanyId, content, parentId);
         posts.incrementCommentsCount(postId);
+        if (parentId != null) {
+            comments.incrementReplyCount(parentId);
+        }
 
         var view = comments.findViewById(inserted.id, actorPrincipalId, post.get().authorPrincipalId).orElseThrow();
         try {
@@ -208,9 +211,73 @@ public class CommentsService {
     }
 
     @Transactional
+    public EditResult edit(String firebaseUid, long commentId, String content, AnonProofService.AnonActionProof anonProof) {
+        var comment = comments.findById(commentId);
+        if (comment.isEmpty()) return EditResult.commentNotFound();
+        if (comment.get().deletedAt != null) return EditResult.commentDeleted();
+        var post = posts.findById(comment.get().postId);
+        if (post.isEmpty()) return EditResult.commentNotFound();
+
+        long actorPrincipalId;
+        if (anonProof != null && anonProof.anonProfileId() != null) {
+            if (post.get().communityId == null) return EditResult.invalidAnonProof();
+            var verified = anonProofs.verifyActionScoped(anonProof, "comment_edit", commentId, post.get().communityId);
+            if (verified.status() != AnonProofService.Status.OK) return EditResult.invalidAnonProof();
+            actorPrincipalId = verified.actor().principalId();
+        } else {
+            if (firebaseUid == null) return EditResult.userNotProvisioned();
+            var actor = users.findByFirebaseUid(firebaseUid);
+            if (actor.isEmpty() || actor.get().companyId == null) return EditResult.userNotProvisioned();
+            actorPrincipalId = principals.createForUser(actor.get().id).id;
+        }
+
+        if (actorPrincipalId != comment.get().authorPrincipalId) return EditResult.forbidden();
+
+        boolean updated = comments.updateContent(commentId, content);
+        if (!updated) return EditResult.commentDeleted();
+
+        var view = comments.findViewById(commentId, actorPrincipalId, post.get().authorPrincipalId).orElseThrow();
+        return EditResult.ok(view);
+    }
+
+    @Transactional
+    public DeleteResult delete(String firebaseUid, long commentId, AnonProofService.AnonActionProof anonProof) {
+        var comment = comments.findById(commentId);
+        if (comment.isEmpty()) return DeleteResult.commentNotFound();
+        if (comment.get().deletedAt != null) return DeleteResult.ok(false);
+        var post = posts.findById(comment.get().postId);
+        if (post.isEmpty()) return DeleteResult.commentNotFound();
+
+        long actorPrincipalId;
+        if (anonProof != null && anonProof.anonProfileId() != null) {
+            if (post.get().communityId == null) return DeleteResult.invalidAnonProof();
+            var verified = anonProofs.verifyActionScoped(anonProof, "comment_delete", commentId, post.get().communityId);
+            if (verified.status() != AnonProofService.Status.OK) return DeleteResult.invalidAnonProof();
+            actorPrincipalId = verified.actor().principalId();
+        } else {
+            if (firebaseUid == null) return DeleteResult.userNotProvisioned();
+            var actor = users.findByFirebaseUid(firebaseUid);
+            if (actor.isEmpty() || actor.get().companyId == null) return DeleteResult.userNotProvisioned();
+            actorPrincipalId = principals.createForUser(actor.get().id).id;
+        }
+
+        if (actorPrincipalId != comment.get().authorPrincipalId) return DeleteResult.forbidden();
+
+        boolean deleted = comments.softDelete(commentId);
+        if (deleted) {
+            posts.decrementCommentsCount(comment.get().postId);
+            if (comment.get().parentId != null) {
+                comments.decrementReplyCount(comment.get().parentId);
+            }
+        }
+        return DeleteResult.ok(deleted);
+    }
+
+    @Transactional
     public LikeResult like(String firebaseUid, long commentId, AnonProofService.AnonActionProof anonProof) {
         var comment = comments.findById(commentId);
         if (comment.isEmpty()) return LikeResult.commentNotFound();
+        if (comment.get().deletedAt != null) return LikeResult.commentNotFound();
         var post = posts.findById(comment.get().postId);
         if (post.isEmpty()) return LikeResult.commentNotFound();
         long actorPrincipalId;
@@ -233,6 +300,33 @@ public class CommentsService {
         }
         var view = comments.findViewById(commentId, actorPrincipalId, post.get().authorPrincipalId).orElseThrow();
         return LikeResult.ok(created, view.comment.likesCount, view.likedByCreator, view.viewerLiked);
+    }
+
+    @Transactional
+    public UnlikeResult unlike(String firebaseUid, long commentId, AnonProofService.AnonActionProof anonProof) {
+        var comment = comments.findById(commentId);
+        if (comment.isEmpty()) return UnlikeResult.commentNotFound();
+        if (comment.get().deletedAt != null) return UnlikeResult.commentNotFound();
+        var post = posts.findById(comment.get().postId);
+        if (post.isEmpty()) return UnlikeResult.commentNotFound();
+        long actorPrincipalId;
+        if (anonProof != null && anonProof.anonProfileId() != null) {
+            if (post.get().communityId == null) return UnlikeResult.invalidAnonProof();
+            var verified = anonProofs.verifyActionScoped(anonProof, "comment_unlike", commentId, post.get().communityId);
+            if (verified.status() != AnonProofService.Status.OK) return UnlikeResult.invalidAnonProof();
+            actorPrincipalId = verified.actor().principalId();
+        } else {
+            if (firebaseUid == null) return UnlikeResult.userNotProvisioned();
+            var actor = users.findByFirebaseUid(firebaseUid);
+            if (actor.isEmpty() || actor.get().companyId == null) return UnlikeResult.userNotProvisioned();
+            actorPrincipalId = principals.createForUser(actor.get().id).id;
+        }
+        boolean deleted = comments.deleteLikeIfPresent(commentId, actorPrincipalId);
+        if (deleted) {
+            comments.decrementCommentLikes(commentId);
+        }
+        var view = comments.findViewById(commentId, actorPrincipalId, post.get().authorPrincipalId).orElseThrow();
+        return UnlikeResult.ok(deleted, view.comment.likesCount, view.likedByCreator, view.viewerLiked);
     }
 
     private void notifyMentions(long actorPrincipalId, Long actorUserId, long companyId, String content, Long postId, Long commentId, Long skipUserId) {
@@ -292,5 +386,55 @@ public class CommentsService {
         static LikeResult userNotProvisioned() { return new LikeResult(Status.USER_NOT_PROVISIONED, false, 0, false, false); }
         static LikeResult commentNotFound() { return new LikeResult(Status.COMMENT_NOT_FOUND, false, 0, false, false); }
         static LikeResult invalidAnonProof() { return new LikeResult(Status.INVALID_ANON_PROOF, false, 0, false, false); }
+    }
+
+    public enum EditStatus {
+        OK,
+        USER_NOT_PROVISIONED,
+        COMMENT_NOT_FOUND,
+        FORBIDDEN,
+        COMMENT_DELETED,
+        INVALID_ANON_PROOF
+    }
+
+    public record EditResult(EditStatus status, CommentsRepository.CommentViewRow comment) {
+        static EditResult ok(CommentsRepository.CommentViewRow comment) { return new EditResult(EditStatus.OK, comment); }
+        static EditResult userNotProvisioned() { return new EditResult(EditStatus.USER_NOT_PROVISIONED, null); }
+        static EditResult commentNotFound() { return new EditResult(EditStatus.COMMENT_NOT_FOUND, null); }
+        static EditResult forbidden() { return new EditResult(EditStatus.FORBIDDEN, null); }
+        static EditResult commentDeleted() { return new EditResult(EditStatus.COMMENT_DELETED, null); }
+        static EditResult invalidAnonProof() { return new EditResult(EditStatus.INVALID_ANON_PROOF, null); }
+    }
+
+    public enum DeleteStatus {
+        OK,
+        USER_NOT_PROVISIONED,
+        COMMENT_NOT_FOUND,
+        FORBIDDEN,
+        INVALID_ANON_PROOF
+    }
+
+    public record DeleteResult(DeleteStatus status, boolean deleted) {
+        static DeleteResult ok(boolean deleted) { return new DeleteResult(DeleteStatus.OK, deleted); }
+        static DeleteResult userNotProvisioned() { return new DeleteResult(DeleteStatus.USER_NOT_PROVISIONED, false); }
+        static DeleteResult commentNotFound() { return new DeleteResult(DeleteStatus.COMMENT_NOT_FOUND, false); }
+        static DeleteResult forbidden() { return new DeleteResult(DeleteStatus.FORBIDDEN, false); }
+        static DeleteResult invalidAnonProof() { return new DeleteResult(DeleteStatus.INVALID_ANON_PROOF, false); }
+    }
+
+    public enum UnlikeStatus {
+        OK,
+        USER_NOT_PROVISIONED,
+        COMMENT_NOT_FOUND,
+        INVALID_ANON_PROOF
+    }
+
+    public record UnlikeResult(UnlikeStatus status, boolean deleted, int likesCount, boolean likedByCreator, boolean userLiked) {
+        static UnlikeResult ok(boolean deleted, int likesCount, boolean likedByCreator, boolean userLiked) {
+            return new UnlikeResult(UnlikeStatus.OK, deleted, likesCount, likedByCreator, userLiked);
+        }
+        static UnlikeResult userNotProvisioned() { return new UnlikeResult(UnlikeStatus.USER_NOT_PROVISIONED, false, 0, false, false); }
+        static UnlikeResult commentNotFound() { return new UnlikeResult(UnlikeStatus.COMMENT_NOT_FOUND, false, 0, false, false); }
+        static UnlikeResult invalidAnonProof() { return new UnlikeResult(UnlikeStatus.INVALID_ANON_PROOF, false, 0, false, false); }
     }
 }

@@ -15,6 +15,16 @@ public final class PostPayloads {
         out.put("author_display_name", row.authorDisplayName);
         out.put("author_profile_image_url", row.authorProfileImageUrl);
         out.put("author_is_anonymous", row.authorIsAnonymous);
+        if (!row.authorIsAnonymous && row.authorDisplayCommunityId != null) {
+            Map<String, Object> display = new HashMap<>();
+            display.put("id", row.authorDisplayCommunityId);
+            display.put("name", row.authorDisplayCommunityName);
+            display.put("kind", row.authorDisplayCommunityKind);
+            if (row.authorDisplayCommunitySpecializationType != null) {
+                display.put("specialization_type", row.authorDisplayCommunitySpecializationType);
+            }
+            out.put("author_display_community", display);
+        }
         out.put("anon_profile_id", row.anonProfileId);
         out.put("company_id", row.companyId);
         out.put("community_id", row.communityId);

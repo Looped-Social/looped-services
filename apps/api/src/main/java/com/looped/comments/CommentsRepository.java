@@ -37,20 +37,22 @@ public class CommentsRepository {
         long parent = rs.getLong("parent_id");
         row.parentId = rs.wasNull() ? null : parent;
         row.likesCount = rs.getInt("likes_count");
+        row.replyCount = rs.getInt("reply_count");
         row.createdAt = rs.getObject("created_at", OffsetDateTime.class);
+        row.deletedAt = rs.getObject("deleted_at", OffsetDateTime.class);
         return row;
     }
 
     public List<CommentRow> findByUser(long userId, OffsetDateTime cursorTs, Long cursorId, int limit) {
         if (cursorTs == null || cursorId == null) {
             return jdbc.query(
-                "SELECT id, post_id, user_id, author_principal_id, company_id, content, parent_id, likes_count, created_at " +
+                "SELECT id, post_id, user_id, author_principal_id, company_id, content, parent_id, likes_count, reply_count, created_at, deleted_at " +
                         "FROM comments WHERE user_id = ? ORDER BY created_at DESC, id DESC LIMIT ?",
                 MAPPER, userId, limit
         );
         }
         return jdbc.query(
-                "SELECT id, post_id, user_id, author_principal_id, company_id, content, parent_id, likes_count, created_at " +
+                "SELECT id, post_id, user_id, author_principal_id, company_id, content, parent_id, likes_count, reply_count, created_at, deleted_at " +
                         "FROM comments WHERE user_id = ? AND (created_at < ? OR (created_at = ? AND id < ?)) " +
                         "ORDER BY created_at DESC, id DESC LIMIT ?",
                 MAPPER, userId, cursorTs, cursorTs, cursorId, limit
@@ -59,7 +61,7 @@ public class CommentsRepository {
 
     public Optional<CommentRow> findById(long id) {
         var list = jdbc.query(
-                "SELECT id, post_id, user_id, author_principal_id, company_id, content, parent_id, likes_count, created_at FROM comments WHERE id = ?",
+                "SELECT id, post_id, user_id, author_principal_id, company_id, content, parent_id, likes_count, reply_count, created_at, deleted_at FROM comments WHERE id = ?",
                 MAPPER, id
         );
         return list.isEmpty() ? Optional.empty() : Optional.of(list.get(0));
@@ -76,7 +78,7 @@ public class CommentsRepository {
 
     public List<CommentViewRow> findByPost(long postId, long viewerPrincipalId, Long postAuthorPrincipalId, OffsetDateTime cursorTs, Long cursorId, int limit) {
         String sql = """
-                SELECT c.id, c.post_id, c.user_id, c.author_principal_id, c.company_id, c.content, c.parent_id, c.likes_count, c.created_at,
+                SELECT c.id, c.post_id, c.user_id, c.author_principal_id, c.company_id, c.content, c.parent_id, c.likes_count, c.reply_count, c.created_at, c.deleted_at,
                        p.kind AS author_kind, p.user_id AS author_user_id, p.anon_profile_id AS author_anon_profile_id,
                        COALESCE(u.handle, ap.handle) AS author_handle,
                        u.display_name AS author_display_name, u.profile_image_url AS author_profile_image_url,
@@ -106,7 +108,7 @@ public class CommentsRepository {
 
     public List<CommentViewRow> findReplies(long postId, long parentCommentId, long viewerPrincipalId, Long postAuthorPrincipalId, OffsetDateTime cursorTs, Long cursorId, int limit) {
         String sql = """
-                SELECT c.id, c.post_id, c.user_id, c.author_principal_id, c.company_id, c.content, c.parent_id, c.likes_count, c.created_at,
+                SELECT c.id, c.post_id, c.user_id, c.author_principal_id, c.company_id, c.content, c.parent_id, c.likes_count, c.reply_count, c.created_at, c.deleted_at,
                        p.kind AS author_kind, p.user_id AS author_user_id, p.anon_profile_id AS author_anon_profile_id,
                        COALESCE(u.handle, ap.handle) AS author_handle,
                        u.display_name AS author_display_name, u.profile_image_url AS author_profile_image_url,
@@ -137,7 +139,7 @@ public class CommentsRepository {
     public Optional<CommentViewRow> findViewById(long id, long viewerPrincipalId, Long postAuthorPrincipalId) {
         var list = jdbc.query(
                 """
-                        SELECT c.id, c.post_id, c.user_id, c.author_principal_id, c.company_id, c.content, c.parent_id, c.likes_count, c.created_at,
+                        SELECT c.id, c.post_id, c.user_id, c.author_principal_id, c.company_id, c.content, c.parent_id, c.likes_count, c.reply_count, c.created_at, c.deleted_at,
                                p.kind AS author_kind, p.user_id AS author_user_id, p.anon_profile_id AS author_anon_profile_id,
                                COALESCE(u.handle, ap.handle) AS author_handle,
                                u.display_name AS author_display_name, u.profile_image_url AS author_profile_image_url,
@@ -161,7 +163,7 @@ public class CommentsRepository {
 
     public List<CommentViewRow> findByUserWithView(long targetUserId, long viewerPrincipalId, OffsetDateTime cursorTs, Long cursorId, int limit) {
         String sql = """
-                SELECT c.id, c.post_id, c.user_id, c.author_principal_id, c.company_id, c.content, c.parent_id, c.likes_count, c.created_at,
+                SELECT c.id, c.post_id, c.user_id, c.author_principal_id, c.company_id, c.content, c.parent_id, c.likes_count, c.reply_count, c.created_at, c.deleted_at,
                        pr.kind AS author_kind, pr.user_id AS author_user_id, pr.anon_profile_id AS author_anon_profile_id,
                        COALESCE(u.handle, ap.handle) AS author_handle,
                        u.display_name AS author_display_name, u.profile_image_url AS author_profile_image_url,
@@ -198,8 +200,42 @@ public class CommentsRepository {
         return rows > 0;
     }
 
+    public boolean deleteLikeIfPresent(long commentId, long principalId) {
+        int rows = jdbc.update(
+                "DELETE FROM comment_likes WHERE comment_id = ? AND liker_principal_id = ?",
+                commentId, principalId
+        );
+        return rows > 0;
+    }
+
     public void incrementCommentLikes(long commentId) {
         jdbc.update("UPDATE comments SET likes_count = likes_count + 1 WHERE id = ?", commentId);
+    }
+
+    public void decrementCommentLikes(long commentId) {
+        jdbc.update("UPDATE comments SET likes_count = GREATEST(likes_count - 1, 0) WHERE id = ?", commentId);
+    }
+
+    public void incrementReplyCount(long commentId) {
+        jdbc.update("UPDATE comments SET reply_count = reply_count + 1 WHERE id = ?", commentId);
+    }
+
+    public void decrementReplyCount(long commentId) {
+        jdbc.update("UPDATE comments SET reply_count = GREATEST(reply_count - 1, 0) WHERE id = ?", commentId);
+    }
+
+    public boolean updateContent(long commentId, String content) {
+        return jdbc.update(
+                "UPDATE comments SET content = ? WHERE id = ? AND deleted_at IS NULL",
+                content, commentId
+        ) > 0;
+    }
+
+    public boolean softDelete(long commentId) {
+        return jdbc.update(
+                "UPDATE comments SET deleted_at = now(), content = '' WHERE id = ? AND deleted_at IS NULL",
+                commentId
+        ) > 0;
     }
 
     private CommentViewRow mapViewRow(ResultSet rs, int rowNum) throws SQLException {
@@ -234,7 +270,9 @@ public class CommentsRepository {
         public String content;
         public Long parentId;
         public int likesCount;
+        public int replyCount;
         public OffsetDateTime createdAt;
+        public OffsetDateTime deletedAt;
     }
 
     public static class CommentViewRow {

@@ -50,10 +50,17 @@ public class SavedPostsRepository {
             "COALESCE(u.handle, ap.handle) AS author_handle, " +
             "u.display_name AS author_display_name, " +
             "u.profile_image_url AS author_profile_image_url, " +
+            "dc.id AS author_display_community_id, " +
+            "dc.name AS author_display_community_name, " +
+            "dc.kind AS author_display_community_kind, " +
+            "dc.specialization_type AS author_display_community_specialization_type, " +
             "CASE WHEN p.is_anon THEN true ELSE COALESCE(u.is_anonymous, false) END AS author_is_anonymous, " +
             "s.created_at AS saved_created_at " +
             "FROM principal_saved_posts s JOIN posts p ON p.id = s.post_id " +
             "LEFT JOIN users u ON u.id = p.author_id AND u.deleted_at IS NULL " +
+            "LEFT JOIN community_verifications cv ON cv.user_id = u.id AND cv.community_id = u.display_community_id " +
+            "AND cv.verified = true AND (cv.expires_at IS NULL OR cv.expires_at > now()) " +
+            "LEFT JOIN communities dc ON dc.id = cv.community_id " +
             "LEFT JOIN anonymous_profiles ap ON ap.id = p.anon_profile_id";
 
     private static final RowMapper<SavedPostRow> MAPPER = new RowMapper<>() {
@@ -82,6 +89,11 @@ public class SavedPostsRepository {
             post.authorHandle = rs.getString("author_handle");
             post.authorDisplayName = rs.getString("author_display_name");
             post.authorProfileImageUrl = rs.getString("author_profile_image_url");
+            long displayCommunityId = rs.getLong("author_display_community_id");
+            post.authorDisplayCommunityId = rs.wasNull() ? null : displayCommunityId;
+            post.authorDisplayCommunityName = rs.getString("author_display_community_name");
+            post.authorDisplayCommunityKind = rs.getString("author_display_community_kind");
+            post.authorDisplayCommunitySpecializationType = rs.getString("author_display_community_specialization_type");
             post.authorIsAnonymous = rs.getBoolean("author_is_anonymous");
 
             SavedPostRow row = new SavedPostRow();

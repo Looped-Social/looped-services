@@ -15,6 +15,7 @@ import com.looped.users.UserRepository;
 import org.springframework.dao.DataAccessException;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Duration;
 import java.util.Base64;
@@ -172,6 +173,61 @@ public class PostsService {
         return GetResult.ok(p.get());
     }
 
+    @Transactional
+    public EditResult edit(String firebaseUid, long postId, String content, AnonProofService.AnonActionProof anonProof) {
+        var post = posts.findByIdIncludingRemoved(postId);
+        if (post.isEmpty()) return EditResult.notFound();
+        if (post.get().removedAt != null) return EditResult.postRemoved();
+
+        long actorPrincipalId;
+        if (anonProof != null && anonProof.anonProfileId() != null) {
+            if (post.get().communityId == null) return EditResult.invalidAnonProof();
+            var verified = anonProofs.verifyActionScoped(anonProof, "post_edit", postId, post.get().communityId);
+            if (verified.status() != AnonProofService.Status.OK) return EditResult.invalidAnonProof();
+            actorPrincipalId = verified.actor().principalId();
+        } else {
+            if (firebaseUid == null) return EditResult.userNotProvisioned();
+            var actor = users.findByFirebaseUid(firebaseUid);
+            if (actor.isEmpty() || actor.get().companyId == null) return EditResult.userNotProvisioned();
+            actorPrincipalId = principals.createForUser(actor.get().id).id;
+        }
+
+        if (actorPrincipalId != post.get().authorPrincipalId) return EditResult.forbidden();
+
+        boolean updated = posts.updateContent(postId, content);
+        if (!updated) return EditResult.postRemoved();
+
+        hashtagPosts.deleteByPostId(postId);
+        indexHashtags(postId, post.get().companyId, content);
+
+        var updatedPost = posts.findById(postId).orElseThrow();
+        return EditResult.ok(updatedPost);
+    }
+
+    public DeleteResult delete(String firebaseUid, long postId, AnonProofService.AnonActionProof anonProof) {
+        var post = posts.findByIdIncludingRemoved(postId);
+        if (post.isEmpty()) return DeleteResult.notFound();
+
+        long actorPrincipalId;
+        if (anonProof != null && anonProof.anonProfileId() != null) {
+            if (post.get().communityId == null) return DeleteResult.invalidAnonProof();
+            var verified = anonProofs.verifyActionScoped(anonProof, "post_delete", postId, post.get().communityId);
+            if (verified.status() != AnonProofService.Status.OK) return DeleteResult.invalidAnonProof();
+            actorPrincipalId = verified.actor().principalId();
+        } else {
+            if (firebaseUid == null) return DeleteResult.userNotProvisioned();
+            var actor = users.findByFirebaseUid(firebaseUid);
+            if (actor.isEmpty() || actor.get().companyId == null) return DeleteResult.userNotProvisioned();
+            actorPrincipalId = principals.createForUser(actor.get().id).id;
+        }
+
+        if (actorPrincipalId != post.get().authorPrincipalId) return DeleteResult.forbidden();
+        if (post.get().removedAt != null) return DeleteResult.ok(false);
+
+        boolean removed = posts.remove(postId, null, "user_deleted");
+        return DeleteResult.ok(removed);
+    }
+
     private boolean mediaOwnerIsNull(long mediaAssetId) {
         Long ownerId = media.findOwnerId(mediaAssetId);
         return ownerId == null;
@@ -238,5 +294,26 @@ public class PostsService {
         static CreateResult communityRequired() { return new CreateResult(Status.COMMUNITY_REQUIRED, null, false); }
         static CreateResult communityNotFound() { return new CreateResult(Status.COMMUNITY_NOT_FOUND, null, false); }
         static CreateResult notVerified() { return new CreateResult(Status.NOT_VERIFIED, null, false); }
+    }
+
+    public enum EditStatus { OK, USER_NOT_PROVISIONED, NOT_FOUND, FORBIDDEN, INVALID_ANON_PROOF, POST_REMOVED }
+
+    public record EditResult(EditStatus status, PostRepository.PostRow post) {
+        static EditResult ok(PostRepository.PostRow post) { return new EditResult(EditStatus.OK, post); }
+        static EditResult userNotProvisioned() { return new EditResult(EditStatus.USER_NOT_PROVISIONED, null); }
+        static EditResult notFound() { return new EditResult(EditStatus.NOT_FOUND, null); }
+        static EditResult forbidden() { return new EditResult(EditStatus.FORBIDDEN, null); }
+        static EditResult invalidAnonProof() { return new EditResult(EditStatus.INVALID_ANON_PROOF, null); }
+        static EditResult postRemoved() { return new EditResult(EditStatus.POST_REMOVED, null); }
+    }
+
+    public enum DeleteStatus { OK, USER_NOT_PROVISIONED, NOT_FOUND, FORBIDDEN, INVALID_ANON_PROOF }
+
+    public record DeleteResult(DeleteStatus status, boolean deleted) {
+        static DeleteResult ok(boolean deleted) { return new DeleteResult(DeleteStatus.OK, deleted); }
+        static DeleteResult userNotProvisioned() { return new DeleteResult(DeleteStatus.USER_NOT_PROVISIONED, false); }
+        static DeleteResult notFound() { return new DeleteResult(DeleteStatus.NOT_FOUND, false); }
+        static DeleteResult forbidden() { return new DeleteResult(DeleteStatus.FORBIDDEN, false); }
+        static DeleteResult invalidAnonProof() { return new DeleteResult(DeleteStatus.INVALID_ANON_PROOF, false); }
     }
 }

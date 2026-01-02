@@ -21,33 +21,42 @@ public class FeedService {
         this.communities = communities;
     }
 
-    public FeedResult feed(String firebaseUid, String cursor, int limit, Long communityId) {
+    public FeedResult feed(String firebaseUid, String cursor, int limit, Long communityId, String mode) {
         var u = users.findByFirebaseUid(firebaseUid);
         if (u.isEmpty()) {
             return FeedResult.userNotProvisioned();
         }
-        if (communityId != null) {
-            var community = communities.findById(communityId);
-            if (community.isEmpty()) return FeedResult.communityNotFound();
-            OffsetDateTime cTs = null; Long cId = null;
-            if (cursor != null && !cursor.isBlank()) {
-                try {
-                    var c = Pagination.decode(cursor);
-                    cTs = c.timestamp();
-                    cId = c.id();
-                } catch (IllegalArgumentException ignored) {
-                    // treat as no cursor
-                }
-            }
-            var list = posts.findFeedByCommunity(communityId, cTs, cId, limit);
-            String next = null;
-            if (list.size() == limit) {
-                var last = list.get(list.size() - 1);
-                next = Pagination.encode(last.createdAt, last.id);
-            }
-            return FeedResult.ok(list, next);
+        if (communityId != null && communities.findById(communityId).isEmpty()) {
+            return FeedResult.communityNotFound();
         }
+        Mode resolved = Mode.from(mode);
+        return resolved == Mode.NEW
+                ? feedNew(cursor, limit, communityId)
+                : feedForYou(cursor, limit, communityId);
+    }
 
+    private FeedResult feedNew(String cursor, int limit, Long communityId) {
+        OffsetDateTime cTs = null;
+        Long cId = null;
+        if (cursor != null && !cursor.isBlank()) {
+            try {
+                var c = Pagination.decode(cursor);
+                cTs = c.timestamp();
+                cId = c.id();
+            } catch (IllegalArgumentException ignored) {
+                // treat as no cursor
+            }
+        }
+        var list = posts.findNew(communityId, cTs, cId, limit);
+        String next = null;
+        if (list.size() == limit) {
+            var last = list.get(list.size() - 1);
+            next = Pagination.encode(last.createdAt, last.id);
+        }
+        return FeedResult.ok(list, next);
+    }
+
+    private FeedResult feedForYou(String cursor, int limit, Long communityId) {
         RankPagination.Cursor rankedCursor = null;
         if (cursor != null && !cursor.isBlank()) {
             try {
@@ -61,7 +70,9 @@ public class FeedService {
         Long score = rankedCursor == null ? null : rankedCursor.score();
         OffsetDateTime cTs = rankedCursor == null ? null : rankedCursor.timestamp();
         Long cId = rankedCursor == null ? null : rankedCursor.id();
-        var list = posts.findPopular(asOf, since, score, cTs, cId, limit);
+        var list = communityId == null
+                ? posts.findPopular(asOf, since, score, cTs, cId, limit)
+                : posts.findPopularByCommunity(communityId, asOf, since, score, cTs, cId, limit);
         String next = null;
         if (list.size() == limit) {
             var last = list.get(list.size() - 1);
@@ -93,6 +104,16 @@ public class FeedService {
     }
 
     public enum Status { OK, USER_NOT_PROVISIONED, COMMUNITY_NOT_FOUND }
+    public enum Mode {
+        FOR_YOU, NEW;
+
+        static Mode from(String raw) {
+            if (raw == null || raw.isBlank()) return FOR_YOU;
+            String normalized = raw.trim().toLowerCase();
+            if (normalized.equals("new") || normalized.equals("recent")) return NEW;
+            return FOR_YOU;
+        }
+    }
     public record FeedResult(Status status, List<PostRepository.PostRow> items, String nextCursor) {
         static FeedResult ok(List<PostRepository.PostRow> items, String next) { return new FeedResult(Status.OK, items, next); }
         static FeedResult userNotProvisioned() { return new FeedResult(Status.USER_NOT_PROVISIONED, List.of(), null); }

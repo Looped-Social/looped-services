@@ -29,12 +29,29 @@ public class CommunityFollowsService {
         this.specializationLimits = specializationLimits;
     }
 
-    public ListResult followed(String firebaseUid, String cursor, int limit) {
+    public ListResult followed(String firebaseUid, String cursor, int limit, String order) {
         var actor = provisionedUser(firebaseUid);
         if (actor.isEmpty()) return ListResult.userNotProvisioned();
+        Order resolved = Order.from(order);
+        if (resolved == Order.RECENT) {
+            return followedRecent(actor.get().id, cursor, limit);
+        }
+        var relevantCursor = CommunityFollowCursor.tryDecode(cursor);
+        if (relevantCursor == null && cursor != null && !cursor.isBlank()) {
+            return followedRecent(actor.get().id, cursor, limit);
+        }
+        var rows = follows.findFollowedRelevant(actor.get().id, relevantCursor, limit);
+        String next = null;
+        if (rows.size() == limit) {
+            var last = rows.get(rows.size() - 1);
+            next = CommunityFollowCursor.encode(last);
+        }
+        return ListResult.ok(rows, next);
+    }
 
+    private ListResult followedRecent(long userId, String cursor, int limit) {
         var cursorParts = decodeCursor(cursor);
-        var rows = follows.findFollowed(actor.get().id, cursorParts.timestamp, cursorParts.followId, limit);
+        var rows = follows.findFollowed(userId, cursorParts.timestamp, cursorParts.followId, limit);
         String next = null;
         if (rows.size() == limit) {
             var last = rows.get(rows.size() - 1);
@@ -62,6 +79,18 @@ public class CommunityFollowsService {
     private record CursorParts(OffsetDateTime timestamp, Long followId) {}
 
     public enum Status { OK, USER_NOT_PROVISIONED, NOT_FOUND, LIMIT_REACHED, COOLDOWN, INVALID_SPECIALIZATION }
+    public enum Order {
+        RECENT, RELEVANT;
+
+        static Order from(String raw) {
+            if (raw == null || raw.isBlank()) return RELEVANT;
+            try {
+                return Order.valueOf(raw.trim().toUpperCase(Locale.ROOT));
+            } catch (IllegalArgumentException ignored) {
+                return RELEVANT;
+            }
+        }
+    }
 
     public record ListResult(Status status, List<CommunityFollowsRepository.FollowRow> follows, String nextCursor) {
         static ListResult ok(List<CommunityFollowsRepository.FollowRow> follows, String next) { return new ListResult(Status.OK, follows, next); }

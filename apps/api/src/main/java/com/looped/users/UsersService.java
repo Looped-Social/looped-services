@@ -3,6 +3,8 @@ package com.looped.users;
 import com.looped.auth.FirebaseAdminService;
 import com.looped.comments.CommentsRepository;
 import com.looped.companies.CompanyRepository;
+import com.looped.communities.CommunitiesRepository;
+import com.looped.communities.CommunityVerificationsRepository;
 import com.looped.posts.PostRepository;
 import com.looped.shared.Pagination;
 import com.looped.verification.VerificationRepository;
@@ -23,6 +25,8 @@ public class UsersService {
     private final PostRepository posts;
     private final CommentsRepository comments;
     private final CompanyRepository companies;
+    private final CommunitiesRepository communities;
+    private final CommunityVerificationsRepository communityVerifications;
     private final FirebaseAdminService firebaseAdmin;
     private final int deactivatedRetentionDays;
     private final int usernameTombstoneDays;
@@ -33,6 +37,8 @@ public class UsersService {
                         PostRepository posts,
                         CommentsRepository comments,
                         CompanyRepository companies,
+                        CommunitiesRepository communities,
+                        CommunityVerificationsRepository communityVerifications,
                         FirebaseAdminService firebaseAdmin,
                         @Value("${retention.deactivated-days:90}") int deactivatedRetentionDays,
                         @Value("${retention.username-tombstone-days:14}") int usernameTombstoneDays,
@@ -42,6 +48,8 @@ public class UsersService {
         this.posts = posts;
         this.comments = comments;
         this.companies = companies;
+        this.communities = communities;
+        this.communityVerifications = communityVerifications;
         this.firebaseAdmin = firebaseAdmin;
         this.deactivatedRetentionDays = Math.max(1, deactivatedRetentionDays);
         this.usernameTombstoneDays = Math.max(1, usernameTombstoneDays);
@@ -93,6 +101,23 @@ public class UsersService {
         var updated = users.findById(actor.get().id).orElse(actor.get());
         var verification = verifications.findByUserId(actor.get().id).orElse(null);
         return UpdateProfileResult.ok(buildProfile(updated, verification));
+    }
+
+    public UpdateDisplayCommunityResult updateDisplayCommunity(String firebaseUid, Long communityId) {
+        var actor = requireProvisionedUser(firebaseUid);
+        if (actor.isEmpty()) return UpdateDisplayCommunityResult.userNotProvisioned();
+
+        if (communityId != null) {
+            var community = communities.findById(communityId);
+            if (community.isEmpty()) return UpdateDisplayCommunityResult.communityNotFound();
+            boolean verified = communityVerifications.isVerified(actor.get().id, communityId);
+            if (!verified) return UpdateDisplayCommunityResult.communityNotVerified();
+        }
+
+        users.updateDisplayCommunity(actor.get().id, communityId);
+        var updated = users.findById(actor.get().id).orElse(actor.get());
+        var verification = verifications.findByUserId(actor.get().id).orElse(null);
+        return UpdateDisplayCommunityResult.ok(buildProfile(updated, verification));
     }
 
     public UpdateIdentityResult updateIdentity(String firebaseUid, String username,
@@ -305,6 +330,9 @@ public class UsersService {
 
     private UserProfile buildProfile(UserRepository.UserRow row, VerificationRepository.Row verification) {
         var verificationData = verification == null ? null : new Verification(verification.method, verification.verified, verification.verifiedAt);
+        var displayCommunity = users.findDisplayCommunityForUser(row.id)
+                .map(dc -> new DisplayCommunity(dc.id, dc.name, dc.kind, dc.specializationType))
+                .orElse(null);
         var stats = new ProfileStats(
                 users.countFollowers(row.id),
                 users.countFollowing(row.id),
@@ -325,6 +353,7 @@ public class UsersService {
                 row.createdAt,
                 row.profileImageUrl,
                 verificationData,
+                displayCommunity,
                 stats
         );
     }
@@ -405,11 +434,23 @@ public class UsersService {
 
     public record UserProfile(long id, String handle, String firstName, String lastName, LocalDate dateOfBirth,
                               String displayName, String bio, boolean isAnonymous, boolean showFollowerCount, Long companyId,
-                              OffsetDateTime createdAt, String profileImageUrl, Verification verification, ProfileStats stats) {}
+                              OffsetDateTime createdAt, String profileImageUrl, Verification verification,
+                              DisplayCommunity displayCommunity, ProfileStats stats) {}
+
+    public record DisplayCommunity(long id, String name, String kind, String specializationType) {}
 
     public record ProfileStats(int followerCount, int followingCount, int postsCount, int commentsCount) {}
 
     public record Verification(String method, boolean verified, OffsetDateTime verifiedAt) {}
+
+    public enum UpdateDisplayCommunityStatus { OK, USER_NOT_PROVISIONED, COMMUNITY_NOT_FOUND, COMMUNITY_NOT_VERIFIED }
+
+    public record UpdateDisplayCommunityResult(UpdateDisplayCommunityStatus status, UserProfile profile) {
+        static UpdateDisplayCommunityResult ok(UserProfile profile) { return new UpdateDisplayCommunityResult(UpdateDisplayCommunityStatus.OK, profile); }
+        static UpdateDisplayCommunityResult userNotProvisioned() { return new UpdateDisplayCommunityResult(UpdateDisplayCommunityStatus.USER_NOT_PROVISIONED, null); }
+        static UpdateDisplayCommunityResult communityNotFound() { return new UpdateDisplayCommunityResult(UpdateDisplayCommunityStatus.COMMUNITY_NOT_FOUND, null); }
+        static UpdateDisplayCommunityResult communityNotVerified() { return new UpdateDisplayCommunityResult(UpdateDisplayCommunityStatus.COMMUNITY_NOT_VERIFIED, null); }
+    }
 
     public record PostsResult(Status status, List<PostRepository.PostRow> posts, String nextCursor) {
         static PostsResult ok(List<PostRepository.PostRow> posts, String next) { return new PostsResult(Status.OK, posts, next); }

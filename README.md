@@ -159,6 +159,23 @@ Notes
   - `verification.echo-code` (default `true` in dev). Set `VERIFICATION_ECHO_CODE=false` in prod so codes aren’t echoed.
   - `verification.code-ttl-seconds` (default `600`).
 
+## API — Feed Filter Pills
+
+- Followed communities for feed filters
+  - `GET /v1/me/followed/communities?limit=50&cursor=&order=relevant`
+  - `order` options: `relevant` (default; pinned + manual order + recent activity) or `recent`
+  - Response: `{ items: [ { id, name, kind, member_count, is_pinned, sort_order, can_post } ], next_cursor? }`
+  - `next_cursor` should be passed back as-is for pagination.
+
+## API — Feed Modes (For You vs New)
+
+- Feed list
+  - `GET /v1/feed?mode=for_you|new&communityId=...&limit=20&cursor=...`
+  - `mode=for_you` (default): popularity-ranked posts (global or within `communityId`).
+  - `mode=new`: newest posts by `created_at` (global or within `communityId`).
+  - `communityId` is optional; when omitted it fetches all posts.
+  - `cursor` is opaque; pass back `next_cursor` from the response.
+
 ## API — Admin Dashboard
 
 - Admin endpoints are documented in `docs/admin-api.md`.

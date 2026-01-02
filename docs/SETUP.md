@@ -123,4 +123,4 @@ Map plain envs in the task def (non-secret): `PORT=8080`, `AWS_REGION`, `S3_BUCK
 - Checkout → Docker build (from `apps/api/Dockerfile`) → ECR login → push `:GIT_SHA` tag → render task def with new image → `aws ecs update-service --force-new-deployment` → wait for stable.
 
 For deploy checklist and sample task definition, see `docs/deploy/ecs-fargate.md` and `deploy/ecs-taskdef.sample.json`.
-
+For Render migration notes, see `docs/deploy/render.md`.
