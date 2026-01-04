@@ -26,6 +26,9 @@ public class AnonymousProfilesRepository {
             row.companyId = rs.wasNull() ? null : companyId;
             row.publicKey = rs.getBytes("public_key");
             row.handle = rs.getString("handle");
+            long displayCommunityId = rs.getLong("display_community_id");
+            row.displayCommunityId = rs.wasNull() ? null : displayCommunityId;
+            row.displayCommunityCertKid = rs.getString("display_community_cert_kid");
             row.createdAt = rs.getObject("created_at", OffsetDateTime.class);
             return row;
         }
@@ -33,7 +36,8 @@ public class AnonymousProfilesRepository {
 
     public Optional<AnonymousProfileRow> findById(long id) {
         var rows = jdbc.query(
-                "SELECT id, company_id, public_key, handle, created_at FROM anonymous_profiles WHERE id = ?",
+                "SELECT id, company_id, public_key, handle, display_community_id, display_community_cert_kid, created_at " +
+                        "FROM anonymous_profiles WHERE id = ?",
                 MAPPER, id
         );
         return rows.isEmpty() ? Optional.empty() : Optional.of(rows.get(0));
@@ -41,7 +45,8 @@ public class AnonymousProfilesRepository {
 
     public Optional<AnonymousProfileRow> findByPublicKey(byte[] publicKey) {
         var rows = jdbc.query(
-                "SELECT id, company_id, public_key, handle, created_at FROM anonymous_profiles WHERE public_key = ?",
+                "SELECT id, company_id, public_key, handle, display_community_id, display_community_cert_kid, created_at " +
+                        "FROM anonymous_profiles WHERE public_key = ?",
                 MAPPER, publicKey
         );
         return rows.isEmpty() ? Optional.empty() : Optional.of(rows.get(0));
@@ -59,11 +64,21 @@ public class AnonymousProfilesRepository {
         return findById(id).orElseThrow();
     }
 
+    public boolean updateDisplayCommunity(long anonProfileId, Long communityId, String certKid) {
+        int rows = jdbc.update(
+                "UPDATE anonymous_profiles SET display_community_id = ?, display_community_cert_kid = ? WHERE id = ?",
+                communityId, certKid, anonProfileId
+        );
+        return rows > 0;
+    }
+
     public static class AnonymousProfileRow {
         public long id;
         public Long companyId;
         public byte[] publicKey;
         public String handle;
+        public Long displayCommunityId;
+        public String displayCommunityCertKid;
         public OffsetDateTime createdAt;
     }
 }

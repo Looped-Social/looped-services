@@ -319,7 +319,7 @@ public class UsersController {
                     "error", "forbidden",
                     "message", "Cross-company access denied"
             ));
-            case OK -> ResponseEntity.ok(UserPayloads.fromProfile(res.profile()));
+            case OK -> ResponseEntity.ok(UserPayloads.fromProfile(res.profile(), res.includeFollowerCounts()));
         };
     }
 

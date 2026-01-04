@@ -71,6 +71,7 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.DELETE, "/v1/comments/*/like").permitAll()
                 .requestMatchers(HttpMethod.PUT, "/v1/comments/*").permitAll()
                 .requestMatchers(HttpMethod.DELETE, "/v1/comments/*").permitAll()
+                .requestMatchers(HttpMethod.PUT, "/v1/anon/*/display-community").permitAll()
                 .requestMatchers(HttpMethod.POST, "/v1/users/*/follow").permitAll()
                 .requestMatchers(HttpMethod.DELETE, "/v1/users/*/follow").permitAll()
                 .requestMatchers(HttpMethod.GET, "/v1/users/*/replies").permitAll()

@@ -1,5 +1,6 @@
 package com.looped.anon;
 
+import com.looped.communities.CommunitiesRepository;
 import com.looped.posts.PostRepository;
 import com.looped.principals.PrincipalProfilesRepository;
 import com.looped.principals.PrincipalRepository;
@@ -20,19 +21,28 @@ public class AnonProfilesService {
     private final PrincipalStatsRepository stats;
     private final PostRepository posts;
     private final PrincipalProfilesRepository follows;
+    private final CommunitiesRepository communities;
+    private final AnonIssuerRepository issuers;
+    private final AnonProofService proofs;
 
     public AnonProfilesService(UserRepository users,
                                AnonymousProfilesRepository profiles,
                                PrincipalRepository principals,
                                PrincipalStatsRepository stats,
                                PostRepository posts,
-                               PrincipalProfilesRepository follows) {
+                               PrincipalProfilesRepository follows,
+                               CommunitiesRepository communities,
+                               AnonIssuerRepository issuers,
+                               AnonProofService proofs) {
         this.users = users;
         this.profiles = profiles;
         this.principals = principals;
         this.stats = stats;
         this.posts = posts;
         this.follows = follows;
+        this.communities = communities;
+        this.issuers = issuers;
+        this.proofs = proofs;
     }
 
     public ProfileResult profile(String firebaseUid, long anonProfileId) {
@@ -49,13 +59,78 @@ public class AnonProfilesService {
                 stats.countFollowing(principal.id),
                 stats.countPosts(principal.id)
         );
+        DisplayCommunity displayCommunity = resolveDisplayCommunity(profile.get());
         return ProfileResult.ok(new AnonProfile(
                 profile.get().id,
                 profile.get().handle,
                 profile.get().companyId,
                 profile.get().createdAt,
-                statsBlock
+                statsBlock,
+                displayCommunity
         ));
+    }
+
+    public UpdateDisplayCommunityResult updateDisplayCommunity(long anonProfileId, Long communityId,
+                                                               AnonProofService.AnonActionProof anonProof) {
+        var profile = profiles.findById(anonProfileId);
+        if (profile.isEmpty()) return UpdateDisplayCommunityResult.notFound();
+        if (anonProof == null || anonProof.anonProfileId() == null) return UpdateDisplayCommunityResult.invalidAnonProof();
+        if (!anonProfileIdEquals(anonProfileId, anonProof.anonProfileId())) {
+            return UpdateDisplayCommunityResult.invalidAnonProof();
+        }
+
+        if (communityId != null) {
+            var community = communities.findById(communityId);
+            if (community.isEmpty()) return UpdateDisplayCommunityResult.communityNotFound();
+            var verified = proofs.verifyActionScoped(anonProof, "anon_display_community", anonProfileId, communityId);
+            if (verified.status() != AnonProofService.Status.OK) return UpdateDisplayCommunityResult.invalidAnonProof();
+            profiles.updateDisplayCommunity(anonProfileId, communityId, anonProof.anonCertKid());
+        } else {
+            var verified = proofs.verifyAction(anonProof, "anon_display_community", anonProfileId);
+            if (verified.status() != AnonProofService.Status.OK) return UpdateDisplayCommunityResult.invalidAnonProof();
+            profiles.updateDisplayCommunity(anonProfileId, null, null);
+        }
+
+        var updated = profiles.findById(anonProfileId).orElseThrow();
+        var principal = principals.createForAnon(anonProfileId);
+        DisplayCommunity displayCommunity = resolveDisplayCommunity(updated);
+        var statsBlock = new ProfileStats(
+                stats.countFollowers(principal.id),
+                stats.countFollowing(principal.id),
+                stats.countPosts(principal.id)
+        );
+        return UpdateDisplayCommunityResult.ok(new AnonProfile(
+                updated.id,
+                updated.handle,
+                updated.companyId,
+                updated.createdAt,
+                statsBlock,
+                displayCommunity
+        ));
+    }
+
+    private DisplayCommunity resolveDisplayCommunity(AnonymousProfilesRepository.AnonymousProfileRow profile) {
+        if (profile.displayCommunityId == null || profile.displayCommunityCertKid == null) return null;
+        var issuer = issuers.findByKid(profile.displayCommunityCertKid);
+        if (issuer.isEmpty()) return null;
+        var issuerRow = issuer.get();
+        if (issuerRow.expiresAt != null && issuerRow.expiresAt.isBefore(OffsetDateTime.now())) return null;
+        if (!"community".equals(issuerRow.scopeKind) || issuerRow.scopeId == null
+                || !issuerRow.scopeId.equals(profile.displayCommunityId)) {
+            return null;
+        }
+        var community = communities.findById(profile.displayCommunityId);
+        if (community.isEmpty()) return null;
+        return new DisplayCommunity(
+                community.get().id,
+                community.get().name,
+                community.get().kind,
+                community.get().specializationType
+        );
+    }
+
+    private boolean anonProfileIdEquals(long expected, long provided) {
+        return expected == provided;
     }
 
     public PostsResult posts(String firebaseUid, long anonProfileId, String cursor, int limit) {
@@ -136,6 +211,21 @@ public class AnonProfilesService {
         static ProfileResult forbidden() { return new ProfileResult(Status.FORBIDDEN, null); }
     }
 
+    public record UpdateDisplayCommunityResult(UpdateDisplayCommunityStatus status, AnonProfile profile) {
+        static UpdateDisplayCommunityResult ok(AnonProfile profile) {
+            return new UpdateDisplayCommunityResult(UpdateDisplayCommunityStatus.OK, profile);
+        }
+        static UpdateDisplayCommunityResult notFound() {
+            return new UpdateDisplayCommunityResult(UpdateDisplayCommunityStatus.NOT_FOUND, null);
+        }
+        static UpdateDisplayCommunityResult invalidAnonProof() {
+            return new UpdateDisplayCommunityResult(UpdateDisplayCommunityStatus.INVALID_ANON_PROOF, null);
+        }
+        static UpdateDisplayCommunityResult communityNotFound() {
+            return new UpdateDisplayCommunityResult(UpdateDisplayCommunityStatus.COMMUNITY_NOT_FOUND, null);
+        }
+    }
+
     public record PostsResult(Status status, List<PostRepository.PostRow> posts, String nextCursor) {
         static PostsResult ok(List<PostRepository.PostRow> posts, String next) { return new PostsResult(Status.OK, posts, next); }
         static PostsResult userNotProvisioned() { return new PostsResult(Status.USER_NOT_PROVISIONED, List.of(), null); }
@@ -150,7 +240,12 @@ public class AnonProfilesService {
         static FollowsResult forbidden() { return new FollowsResult(Status.FORBIDDEN, List.of(), null); }
     }
 
-    public record AnonProfile(long id, String handle, Long companyId, OffsetDateTime createdAt, ProfileStats stats) {}
+    public record AnonProfile(long id, String handle, Long companyId, OffsetDateTime createdAt,
+                              ProfileStats stats, DisplayCommunity displayCommunity) {}
+
+    public record DisplayCommunity(long id, String name, String kind, String specializationType) {}
 
     public record ProfileStats(int followerCount, int followingCount, int postsCount) {}
+
+    public enum UpdateDisplayCommunityStatus { OK, NOT_FOUND, INVALID_ANON_PROOF, COMMUNITY_NOT_FOUND }
 }

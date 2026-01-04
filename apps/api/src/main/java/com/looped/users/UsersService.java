@@ -65,7 +65,8 @@ public class UsersService {
         if (!actor.get().companyId.equals(target.get().companyId)) return ProfileResult.forbidden();
 
         var verification = verifications.findByUserId(targetUserId).orElse(null);
-        return ProfileResult.ok(buildProfile(target.get(), verification));
+        boolean includeFollowerCounts = target.get().showFollowerCount || actor.get().id == target.get().id;
+        return ProfileResult.ok(buildProfile(target.get(), verification), includeFollowerCounts);
     }
 
     public PostsResult posts(String firebaseUid, long targetUserId, String cursor, int limit) {
@@ -387,11 +388,13 @@ public class UsersService {
 
     public enum Status { OK, USER_NOT_PROVISIONED, NOT_FOUND, FORBIDDEN }
 
-    public record ProfileResult(Status status, UserProfile profile) {
-        static ProfileResult ok(UserProfile profile) { return new ProfileResult(Status.OK, profile); }
-        static ProfileResult userNotProvisioned() { return new ProfileResult(Status.USER_NOT_PROVISIONED, null); }
-        static ProfileResult notFound() { return new ProfileResult(Status.NOT_FOUND, null); }
-        static ProfileResult forbidden() { return new ProfileResult(Status.FORBIDDEN, null); }
+    public record ProfileResult(Status status, UserProfile profile, boolean includeFollowerCounts) {
+        static ProfileResult ok(UserProfile profile, boolean includeFollowerCounts) {
+            return new ProfileResult(Status.OK, profile, includeFollowerCounts);
+        }
+        static ProfileResult userNotProvisioned() { return new ProfileResult(Status.USER_NOT_PROVISIONED, null, false); }
+        static ProfileResult notFound() { return new ProfileResult(Status.NOT_FOUND, null, false); }
+        static ProfileResult forbidden() { return new ProfileResult(Status.FORBIDDEN, null, false); }
     }
 
     public record UpdateProfileResult(Status status, UserProfile profile) {

@@ -109,6 +109,7 @@
     - `post_delete` (target: post_id)
     - `post_edit` (target: post_id)
     - `unlike` (target: post_id)
+    - `anon_display_community` (target: anon_profile_id)
 - **Profile stats & DTO extensions**
   - User DTO now includes `stats` block with follower/following/posts/comments counts; display/bio/anonymity fields included across `/v1/me`, `/v1/users/{id}`, and update alias responses.
   - User DTO may include `display_community` `{ id, name, kind, specialization_type? }` when the user has a verified display community selected.
@@ -120,5 +121,9 @@
   - `GET /v1/communities/{id}/permissions` → `{ can_post: true|false, requires_verification: true|false }`
 - **Profile display community**
   - `PUT /v1/users/me/display-community` with `{ communityId: <id|null> }` → user payload (same shape as `/v1/me.user`). `null` clears the display community.
+- **Anon profile display community**
+  - `PUT /v1/anon/{id}/display-community` (NO JWT) with `{ communityId: <id|null>, asAnon: true, anonProfileId, anonCert, anonCertKid, anonSig }`.
+  - Requires action signature `anon_display_community|v1|{anonProfileId}`; for non-null `communityId` the anon cert must be scoped to that community.
+  - Response: anon profile payload `{ id, handle, company_id, created_at, display_community?, stats }`. `display_community` matches user shape.
 
 All endpoints enforce Firebase auth + company scoping unless explicitly noted (anonymous actions and `/anon/register` are JWT-free). Pagination uses `cursor`/`limit` with `{ items, next_cursor }` envelopes.

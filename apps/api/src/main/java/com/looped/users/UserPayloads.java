@@ -9,6 +9,10 @@ public final class UserPayloads {
     private UserPayloads() {}
 
     public static Map<String, Object> fromProfile(UsersService.UserProfile profile) {
+        return fromProfile(profile, true);
+    }
+
+    public static Map<String, Object> fromProfile(UsersService.UserProfile profile, boolean includeFollowerCounts) {
         Map<String, Object> map = new HashMap<>();
         map.put("id", profile.id());
         map.put("handle", profile.handle());
@@ -42,8 +46,10 @@ public final class UserPayloads {
         }
         if (profile.stats() != null) {
             Map<String, Object> stats = new HashMap<>();
-            stats.put("follower_count", profile.stats().followerCount());
-            stats.put("following_count", profile.stats().followingCount());
+            if (includeFollowerCounts) {
+                stats.put("follower_count", profile.stats().followerCount());
+                stats.put("following_count", profile.stats().followingCount());
+            }
             stats.put("posts_count", profile.stats().postsCount());
             stats.put("comments_count", profile.stats().commentsCount());
             map.put("stats", stats);

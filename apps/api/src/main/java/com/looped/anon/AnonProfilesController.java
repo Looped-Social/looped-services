@@ -8,6 +8,7 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -35,17 +36,37 @@ public class AnonProfilesController {
             case USER_NOT_PROVISIONED -> ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "user_not_provisioned"));
             case NOT_FOUND -> ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "not_found"));
             case FORBIDDEN -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "forbidden"));
-            case OK -> ResponseEntity.ok(Map.of(
-                    "id", res.profile().id(),
-                    "handle", res.profile().handle(),
-                    "company_id", res.profile().companyId(),
-                    "created_at", res.profile().createdAt(),
-                    "stats", Map.of(
-                            "follower_count", res.profile().stats().followerCount(),
-                            "following_count", res.profile().stats().followingCount(),
-                            "posts_count", res.profile().stats().postsCount()
-                    )
+            case OK -> ResponseEntity.ok(toAnonProfilePayload(res.profile()));
+        };
+    }
+
+    @org.springframework.web.bind.annotation.PutMapping("/{id}/display-community")
+    public ResponseEntity<?> updateDisplayCommunity(
+            @AuthenticationPrincipal Jwt jwt,
+            @PathVariable("id") long id,
+            @RequestBody DisplayCommunityRequest body
+    ) {
+        if (jwt != null) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of(
+                    "error", "anon_jwt_not_allowed",
+                    "message", "Do not send Authorization for anonymous actions"
             ));
+        }
+        if (body == null || !body.hasAnonProof()) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
+                    "error", "invalid_anon_proof",
+                    "message", "Invalid anonymous proof"
+            ));
+        }
+        var res = service.updateDisplayCommunity(id, body.communityId(), body.toAnonProof());
+        return switch (res.status()) {
+            case NOT_FOUND -> ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "not_found"));
+            case COMMUNITY_NOT_FOUND -> ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "community_not_found"));
+            case INVALID_ANON_PROOF -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
+                    "error", "invalid_anon_proof",
+                    "message", "Invalid anonymous proof"
+            ));
+            case OK -> ResponseEntity.ok(toAnonProfilePayload(res.profile()));
         };
     }
 
@@ -123,5 +144,46 @@ public class AnonProfilesController {
         body.put("items", items);
         if (nextCursor != null) body.put("next_cursor", nextCursor);
         return body;
+    }
+
+    private Map<String, Object> toAnonProfilePayload(AnonProfilesService.AnonProfile profile) {
+        Map<String, Object> body = new HashMap<>();
+        body.put("id", profile.id());
+        body.put("handle", profile.handle());
+        body.put("company_id", profile.companyId());
+        body.put("created_at", profile.createdAt());
+        if (profile.displayCommunity() != null) {
+            Map<String, Object> display = new HashMap<>();
+            display.put("id", profile.displayCommunity().id());
+            display.put("name", profile.displayCommunity().name());
+            display.put("kind", profile.displayCommunity().kind());
+            if (profile.displayCommunity().specializationType() != null) {
+                display.put("specialization_type", profile.displayCommunity().specializationType());
+            }
+            body.put("display_community", display);
+        } else {
+            body.put("display_community", null);
+        }
+        Map<String, Object> stats = new HashMap<>();
+        stats.put("follower_count", profile.stats().followerCount());
+        stats.put("following_count", profile.stats().followingCount());
+        stats.put("posts_count", profile.stats().postsCount());
+        body.put("stats", stats);
+        return body;
+    }
+
+    public record DisplayCommunityRequest(Long communityId, Boolean asAnon, Long anonProfileId,
+                                          String anonCert, String anonCertKid, String anonSig) {
+        AnonProofService.AnonActionProof toAnonProof() {
+            return new AnonProofService.AnonActionProof(anonProfileId, anonCert, anonCertKid, anonSig);
+        }
+
+        boolean hasAnonProof() {
+            return anonProfileId != null
+                    && anonCert != null && !anonCert.isBlank()
+                    && anonCertKid != null && !anonCertKid.isBlank()
+                    && anonSig != null && !anonSig.isBlank()
+                    && Boolean.TRUE.equals(asAnon);
+        }
     }
 }
