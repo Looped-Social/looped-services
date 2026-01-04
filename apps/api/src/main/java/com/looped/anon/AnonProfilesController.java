@@ -27,6 +27,9 @@ public class AnonProfilesController {
 
     @GetMapping("/{id}")
     public ResponseEntity<?> profile(@AuthenticationPrincipal Jwt jwt, @PathVariable("id") long id) {
+        if (jwt == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("error", "unauthorized"));
+        }
         var res = service.profile(jwt.getSubject(), id);
         return switch (res.status()) {
             case USER_NOT_PROVISIONED -> ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "user_not_provisioned"));
@@ -53,6 +56,9 @@ public class AnonProfilesController {
             @RequestParam(value = "cursor", required = false) String cursor,
             @RequestParam(value = "limit", required = false, defaultValue = "20") int limit
     ) {
+        if (jwt == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("error", "unauthorized"));
+        }
         int lim = Math.max(1, Math.min(limit, 100));
         var res = service.posts(jwt.getSubject(), id, cursor, lim);
         return switch (res.status()) {
@@ -70,6 +76,9 @@ public class AnonProfilesController {
             @RequestParam(value = "cursor", required = false) String cursor,
             @RequestParam(value = "limit", required = false, defaultValue = "20") int limit
     ) {
+        if (jwt == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("error", "unauthorized"));
+        }
         int lim = Math.max(1, Math.min(limit, 100));
         var res = service.followers(jwt.getSubject(), id, cursor, lim);
         return switch (res.status()) {
@@ -87,6 +96,9 @@ public class AnonProfilesController {
             @RequestParam(value = "cursor", required = false) String cursor,
             @RequestParam(value = "limit", required = false, defaultValue = "20") int limit
     ) {
+        if (jwt == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("error", "unauthorized"));
+        }
         int lim = Math.max(1, Math.min(limit, 100));
         var res = service.following(jwt.getSubject(), id, cursor, lim);
         return switch (res.status()) {
