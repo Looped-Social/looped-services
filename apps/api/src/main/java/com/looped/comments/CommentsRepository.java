@@ -191,6 +191,37 @@ public class CommentsRepository {
         return jdbc.query(sql, this::mapViewRow, params);
     }
 
+    public List<CommentViewRow> findByAuthorPrincipalWithView(long targetPrincipalId, long viewerPrincipalId,
+                                                              OffsetDateTime cursorTs, Long cursorId, int limit) {
+        String sql = """
+                SELECT c.id, c.post_id, c.user_id, c.author_principal_id, c.company_id, c.content, c.parent_id, c.likes_count, c.reply_count, c.created_at, c.deleted_at,
+                       pr.kind AS author_kind, pr.user_id AS author_user_id, pr.anon_profile_id AS author_anon_profile_id,
+                       COALESCE(u.handle, ap.handle) AS author_handle,
+                       u.display_name AS author_display_name, u.profile_image_url AS author_profile_image_url,
+                       COALESCE(u.company_id, ap.company_id) AS author_company_id,
+                       CASE WHEN pr.kind = 'anon' THEN true ELSE COALESCE(u.is_anonymous, false) END AS author_is_anonymous,
+                       CASE WHEN cv.liker_principal_id IS NULL THEN false ELSE true END AS viewer_liked,
+                       CASE WHEN cc.liker_principal_id IS NULL THEN false ELSE true END AS liked_by_creator
+                FROM comments c
+                JOIN principals pr ON pr.id = c.author_principal_id
+                LEFT JOIN users u ON u.id = pr.user_id AND u.deleted_at IS NULL
+                LEFT JOIN anonymous_profiles ap ON ap.id = pr.anon_profile_id
+                JOIN posts p ON p.id = c.post_id AND p.removed_at IS NULL
+                LEFT JOIN comment_likes cv ON cv.comment_id = c.id AND cv.liker_principal_id = ?
+                LEFT JOIN comment_likes cc ON cc.comment_id = c.id AND cc.liker_principal_id = p.author_principal_id
+                WHERE c.author_principal_id = ? AND (pr.kind = 'anon' OR u.id IS NOT NULL)
+                """;
+        Object[] params;
+        if (cursorTs == null || cursorId == null) {
+            sql += "ORDER BY c.created_at DESC, c.id DESC LIMIT ?";
+            params = new Object[]{viewerPrincipalId, targetPrincipalId, limit};
+        } else {
+            sql += "AND (c.created_at < ? OR (c.created_at = ? AND c.id < ?)) ORDER BY c.created_at DESC, c.id DESC LIMIT ?";
+            params = new Object[]{viewerPrincipalId, targetPrincipalId, cursorTs, cursorTs, cursorId, limit};
+        }
+        return jdbc.query(sql, this::mapViewRow, params);
+    }
+
     public boolean insertLikeIfAbsent(long commentId, long principalId, Long userId) {
         int rows = jdbc.update(
                 "INSERT INTO comment_likes(comment_id, liker_principal_id, user_id) VALUES (?,?,?) " +

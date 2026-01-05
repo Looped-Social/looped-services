@@ -2,6 +2,7 @@ package com.looped.anon;
 
 import com.looped.posts.PostPayloads;
 import com.looped.principals.PrincipalPayloads;
+import com.looped.comments.CommentPayloads;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -90,6 +91,138 @@ public class AnonProfilesController {
         };
     }
 
+    @GetMapping("/{id}/posts/liked")
+    public ResponseEntity<?> likedPosts(
+            @AuthenticationPrincipal Jwt jwt,
+            @PathVariable("id") long id,
+            @RequestParam(value = "cursor", required = false) String cursor,
+            @RequestParam(value = "limit", required = false, defaultValue = "20") int limit,
+            @RequestParam(value = "asAnon", required = false) Boolean asAnon,
+            @RequestParam(value = "anonProfileId", required = false) Long anonProfileId,
+            @RequestParam(value = "anonCert", required = false) String anonCert,
+            @RequestParam(value = "anonCertKid", required = false) String anonCertKid,
+            @RequestParam(value = "anonSig", required = false) String anonSig
+    ) {
+        boolean isAnon = Boolean.TRUE.equals(asAnon);
+        if (isAnon && !hasAnonProof(asAnon, anonProfileId, anonCert, anonCertKid, anonSig)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
+                    "error", "invalid_anon_proof",
+                    "message", "Invalid anonymous proof"
+            ));
+        }
+        if (!isAnon) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
+                    "error", "invalid_anon_proof",
+                    "message", "Invalid anonymous proof"
+            ));
+        }
+        if (jwt != null) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of(
+                    "error", "anon_jwt_not_allowed",
+                    "message", "Do not send Authorization for anonymous actions"
+            ));
+        }
+        int lim = Math.max(1, Math.min(limit, 100));
+        var res = service.likedPosts(id, cursor, lim, toAnonProof(asAnon, anonProfileId, anonCert, anonCertKid, anonSig));
+        return switch (res.status()) {
+            case INVALID_ANON_PROOF -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
+                    "error", "invalid_anon_proof",
+                    "message", "Invalid anonymous proof"
+            ));
+            case OK -> ResponseEntity.ok(toPostListPayload(res.posts(), res.nextCursor()));
+        };
+    }
+
+    @GetMapping("/{id}/posts/saved")
+    public ResponseEntity<?> savedPosts(
+            @AuthenticationPrincipal Jwt jwt,
+            @PathVariable("id") long id,
+            @RequestParam(value = "cursor", required = false) String cursor,
+            @RequestParam(value = "limit", required = false, defaultValue = "20") int limit,
+            @RequestParam(value = "asAnon", required = false) Boolean asAnon,
+            @RequestParam(value = "anonProfileId", required = false) Long anonProfileId,
+            @RequestParam(value = "anonCert", required = false) String anonCert,
+            @RequestParam(value = "anonCertKid", required = false) String anonCertKid,
+            @RequestParam(value = "anonSig", required = false) String anonSig
+    ) {
+        boolean isAnon = Boolean.TRUE.equals(asAnon);
+        if (isAnon && !hasAnonProof(asAnon, anonProfileId, anonCert, anonCertKid, anonSig)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
+                    "error", "invalid_anon_proof",
+                    "message", "Invalid anonymous proof"
+            ));
+        }
+        if (!isAnon) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
+                    "error", "invalid_anon_proof",
+                    "message", "Invalid anonymous proof"
+            ));
+        }
+        if (jwt != null) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of(
+                    "error", "anon_jwt_not_allowed",
+                    "message", "Do not send Authorization for anonymous actions"
+            ));
+        }
+        int lim = Math.max(1, Math.min(limit, 100));
+        var res = service.savedPosts(id, cursor, lim, toAnonProof(asAnon, anonProfileId, anonCert, anonCertKid, anonSig));
+        return switch (res.status()) {
+            case INVALID_ANON_PROOF -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
+                    "error", "invalid_anon_proof",
+                    "message", "Invalid anonymous proof"
+            ));
+            case OK -> ResponseEntity.ok(toPostListPayload(res.posts(), res.nextCursor(), true));
+        };
+    }
+
+    @GetMapping("/{id}/replies")
+    public ResponseEntity<?> replies(
+            @AuthenticationPrincipal Jwt jwt,
+            @PathVariable("id") long id,
+            @RequestParam(value = "cursor", required = false) String cursor,
+            @RequestParam(value = "limit", required = false, defaultValue = "20") int limit,
+            @RequestParam(value = "asAnon", required = false) Boolean asAnon,
+            @RequestParam(value = "anonProfileId", required = false) Long anonProfileId,
+            @RequestParam(value = "anonCert", required = false) String anonCert,
+            @RequestParam(value = "anonCertKid", required = false) String anonCertKid,
+            @RequestParam(value = "anonSig", required = false) String anonSig
+    ) {
+        boolean isAnon = Boolean.TRUE.equals(asAnon);
+        if (isAnon && !hasAnonProof(asAnon, anonProfileId, anonCert, anonCertKid, anonSig)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
+                    "error", "invalid_anon_proof",
+                    "message", "Invalid anonymous proof"
+            ));
+        }
+        if (!isAnon) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
+                    "error", "invalid_anon_proof",
+                    "message", "Invalid anonymous proof"
+            ));
+        }
+        if (jwt != null) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of(
+                    "error", "anon_jwt_not_allowed",
+                    "message", "Do not send Authorization for anonymous actions"
+            ));
+        }
+        int lim = Math.max(1, Math.min(limit, 100));
+        var res = service.replies(id, cursor, lim, toAnonProof(asAnon, anonProfileId, anonCert, anonCertKid, anonSig));
+        return switch (res.status()) {
+            case INVALID_ANON_PROOF -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
+                    "error", "invalid_anon_proof",
+                    "message", "Invalid anonymous proof"
+            ));
+            case OK -> {
+                List<Map<String, Object>> items = res.comments().stream().map(CommentPayloads::from).toList();
+                Map<String, Object> body = new HashMap<>();
+                body.put("items", items);
+                if (res.nextCursor() != null) body.put("next_cursor", res.nextCursor());
+                yield ResponseEntity.ok(body);
+            }
+        };
+    }
+
     @GetMapping("/{id}/followers")
     public ResponseEntity<?> followers(
             @AuthenticationPrincipal Jwt jwt,
@@ -132,6 +265,16 @@ public class AnonProfilesController {
 
     private Map<String, Object> toPostListPayload(List<com.looped.posts.PostRepository.PostRow> posts, String nextCursor) {
         List<Map<String, Object>> items = posts.stream().map(PostPayloads::from).toList();
+        Map<String, Object> body = new HashMap<>();
+        body.put("items", items);
+        if (nextCursor != null) body.put("next_cursor", nextCursor);
+        return body;
+    }
+
+    private Map<String, Object> toPostListPayload(List<com.looped.posts.PostRepository.PostRow> posts, String nextCursor, boolean saved) {
+        List<Map<String, Object>> items = posts.stream()
+                .map(post -> saved ? PostPayloads.fromSaved(post, true) : PostPayloads.from(post))
+                .toList();
         Map<String, Object> body = new HashMap<>();
         body.put("items", items);
         if (nextCursor != null) body.put("next_cursor", nextCursor);
@@ -185,5 +328,19 @@ public class AnonProfilesController {
                     && anonSig != null && !anonSig.isBlank()
                     && Boolean.TRUE.equals(asAnon);
         }
+    }
+
+    private com.looped.anon.AnonProofService.AnonActionProof toAnonProof(Boolean asAnon, Long anonProfileId,
+                                                                         String anonCert, String anonCertKid, String anonSig) {
+        if (asAnon == null || !asAnon) return null;
+        return new com.looped.anon.AnonProofService.AnonActionProof(anonProfileId, anonCert, anonCertKid, anonSig);
+    }
+
+    private boolean hasAnonProof(Boolean asAnon, Long anonProfileId, String anonCert, String anonCertKid, String anonSig) {
+        if (asAnon == null || !asAnon) return false;
+        return anonProfileId != null
+                && anonCert != null && !anonCert.isBlank()
+                && anonCertKid != null && !anonCertKid.isBlank()
+                && anonSig != null && !anonSig.isBlank();
     }
 }

@@ -93,6 +93,9 @@
     - `POST /v1/posts/{id}/save` with `{ asAnon: true, anonProfileId, anonCert, anonCertKid, anonSig }`
     - `DELETE /v1/posts/{id}/save` with `{ asAnon: true, anonProfileId, anonCert, anonCertKid, anonSig }`
     - `POST /v1/users/{id}/follow` / `DELETE /v1/users/{id}/follow` with `{ asAnon: true, anonProfileId, anonCert, anonCertKid, anonSig }`
+    - `GET /v1/anon/{id}/posts/liked?asAnon=true&anonProfileId=&anonCert=&anonCertKid=&anonSig=`
+    - `GET /v1/anon/{id}/posts/saved?asAnon=true&anonProfileId=&anonCert=&anonCertKid=&anonSig=`
+    - `GET /v1/anon/{id}/replies?asAnon=true&anonProfileId=&anonCert=&anonCertKid=&anonSig=`
     - Comment list endpoints accept anon proof to compute `user_liked` for the active anon profile:
       - `GET /v1/posts/{id}/comments?asAnon=true&anonProfileId=&anonCert=&anonCertKid=&anonSig=`
       - `GET /v1/comments/{id}/replies?asAnon=true&anonProfileId=&anonCert=&anonCertKid=&anonSig=`
@@ -106,9 +109,12 @@
     - `comment` (target: post_id), `comment_like` (target: comment_id)
     - `comment_edit` (target: comment_id), `comment_delete` (target: comment_id), `comment_unlike` (target: comment_id)
     - `comment_list` (target: post_id), `comment_replies` (target: comment_id), `comment_user_replies` (target: user_id)
+    - `comment_anon_replies` (target: anon_profile_id)
     - `post_delete` (target: post_id)
     - `post_edit` (target: post_id)
     - `unlike` (target: post_id)
+    - `anon_posts_liked` (target: anon_profile_id)
+    - `anon_posts_saved` (target: anon_profile_id)
     - `anon_display_community` (target: anon_profile_id)
 - **Profile stats & DTO extensions**
   - User DTO now includes `stats` block with follower/following/posts/comments counts; display/bio/anonymity fields included across `/v1/me`, `/v1/users/{id}`, and update alias responses.

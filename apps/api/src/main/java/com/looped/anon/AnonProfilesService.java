@@ -1,7 +1,10 @@
 package com.looped.anon;
 
 import com.looped.communities.CommunitiesRepository;
+import com.looped.comments.CommentsRepository;
+import com.looped.posts.LikesRepository;
 import com.looped.posts.PostRepository;
+import com.looped.posts.SavedPostsRepository;
 import com.looped.principals.PrincipalProfilesRepository;
 import com.looped.principals.PrincipalRepository;
 import com.looped.principals.PrincipalStatsRepository;
@@ -21,6 +24,9 @@ public class AnonProfilesService {
     private final PrincipalStatsRepository stats;
     private final PostRepository posts;
     private final PrincipalProfilesRepository follows;
+    private final LikesRepository likes;
+    private final SavedPostsRepository savedPosts;
+    private final CommentsRepository comments;
     private final CommunitiesRepository communities;
     private final AnonIssuerRepository issuers;
     private final AnonProofService proofs;
@@ -31,6 +37,9 @@ public class AnonProfilesService {
                                PrincipalStatsRepository stats,
                                PostRepository posts,
                                PrincipalProfilesRepository follows,
+                               LikesRepository likes,
+                               SavedPostsRepository savedPosts,
+                               CommentsRepository comments,
                                CommunitiesRepository communities,
                                AnonIssuerRepository issuers,
                                AnonProofService proofs) {
@@ -40,6 +49,9 @@ public class AnonProfilesService {
         this.stats = stats;
         this.posts = posts;
         this.follows = follows;
+        this.likes = likes;
+        this.savedPosts = savedPosts;
+        this.comments = comments;
         this.communities = communities;
         this.issuers = issuers;
         this.proofs = proofs;
@@ -133,6 +145,18 @@ public class AnonProfilesService {
         return expected == provided;
     }
 
+    private CursorParts decodeCursor(String cursor) {
+        if (cursor == null || cursor.isBlank()) {
+            return new CursorParts(null, null);
+        }
+        try {
+            var decoded = Pagination.decode(cursor);
+            return new CursorParts(decoded.timestamp(), decoded.id());
+        } catch (IllegalArgumentException ignored) {
+            return new CursorParts(null, null);
+        }
+    }
+
     public PostsResult posts(String firebaseUid, long anonProfileId, String cursor, int limit) {
         var actor = users.findByFirebaseUid(firebaseUid);
         if (actor.isEmpty() || actor.get().companyId == null) return PostsResult.userNotProvisioned();
@@ -159,6 +183,63 @@ public class AnonProfilesService {
             next = Pagination.encode(last.createdAt, last.id);
         }
         return PostsResult.ok(rows, next);
+    }
+
+    public AnonPostListResult likedPosts(long anonProfileId, String cursor, int limit, AnonProofService.AnonActionProof anonProof) {
+        if (anonProof == null || anonProof.anonProfileId() == null) return AnonPostListResult.invalidAnonProof();
+        if (!anonProfileIdEquals(anonProfileId, anonProof.anonProfileId())) return AnonPostListResult.invalidAnonProof();
+        var verified = proofs.verifyAction(anonProof, "anon_posts_liked", anonProfileId);
+        if (verified.status() != AnonProofService.Status.OK) return AnonPostListResult.invalidAnonProof();
+
+        var cursorParts = decodeCursor(cursor);
+        var rows = likes.findLikedPosts(verified.actor().principalId(), cursorParts.timestamp, cursorParts.postId, limit);
+        String next = null;
+        if (rows.size() == limit) {
+            var last = rows.get(rows.size() - 1);
+            next = Pagination.encode(last.likedAt, last.post.id);
+        }
+        var posts = rows.stream().map(r -> r.post).toList();
+        return AnonPostListResult.ok(posts, next);
+    }
+
+    public AnonPostListResult savedPosts(long anonProfileId, String cursor, int limit, AnonProofService.AnonActionProof anonProof) {
+        if (anonProof == null || anonProof.anonProfileId() == null) return AnonPostListResult.invalidAnonProof();
+        if (!anonProfileIdEquals(anonProfileId, anonProof.anonProfileId())) return AnonPostListResult.invalidAnonProof();
+        var verified = proofs.verifyAction(anonProof, "anon_posts_saved", anonProfileId);
+        if (verified.status() != AnonProofService.Status.OK) return AnonPostListResult.invalidAnonProof();
+
+        var cursorParts = decodeCursor(cursor);
+        var rows = savedPosts.findSavedPosts(verified.actor().principalId(), cursorParts.timestamp, cursorParts.postId, limit);
+        String next = null;
+        if (rows.size() == limit) {
+            var last = rows.get(rows.size() - 1);
+            next = Pagination.encode(last.savedAt, last.post.id);
+        }
+        var posts = rows.stream().map(r -> r.post).toList();
+        return AnonPostListResult.ok(posts, next);
+    }
+
+    public RepliesResult replies(long anonProfileId, String cursor, int limit, AnonProofService.AnonActionProof anonProof) {
+        if (anonProof == null || anonProof.anonProfileId() == null) return RepliesResult.invalidAnonProof();
+        if (!anonProfileIdEquals(anonProfileId, anonProof.anonProfileId())) return RepliesResult.invalidAnonProof();
+        var verified = proofs.verifyAction(anonProof, "comment_anon_replies", anonProfileId);
+        if (verified.status() != AnonProofService.Status.OK) return RepliesResult.invalidAnonProof();
+
+        OffsetDateTime cTs = null; Long cId = null;
+        if (cursor != null && !cursor.isBlank()) {
+            try {
+                var decoded = Pagination.decode(cursor);
+                cTs = decoded.timestamp();
+                cId = decoded.id();
+            } catch (IllegalArgumentException ignored) {}
+        }
+        var rows = comments.findByAuthorPrincipalWithView(verified.actor().principalId(), verified.actor().principalId(), cTs, cId, limit);
+        String next = null;
+        if (rows.size() == limit) {
+            var last = rows.get(rows.size() - 1).comment;
+            next = Pagination.encode(last.createdAt, last.id);
+        }
+        return RepliesResult.ok(rows, next);
     }
 
     public FollowsResult followers(String firebaseUid, long anonProfileId, String cursor, int limit) {
@@ -233,6 +314,16 @@ public class AnonProfilesService {
         static PostsResult forbidden() { return new PostsResult(Status.FORBIDDEN, List.of(), null); }
     }
 
+    public record AnonPostListResult(AnonStatus status, List<PostRepository.PostRow> posts, String nextCursor) {
+        static AnonPostListResult ok(List<PostRepository.PostRow> posts, String next) { return new AnonPostListResult(AnonStatus.OK, posts, next); }
+        static AnonPostListResult invalidAnonProof() { return new AnonPostListResult(AnonStatus.INVALID_ANON_PROOF, List.of(), null); }
+    }
+
+    public record RepliesResult(AnonStatus status, List<CommentsRepository.CommentViewRow> comments, String nextCursor) {
+        static RepliesResult ok(List<CommentsRepository.CommentViewRow> comments, String nextCursor) { return new RepliesResult(AnonStatus.OK, comments, nextCursor); }
+        static RepliesResult invalidAnonProof() { return new RepliesResult(AnonStatus.INVALID_ANON_PROOF, List.of(), null); }
+    }
+
     public record FollowsResult(Status status, List<PrincipalProfilesRepository.PrincipalProfileRow> principals, String nextCursor) {
         static FollowsResult ok(List<PrincipalProfilesRepository.PrincipalProfileRow> principals, String next) { return new FollowsResult(Status.OK, principals, next); }
         static FollowsResult userNotProvisioned() { return new FollowsResult(Status.USER_NOT_PROVISIONED, List.of(), null); }
@@ -248,4 +339,8 @@ public class AnonProfilesService {
     public record ProfileStats(int followerCount, int followingCount, int postsCount) {}
 
     public enum UpdateDisplayCommunityStatus { OK, NOT_FOUND, INVALID_ANON_PROOF, COMMUNITY_NOT_FOUND }
+
+    public enum AnonStatus { OK, INVALID_ANON_PROOF }
+
+    private record CursorParts(OffsetDateTime timestamp, Long postId) {}
 }
