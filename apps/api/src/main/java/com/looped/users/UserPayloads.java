@@ -44,6 +44,16 @@ public final class UserPayloads {
             }
             map.put("display_community", display);
         }
+        if (profile.displaySpecialization() != null) {
+            Map<String, Object> display = new HashMap<>();
+            display.put("id", profile.displaySpecialization().id());
+            display.put("name", profile.displaySpecialization().name());
+            display.put("kind", profile.displaySpecialization().kind());
+            if (profile.displaySpecialization().specializationType() != null) {
+                display.put("specialization_type", profile.displaySpecialization().specializationType());
+            }
+            map.put("display_specialization", display);
+        }
         if (profile.stats() != null) {
             Map<String, Object> stats = new HashMap<>();
             if (includeFollowerCounts) {

@@ -14,7 +14,7 @@ public class UserRepository {
     private final JdbcTemplate jdbcTemplate;
     private static final String BASE_COLUMNS = "id, firebase_uid, handle, email, company_id, first_name, last_name, " +
             "date_of_birth, display_name, bio, is_anonymous, show_follower_count, profile_image_url, " +
-            "display_community_id, created_at, deleted_at, deleted_by";
+            "display_community_id, display_specialization_id, created_at, deleted_at, deleted_by";
 
     public UserRepository(JdbcTemplate jdbcTemplate) {
         this.jdbcTemplate = jdbcTemplate;
@@ -40,6 +40,8 @@ public class UserRepository {
             row.profileImageUrl = rs.getString("profile_image_url");
             long displayCommunity = rs.getLong("display_community_id");
             row.displayCommunityId = rs.wasNull() ? null : displayCommunity;
+            long displaySpecialization = rs.getLong("display_specialization_id");
+            row.displaySpecializationId = rs.wasNull() ? null : displaySpecialization;
             row.createdAt = rs.getObject("created_at", OffsetDateTime.class);
             row.deletedAt = rs.getObject("deleted_at", OffsetDateTime.class);
             long deletedBy = rs.getLong("deleted_by");
@@ -124,6 +126,13 @@ public class UserRepository {
         );
     }
 
+    public void updateDisplaySpecialization(long userId, Long specializationId) {
+        jdbcTemplate.update(
+                "UPDATE users SET display_specialization_id = ? WHERE id = ?",
+                specializationId, userId
+        );
+    }
+
     public java.util.Optional<DisplayCommunityRow> findDisplayCommunityForUser(long userId) {
         var list = jdbcTemplate.query(
                 "SELECT c.id, c.name, c.kind, c.specialization_type " +
@@ -134,6 +143,26 @@ public class UserRepository {
                         "AND (cv.expires_at IS NULL OR cv.expires_at > now())",
                 (rs, rowNum) -> {
                     DisplayCommunityRow row = new DisplayCommunityRow();
+                    row.id = rs.getLong("id");
+                    row.name = rs.getString("name");
+                    row.kind = rs.getString("kind");
+                    row.specializationType = rs.getString("specialization_type");
+                    return row;
+                },
+                userId
+        );
+        return list.isEmpty() ? java.util.Optional.empty() : java.util.Optional.of(list.get(0));
+    }
+
+    public java.util.Optional<DisplaySpecializationRow> findDisplaySpecializationForUser(long userId) {
+        var list = jdbcTemplate.query(
+                "SELECT c.id, c.name, c.kind, c.specialization_type " +
+                        "FROM users u " +
+                        "JOIN communities c ON c.id = u.display_specialization_id " +
+                        "WHERE u.id = ? AND c.kind = 'specialization' " +
+                        "AND c.specialization_type IN ('major','department')",
+                (rs, rowNum) -> {
+                    DisplaySpecializationRow row = new DisplaySpecializationRow();
                     row.id = rs.getLong("id");
                     row.name = rs.getString("name");
                     row.kind = rs.getString("kind");
@@ -257,13 +286,7 @@ public class UserRepository {
                 Integer.class,
                 normalized
         );
-        if (count != null && count > 0) return false;
-        Integer tombstones = jdbcTemplate.queryForObject(
-                "SELECT COUNT(*) FROM user_tombstones WHERE LOWER(email) = LOWER(?)",
-                Integer.class,
-                normalized
-        );
-        return tombstones != null && tombstones == 0;
+        return count == null || count == 0;
     }
 
     public boolean isEmailAvailableForUser(long userId, String email) {
@@ -275,13 +298,7 @@ public class UserRepository {
                 normalized,
                 userId
         );
-        if (count != null && count > 0) return false;
-        Integer tombstones = jdbcTemplate.queryForObject(
-                "SELECT COUNT(*) FROM user_tombstones WHERE LOWER(email) = LOWER(?)",
-                Integer.class,
-                normalized
-        );
-        return tombstones != null && tombstones == 0;
+        return count == null || count == 0;
     }
 
     public boolean isFirebaseUidTombstoned(String firebaseUid) {
@@ -331,10 +348,9 @@ public class UserRepository {
     public void insertTombstone(UserRow user) {
         if (user == null || user.firebaseUid == null || user.firebaseUid.isBlank()) return;
         jdbcTemplate.update(
-                "INSERT INTO user_tombstones(firebase_uid, handle, email) VALUES (?,?,?) ON CONFLICT DO NOTHING",
+                "INSERT INTO user_tombstones(firebase_uid, handle) VALUES (?,?) ON CONFLICT DO NOTHING",
                 user.firebaseUid,
-                user.handle,
-                normalizeEmail(user.email)
+                user.handle
         );
     }
 
@@ -455,12 +471,20 @@ public class UserRepository {
         public boolean showFollowerCount;
         public String profileImageUrl;
         public Long displayCommunityId;
+        public Long displaySpecializationId;
         public OffsetDateTime createdAt;
         public OffsetDateTime deletedAt;
         public Long deletedBy;
     }
 
     public static class DisplayCommunityRow {
+        public long id;
+        public String name;
+        public String kind;
+        public String specializationType;
+    }
+
+    public static class DisplaySpecializationRow {
         public long id;
         public String name;
         public String kind;

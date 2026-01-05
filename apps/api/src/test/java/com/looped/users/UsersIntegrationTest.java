@@ -217,7 +217,7 @@ class UsersIntegrationTest extends PostgresTestBase {
     }
 
     @Test
-    void hard_delete_reserves_handle_and_email() throws Exception {
+    void hard_delete_reserves_handle_allows_email_reuse() throws Exception {
         long companyId = jdbc.queryForObject("INSERT INTO companies(name, domain) VALUES ('ResCo','res.co') RETURNING id", Long.class);
         jdbc.update("INSERT INTO users(firebase_uid, handle, email, company_id) VALUES (?,?,?,?)",
                 "uid-reserve", "reserved", "reserved@res.co", companyId);
@@ -254,11 +254,11 @@ class UsersIntegrationTest extends PostgresTestBase {
                         .header("Authorization", "Bearer " + tokenWithEmail("uid-new", "reserved@res.co"))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(onboardBody))
-                .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.error", equalTo("email_taken")));
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.handle", equalTo("newuser1")));
 
         Integer tombstones = jdbc.queryForObject(
-                "SELECT COUNT(*) FROM user_tombstones WHERE handle = 'reserved' AND email = 'reserved@res.co'",
+                "SELECT COUNT(*) FROM user_tombstones WHERE handle = 'reserved' AND email IS NULL",
                 Integer.class
         );
         org.junit.jupiter.api.Assertions.assertEquals(1, tombstones.intValue());

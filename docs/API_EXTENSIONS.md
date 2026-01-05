@@ -119,6 +119,7 @@
 - **Profile stats & DTO extensions**
   - User DTO now includes `stats` block with follower/following/posts/comments counts; display/bio/anonymity fields included across `/v1/me`, `/v1/users/{id}`, and update alias responses.
   - User DTO may include `display_community` `{ id, name, kind, specialization_type? }` when the user has a verified display community selected.
+  - User DTO may include `display_specialization` `{ id, name, kind, specialization_type }` when the user has a highlighted major/department selected.
   - Post DTOs include `comments_count`, `share_count`, `community_name`, `community_kind`, `author_first_name`, `author_last_name`, `is_anonymous`, and `is_saved`.
   - Post DTOs may include `author_display_community` `{ id, name, kind, specialization_type? }` when the author has a verified display community selected.
 - **Comments history**
@@ -127,6 +128,9 @@
   - `GET /v1/communities/{id}/permissions` → `{ can_post: true|false, requires_verification: true|false }`
 - **Profile display community**
   - `PUT /v1/users/me/display-community` with `{ communityId: <id|null> }` → user payload (same shape as `/v1/me.user`). `null` clears the display community.
+- **Profile display specialization**
+  - `PUT /v1/users/me/display-specialization` with `{ specializationId: <id|null> }` → user payload (same shape as `/v1/me.user`). `null` clears the display specialization.
+  - `specializationId` must reference a `communities.kind='specialization'` row with `specialization_type` of `major` or `department`.
 - **Anon profile display community**
   - `PUT /v1/anon/{id}/display-community` (NO JWT) with `{ communityId: <id|null>, asAnon: true, anonProfileId, anonCert, anonCertKid, anonSig }`.
   - Requires action signature `anon_display_community|v1|{anonProfileId}`; for non-null `communityId` the anon cert must be scoped to that community.

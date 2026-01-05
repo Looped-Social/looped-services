@@ -121,6 +121,29 @@ public class UsersService {
         return UpdateDisplayCommunityResult.ok(buildProfile(updated, verification));
     }
 
+    public UpdateDisplaySpecializationResult updateDisplaySpecialization(String firebaseUid, Long specializationId) {
+        var actor = requireProvisionedUser(firebaseUid);
+        if (actor.isEmpty()) return UpdateDisplaySpecializationResult.userNotProvisioned();
+
+        if (specializationId != null) {
+            var community = communities.findById(specializationId);
+            if (community.isEmpty()) return UpdateDisplaySpecializationResult.specializationNotFound();
+            var row = community.get();
+            if (!"specialization".equalsIgnoreCase(row.kind)) {
+                return UpdateDisplaySpecializationResult.invalidSpecialization();
+            }
+            String specializationType = normalizeSpecializationType(row.specializationType);
+            if (specializationType == null) {
+                return UpdateDisplaySpecializationResult.invalidSpecialization();
+            }
+        }
+
+        users.updateDisplaySpecialization(actor.get().id, specializationId);
+        var updated = users.findById(actor.get().id).orElse(actor.get());
+        var verification = verifications.findByUserId(actor.get().id).orElse(null);
+        return UpdateDisplaySpecializationResult.ok(buildProfile(updated, verification));
+    }
+
     public UpdateIdentityResult updateIdentity(String firebaseUid, String username,
                                                String firstName, String lastName, LocalDate dateOfBirth) {
         var actor = requireProvisionedUser(firebaseUid);
@@ -334,6 +357,9 @@ public class UsersService {
         var displayCommunity = users.findDisplayCommunityForUser(row.id)
                 .map(dc -> new DisplayCommunity(dc.id, dc.name, dc.kind, dc.specializationType))
                 .orElse(null);
+        var displaySpecialization = users.findDisplaySpecializationForUser(row.id)
+                .map(ds -> new DisplaySpecialization(ds.id, ds.name, ds.kind, ds.specializationType))
+                .orElse(null);
         var stats = new ProfileStats(
                 users.countFollowers(row.id),
                 users.countFollowing(row.id),
@@ -355,6 +381,7 @@ public class UsersService {
                 row.profileImageUrl,
                 verificationData,
                 displayCommunity,
+                displaySpecialization,
                 stats
         );
     }
@@ -384,6 +411,14 @@ public class UsersService {
         if (trimmed.isBlank()) return null;
         if (!trimmed.matches("^[a-z0-9.-]+$")) return null;
         return trimmed;
+    }
+
+    private String normalizeSpecializationType(String raw) {
+        if (raw == null) return null;
+        String normalized = raw.trim().toLowerCase(Locale.ROOT);
+        if (normalized.isBlank()) return null;
+        if (!normalized.equals("major") && !normalized.equals("department")) return null;
+        return normalized;
     }
 
     public enum Status { OK, USER_NOT_PROVISIONED, NOT_FOUND, FORBIDDEN }
@@ -438,9 +473,11 @@ public class UsersService {
     public record UserProfile(long id, String handle, String firstName, String lastName, LocalDate dateOfBirth,
                               String displayName, String bio, boolean isAnonymous, boolean showFollowerCount, Long companyId,
                               OffsetDateTime createdAt, String profileImageUrl, Verification verification,
-                              DisplayCommunity displayCommunity, ProfileStats stats) {}
+                              DisplayCommunity displayCommunity, DisplaySpecialization displaySpecialization, ProfileStats stats) {}
 
     public record DisplayCommunity(long id, String name, String kind, String specializationType) {}
+
+    public record DisplaySpecialization(long id, String name, String kind, String specializationType) {}
 
     public record ProfileStats(int followerCount, int followingCount, int postsCount, int commentsCount) {}
 
@@ -453,6 +490,23 @@ public class UsersService {
         static UpdateDisplayCommunityResult userNotProvisioned() { return new UpdateDisplayCommunityResult(UpdateDisplayCommunityStatus.USER_NOT_PROVISIONED, null); }
         static UpdateDisplayCommunityResult communityNotFound() { return new UpdateDisplayCommunityResult(UpdateDisplayCommunityStatus.COMMUNITY_NOT_FOUND, null); }
         static UpdateDisplayCommunityResult communityNotVerified() { return new UpdateDisplayCommunityResult(UpdateDisplayCommunityStatus.COMMUNITY_NOT_VERIFIED, null); }
+    }
+
+    public enum UpdateDisplaySpecializationStatus { OK, USER_NOT_PROVISIONED, SPECIALIZATION_NOT_FOUND, INVALID_SPECIALIZATION }
+
+    public record UpdateDisplaySpecializationResult(UpdateDisplaySpecializationStatus status, UserProfile profile) {
+        static UpdateDisplaySpecializationResult ok(UserProfile profile) {
+            return new UpdateDisplaySpecializationResult(UpdateDisplaySpecializationStatus.OK, profile);
+        }
+        static UpdateDisplaySpecializationResult userNotProvisioned() {
+            return new UpdateDisplaySpecializationResult(UpdateDisplaySpecializationStatus.USER_NOT_PROVISIONED, null);
+        }
+        static UpdateDisplaySpecializationResult specializationNotFound() {
+            return new UpdateDisplaySpecializationResult(UpdateDisplaySpecializationStatus.SPECIALIZATION_NOT_FOUND, null);
+        }
+        static UpdateDisplaySpecializationResult invalidSpecialization() {
+            return new UpdateDisplaySpecializationResult(UpdateDisplaySpecializationStatus.INVALID_SPECIALIZATION, null);
+        }
     }
 
     public record PostsResult(Status status, List<PostRepository.PostRow> posts, String nextCursor) {

@@ -95,6 +95,30 @@ public class UsersController {
         };
     }
 
+    @PutMapping("/me/display-specialization")
+    public ResponseEntity<?> updateDisplaySpecialization(
+            @AuthenticationPrincipal Jwt jwt,
+            @RequestBody UpdateDisplaySpecializationRequest body
+    ) {
+        Long specializationId = body == null ? null : body.specializationId();
+        var res = service.updateDisplaySpecialization(jwt.getSubject(), specializationId);
+        return switch (res.status()) {
+            case USER_NOT_PROVISIONED -> ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
+                    "error", "user_not_provisioned",
+                    "message", "Complete onboarding before updating profile"
+            ));
+            case SPECIALIZATION_NOT_FOUND -> ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of(
+                    "error", "specialization_not_found"
+            ));
+            case INVALID_SPECIALIZATION -> ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of(
+                    "error", "invalid_specialization",
+                    "message", "Specialization must be a major or department"
+            ));
+            case OK -> ResponseEntity.ok(UserPayloads.fromProfile(res.profile()));
+            default -> ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        };
+    }
+
     @PutMapping("/me/identity")
     public ResponseEntity<?> updateIdentity(
             @AuthenticationPrincipal Jwt jwt,
@@ -394,6 +418,8 @@ public class UsersController {
     ) {}
 
     public record UpdateDisplayCommunityRequest(Long communityId) {}
+
+    public record UpdateDisplaySpecializationRequest(Long specializationId) {}
 
     public record UpdateIdentityRequest(
             @NotBlank @Size(min = 3, max = 30) String username,
