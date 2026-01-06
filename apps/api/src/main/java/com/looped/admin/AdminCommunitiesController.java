@@ -1,6 +1,7 @@
 package com.looped.admin;
 
 import com.looped.communities.CommunitiesRepository;
+import com.looped.communities.CommunityDomainsRepository;
 import com.looped.communities.CommunityLogoResolver;
 import com.looped.shared.Pagination;
 import jakarta.validation.Valid;
@@ -32,15 +33,18 @@ import java.util.Map;
 public class AdminCommunitiesController {
     private final AdminAuthService auth;
     private final CommunitiesRepository communities;
+    private final CommunityDomainsRepository domains;
     private final CommunityLogoResolver logos;
     private final AdminAuditRepository audit;
 
     public AdminCommunitiesController(AdminAuthService auth,
                                       CommunitiesRepository communities,
+                                      CommunityDomainsRepository domains,
                                       CommunityLogoResolver logos,
                                       AdminAuditRepository audit) {
         this.auth = auth;
         this.communities = communities;
+        this.domains = domains;
         this.logos = logos;
         this.audit = audit;
     }
@@ -94,7 +98,10 @@ public class AdminCommunitiesController {
         var fallback = logos.resolveFallbacks(rows.stream()
                 .map(row -> new CommunityLogoResolver.CommunityRef(row.id, row.kind, row.imageUrl))
                 .toList());
-        List<Map<String, Object>> items = rows.stream().map(row -> payload(row, fallback)).toList();
+        var domainFallbacks = domains.firstDomainsForCommunities(rows.stream().map(row -> row.id).toList());
+        List<Map<String, Object>> items = rows.stream()
+                .map(row -> payload(row, fallback, domainFallbacks))
+                .toList();
         Map<String, Object> body = new HashMap<>();
         body.put("items", items);
         if (next != null) body.put("next_cursor", next);
@@ -112,7 +119,9 @@ public class AdminCommunitiesController {
         if (row.isEmpty()) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "not_found"));
         }
-        return ResponseEntity.ok(payload(row.get(), null));
+        var firstDomain = domains.firstDomain(id).orElse(null);
+        Map<Long, String> domainFallbacks = firstDomain == null ? null : Map.of(id, firstDomain);
+        return ResponseEntity.ok(payload(row.get(), null, domainFallbacks));
     }
 
     @PostMapping
@@ -137,6 +146,7 @@ public class AdminCommunitiesController {
         }
         String description = normalizeDescription(body.description());
         String imageUrl = normalizeDescription(body.imageUrl());
+        String shortName = normalizeShortName(body.shortName());
         Integer ttlDays = body.verificationTtlDays();
         if (ttlDays != null && ttlDays < 1) {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of("error", "invalid_ttl_days"));
@@ -144,7 +154,7 @@ public class AdminCommunitiesController {
         if (communities.findByKindAndName(kind, name, specializationType).isPresent()) {
             return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "community_exists"));
         }
-        long id = communities.insert(kind, name, description, imageUrl, ttlDays, specializationType);
+        long id = communities.insert(kind, name, description, imageUrl, ttlDays, specializationType, shortName);
         audit.log(authRes.admin().id, "community.create", "community", id, null);
         return ResponseEntity.status(HttpStatus.CREATED).body(Map.of("id", id));
     }
@@ -164,10 +174,12 @@ public class AdminCommunitiesController {
         }
         boolean descriptionProvided = body.description() != null;
         String description = normalizeDescription(body.description());
-        if (!descriptionProvided && ttlDays == null) {
+        boolean shortNameProvided = body.shortName() != null;
+        String shortName = normalizeShortName(body.shortName());
+        if (!descriptionProvided && ttlDays == null && !shortNameProvided) {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of("error", "no_changes"));
         }
-        boolean updated = communities.updateDetails(id, descriptionProvided, description, ttlDays);
+        boolean updated = communities.updateDetails(id, descriptionProvided, description, ttlDays, shortNameProvided, shortName);
         if (!updated) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "not_found"));
         }
@@ -177,12 +189,17 @@ public class AdminCommunitiesController {
             if (meta.length() > 0) meta.append(",");
             meta.append("verification_ttl_days=").append(ttlDays);
         }
+        if (shortNameProvided) {
+            if (meta.length() > 0) meta.append(",");
+            meta.append("short_name_updated");
+        }
         audit.log(authRes.admin().id, "community.update", "community", id,
                 meta.length() == 0 ? null : meta.toString());
         Map<String, Object> out = new HashMap<>();
         out.put("id", id);
         if (descriptionProvided) out.put("description", description);
         if (ttlDays != null) out.put("verification_ttl_days", ttlDays);
+        if (shortNameProvided) out.put("short_name", shortName);
         return ResponseEntity.ok(out);
     }
 
@@ -202,11 +219,21 @@ public class AdminCommunitiesController {
         return ResponseEntity.ok(Map.of("status", "deleted"));
     }
 
-    private Map<String, Object> payload(CommunitiesRepository.CommunityRow row, Map<Long, String> fallbacks) {
+    private Map<String, Object> payload(CommunitiesRepository.CommunityRow row,
+                                        Map<Long, String> fallbacks,
+                                        Map<Long, String> domainFallbacks) {
         Map<String, Object> map = new HashMap<>();
         map.put("id", row.id);
         map.put("kind", row.kind);
         map.put("name", row.name);
+        String resolvedShortName = row.shortName;
+        if (resolvedShortName == null || resolvedShortName.isBlank()) {
+            String domain = domainFallbacks == null ? null : domainFallbacks.get(row.id);
+            resolvedShortName = deriveShortName(domain);
+        }
+        if (resolvedShortName != null && !resolvedShortName.isBlank()) {
+            map.put("short_name", resolvedShortName);
+        }
         if (row.description != null) map.put("description", row.description);
         map.put("member_count", row.memberCount);
         if (row.specializationType != null) map.put("specialization_type", row.specializationType);
@@ -250,6 +277,20 @@ public class AdminCommunitiesController {
         return trimmed.isBlank() ? null : trimmed;
     }
 
+    private String normalizeShortName(String raw) {
+        if (raw == null) return null;
+        String trimmed = raw.trim();
+        return trimmed.isBlank() ? null : trimmed;
+    }
+
+    private String deriveShortName(String domain) {
+        if (domain == null) return null;
+        String trimmed = domain.trim().toLowerCase(Locale.ROOT);
+        if (trimmed.isBlank()) return null;
+        int dot = trimmed.indexOf('.');
+        return dot <= 0 ? trimmed : trimmed.substring(0, dot);
+    }
+
     private String normalizeSpecializationType(String raw) {
         if (raw == null) return null;
         String normalized = raw.trim().toLowerCase(Locale.ROOT);
@@ -266,7 +307,7 @@ public class AdminCommunitiesController {
     }
 
     public record CreateCommunityRequest(@NotBlank String kind, @NotBlank String name, String description, String imageUrl,
-                                         Integer verificationTtlDays, String specializationType) {}
+                                         Integer verificationTtlDays, String specializationType, String shortName) {}
 
-    public record UpdateCommunityRequest(String description, Integer verificationTtlDays) {}
+    public record UpdateCommunityRequest(String description, Integer verificationTtlDays, String shortName) {}
 }

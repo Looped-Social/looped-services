@@ -32,6 +32,7 @@ public class CommunitySectorLinksRepository {
                     row.createdAt = rs.getObject("created_at", OffsetDateTime.class);
                     int ttlDays = rs.getInt("verification_ttl_days");
                     row.verificationTtlDays = rs.wasNull() ? null : ttlDays;
+                    row.shortName = rs.getString("short_name");
                     return row;
                 }
             };
@@ -64,7 +65,7 @@ public class CommunitySectorLinksRepository {
 
     public List<CommunitiesRepository.CommunityRow> listCompanies(long sectorId) {
         return jdbc.query(
-                "SELECT c.id, c.kind, c.name, c.description, c.member_count, c.image_url, c.specialization_type, c.created_at, c.verification_ttl_days " +
+                "SELECT c.id, c.kind, c.name, c.description, c.member_count, c.image_url, c.specialization_type, c.created_at, c.verification_ttl_days, c.short_name " +
                         "FROM community_sector_links l JOIN communities c ON c.id = l.company_id " +
                         "WHERE l.sector_id = ? ORDER BY c.name ASC, c.id ASC",
                 COMMUNITY_MAPPER,

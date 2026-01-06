@@ -18,6 +18,9 @@ public class CommunitiesRepository {
         this.jdbc = jdbc;
     }
 
+    private static final String BASE_COLUMNS =
+            "id, kind, name, description, member_count, image_url, specialization_type, created_at, verification_ttl_days, short_name";
+
     private static final RowMapper<CommunityRow> MAPPER = new RowMapper<>() {
         @Override
         public CommunityRow mapRow(ResultSet rs, int rowNum) throws SQLException {
@@ -32,6 +35,7 @@ public class CommunitiesRepository {
             row.createdAt = rs.getObject("created_at", OffsetDateTime.class);
             int ttlDays = rs.getInt("verification_ttl_days");
             row.verificationTtlDays = rs.wasNull() ? null : ttlDays;
+            row.shortName = rs.getString("short_name");
             return row;
         }
     };
@@ -40,14 +44,14 @@ public class CommunitiesRepository {
         String like = "%" + query.toLowerCase() + "%";
         if (cursorTs == null || cursorId == null) {
             return jdbc.query(
-                    "SELECT id, kind, name, description, member_count, image_url, specialization_type, created_at, verification_ttl_days " +
+                    "SELECT " + BASE_COLUMNS + " " +
                     "FROM communities WHERE LOWER(name) LIKE ? OR LOWER(COALESCE(description,'')) LIKE ? " +
                     "ORDER BY created_at DESC, id DESC LIMIT ?",
                     MAPPER, like, like, limit
             );
         }
         return jdbc.query(
-                "SELECT id, kind, name, description, member_count, image_url, specialization_type, created_at, verification_ttl_days " +
+                "SELECT " + BASE_COLUMNS + " " +
                         "FROM communities WHERE (LOWER(name) LIKE ? OR LOWER(COALESCE(description,'')) LIKE ?) " +
                         "AND (created_at < ? OR (created_at = ? AND id < ?)) " +
                         "ORDER BY created_at DESC, id DESC LIMIT ?",
@@ -60,14 +64,14 @@ public class CommunitiesRepository {
         String like = "%" + query.toLowerCase() + "%";
         if (cursorTs == null || cursorId == null) {
             return jdbc.query(
-                    "SELECT id, kind, name, description, member_count, image_url, specialization_type, created_at, verification_ttl_days " +
+                    "SELECT " + BASE_COLUMNS + " " +
                             "FROM communities WHERE kind = ? AND (LOWER(name) LIKE ? OR LOWER(COALESCE(description,'')) LIKE ?) " +
                             "ORDER BY created_at DESC, id DESC LIMIT ?",
                     MAPPER, kind, like, like, limit
             );
         }
         return jdbc.query(
-                "SELECT id, kind, name, description, member_count, image_url, specialization_type, created_at, verification_ttl_days " +
+                "SELECT " + BASE_COLUMNS + " " +
                         "FROM communities WHERE kind = ? AND (LOWER(name) LIKE ? OR LOWER(COALESCE(description,'')) LIKE ?) " +
                         "AND (created_at < ? OR (created_at = ? AND id < ?)) " +
                         "ORDER BY created_at DESC, id DESC LIMIT ?",
@@ -84,14 +88,14 @@ public class CommunitiesRepository {
         boolean isSpecialization = "specialization".equalsIgnoreCase(kind);
         if (isSpecialization) {
             var list = jdbc.query(
-                    "SELECT id, kind, name, description, member_count, image_url, specialization_type, created_at, verification_ttl_days " +
+                    "SELECT " + BASE_COLUMNS + " " +
                             "FROM communities WHERE kind = ? AND specialization_type = ? AND LOWER(name) = LOWER(?) LIMIT 1",
                     MAPPER, kind, specializationType, name
             );
             return list.isEmpty() ? Optional.empty() : Optional.of(list.get(0));
         }
         var list = jdbc.query(
-                "SELECT id, kind, name, description, member_count, image_url, specialization_type, created_at, verification_ttl_days " +
+                "SELECT " + BASE_COLUMNS + " " +
                         "FROM communities WHERE kind = ? AND LOWER(name) = LOWER(?) LIMIT 1",
                 MAPPER, kind, name
         );
@@ -100,7 +104,7 @@ public class CommunitiesRepository {
 
     public Optional<CommunityRow> findById(long id) {
         var list = jdbc.query(
-                "SELECT id, kind, name, description, member_count, image_url, specialization_type, created_at, verification_ttl_days FROM communities WHERE id = ?",
+                "SELECT " + BASE_COLUMNS + " FROM communities WHERE id = ?",
                 MAPPER, id
         );
         return list.isEmpty() ? Optional.empty() : Optional.of(list.get(0));
@@ -109,13 +113,13 @@ public class CommunitiesRepository {
     public List<CommunityRow> list(OffsetDateTime cursorTs, Long cursorId, int limit) {
         if (cursorTs == null || cursorId == null) {
             return jdbc.query(
-                    "SELECT id, kind, name, description, member_count, image_url, specialization_type, created_at, verification_ttl_days " +
+                    "SELECT " + BASE_COLUMNS + " " +
                             "FROM communities ORDER BY created_at DESC, id DESC LIMIT ?",
                     MAPPER, limit
             );
         }
         return jdbc.query(
-                "SELECT id, kind, name, description, member_count, image_url, specialization_type, created_at, verification_ttl_days " +
+                "SELECT " + BASE_COLUMNS + " " +
                         "FROM communities WHERE (created_at < ? OR (created_at = ? AND id < ?)) " +
                         "ORDER BY created_at DESC, id DESC LIMIT ?",
                 MAPPER, cursorTs, cursorTs, cursorId, limit
@@ -126,13 +130,13 @@ public class CommunitiesRepository {
         if (kind == null || kind.isBlank()) return List.of();
         if (cursorTs == null || cursorId == null) {
             return jdbc.query(
-                    "SELECT id, kind, name, description, member_count, image_url, specialization_type, created_at, verification_ttl_days " +
+                    "SELECT " + BASE_COLUMNS + " " +
                             "FROM communities WHERE kind = ? ORDER BY created_at DESC, id DESC LIMIT ?",
                     MAPPER, kind, limit
             );
         }
         return jdbc.query(
-                "SELECT id, kind, name, description, member_count, image_url, specialization_type, created_at, verification_ttl_days " +
+                "SELECT " + BASE_COLUMNS + " " +
                         "FROM communities WHERE kind = ? AND (created_at < ? OR (created_at = ? AND id < ?)) " +
                         "ORDER BY created_at DESC, id DESC LIMIT ?",
                 MAPPER, kind, cursorTs, cursorTs, cursorId, limit
@@ -144,14 +148,14 @@ public class CommunitiesRepository {
         if (kind == null || kind.isBlank()) return List.of();
         if (cursorTs == null || cursorId == null) {
             return jdbc.query(
-                    "SELECT id, kind, name, description, member_count, image_url, specialization_type, created_at, verification_ttl_days " +
+                    "SELECT " + BASE_COLUMNS + " " +
                             "FROM communities WHERE kind = ? AND specialization_type = ? " +
                             "ORDER BY created_at DESC, id DESC LIMIT ?",
                     MAPPER, kind, specializationType, limit
             );
         }
         return jdbc.query(
-                "SELECT id, kind, name, description, member_count, image_url, specialization_type, created_at, verification_ttl_days " +
+                "SELECT " + BASE_COLUMNS + " " +
                         "FROM communities WHERE kind = ? AND specialization_type = ? " +
                         "AND (created_at < ? OR (created_at = ? AND id < ?)) " +
                         "ORDER BY created_at DESC, id DESC LIMIT ?",
@@ -165,7 +169,7 @@ public class CommunitiesRepository {
         String like = "%" + query.toLowerCase() + "%";
         if (cursorTs == null || cursorId == null) {
             return jdbc.query(
-                    "SELECT id, kind, name, description, member_count, image_url, specialization_type, created_at, verification_ttl_days " +
+                    "SELECT " + BASE_COLUMNS + " " +
                             "FROM communities WHERE kind = ? AND specialization_type = ? " +
                             "AND (LOWER(name) LIKE ? OR LOWER(COALESCE(description,'')) LIKE ?) " +
                             "ORDER BY created_at DESC, id DESC LIMIT ?",
@@ -173,7 +177,7 @@ public class CommunitiesRepository {
             );
         }
         return jdbc.query(
-                "SELECT id, kind, name, description, member_count, image_url, specialization_type, created_at, verification_ttl_days " +
+                "SELECT " + BASE_COLUMNS + " " +
                         "FROM communities WHERE kind = ? AND specialization_type = ? " +
                         "AND (LOWER(name) LIKE ? OR LOWER(COALESCE(description,'')) LIKE ?) " +
                         "AND (created_at < ? OR (created_at = ? AND id < ?)) " +
@@ -213,11 +217,16 @@ public class CommunitiesRepository {
 
     public long insert(String kind, String name, String description, String imageUrl,
                        Integer verificationTtlDays, String specializationType) {
+        return insert(kind, name, description, imageUrl, verificationTtlDays, specializationType, null);
+    }
+
+    public long insert(String kind, String name, String description, String imageUrl,
+                       Integer verificationTtlDays, String specializationType, String shortName) {
         Long id = jdbc.query(
-                "INSERT INTO communities(kind, name, description, image_url, verification_ttl_days, specialization_type) " +
-                        "VALUES (?,?,?,?,?,?) RETURNING id",
+                "INSERT INTO communities(kind, name, description, image_url, verification_ttl_days, specialization_type, short_name) " +
+                        "VALUES (?,?,?,?,?,?,?) RETURNING id",
                 rs -> rs.next() ? rs.getLong(1) : null,
-                kind, name, description, imageUrl, verificationTtlDays, specializationType
+                kind, name, description, imageUrl, verificationTtlDays, specializationType, shortName
         );
         if (id == null) {
             throw new IllegalStateException("Failed to insert community");
@@ -235,6 +244,7 @@ public class CommunitiesRepository {
         public String specializationType;
         public OffsetDateTime createdAt;
         public Integer verificationTtlDays;
+        public String shortName;
     }
 
     public static class RecommendedRow {
@@ -258,7 +268,12 @@ public class CommunitiesRepository {
     }
 
     public boolean updateDetails(long communityId, boolean descriptionProvided, String description, Integer ttlDays) {
-        boolean hasUpdate = descriptionProvided || ttlDays != null;
+        return updateDetails(communityId, descriptionProvided, description, ttlDays, false, null);
+    }
+
+    public boolean updateDetails(long communityId, boolean descriptionProvided, String description,
+                                 Integer ttlDays, boolean shortNameProvided, String shortName) {
+        boolean hasUpdate = descriptionProvided || ttlDays != null || shortNameProvided;
         if (!hasUpdate) return false;
         StringBuilder sql = new StringBuilder("UPDATE communities SET ");
         java.util.List<Object> params = new java.util.ArrayList<>();
@@ -272,6 +287,12 @@ public class CommunitiesRepository {
             if (!first) sql.append(", ");
             sql.append("verification_ttl_days = ?");
             params.add(ttlDays);
+            first = false;
+        }
+        if (shortNameProvided) {
+            if (!first) sql.append(", ");
+            sql.append("short_name = ?");
+            params.add(shortName);
         }
         sql.append(" WHERE id = ?");
         params.add(communityId);
