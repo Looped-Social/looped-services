@@ -3,12 +3,15 @@ package com.looped.messaging;
 import com.looped.shared.Pagination;
 import com.looped.users.UserRepository;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.OffsetDateTime;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 @Service
 public class ChannelService {
@@ -44,6 +47,10 @@ public class ChannelService {
             map.put("name", row.name);
             map.put("member_count", row.memberCount);
             map.put("is_public", row.isPublic);
+            if (row.ownerUserId != null) {
+                map.put("owner_user_id", row.ownerUserId);
+            }
+            map.put("viewer_can_manage_members", row.viewerCanManageMembers);
             return map;
         }).toList();
         return ChannelListResult.ok(items, next);
@@ -87,15 +94,151 @@ public class ChannelService {
         if (!allowed) return SendResult.forbidden();
 
         // Auto-join public channels on send
-        channels.addMember(channelId, actor.get().id);
+        channels.addMember(channelId, actor.get().id, false);
         var message = channels.insertMessage(channelId, actor.get().id, content, attachments);
         return SendResult.ok(message);
+    }
+
+    @Transactional
+    public CreateResult create(String firebaseUid, String name, List<Long> memberUserIds) {
+        var actor = requireProvisionedUser(firebaseUid);
+        if (actor.isEmpty()) return CreateResult.userNotProvisioned();
+        if (actor.get().isAnonymous) return CreateResult.anonymousNotAllowed();
+        Set<Long> normalized = normalizeIds(memberUserIds);
+        var validation = validateMemberIds(actor.get().companyId, normalized);
+        if (validation.status() != Status.OK) return new CreateResult(validation.status(), null);
+
+        long channelId = channels.insertChannel(actor.get().companyId, actor.get().id, name, false);
+        channels.addMember(channelId, actor.get().id, true);
+        for (Long memberId : normalized) {
+            if (memberId == null || memberId == actor.get().id) continue;
+            channels.addMember(channelId, memberId, false);
+        }
+        var created = channels.findById(channelId).orElseThrow();
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("id", created.id);
+        payload.put("name", created.name);
+        payload.put("member_count", created.memberCount);
+        payload.put("is_public", created.isPublic);
+        if (created.ownerUserId != null) {
+            payload.put("owner_user_id", created.ownerUserId);
+        }
+        payload.put("viewer_can_manage_members", true);
+        return new CreateResult(Status.OK, payload);
+    }
+
+    public MembersResult members(String firebaseUid, long channelId, String cursor, int limit) {
+        var actor = requireProvisionedUser(firebaseUid);
+        if (actor.isEmpty()) return MembersResult.userNotProvisioned();
+        if (actor.get().isAnonymous) return MembersResult.anonymousNotAllowed();
+        var channel = channels.findById(channelId);
+        if (channel.isEmpty()) return MembersResult.notFound();
+        if (channel.get().companyId != actor.get().companyId) return MembersResult.forbidden();
+        if (!channels.isMember(channelId, actor.get().id)) return MembersResult.forbidden();
+
+        OffsetDateTime cTs = null; Long cId = null;
+        if (cursor != null && !cursor.isBlank()) {
+            try {
+                var decoded = Pagination.decode(cursor);
+                cTs = decoded.timestamp();
+                cId = decoded.id();
+            } catch (IllegalArgumentException ignored) {}
+        }
+        var rows = channels.listMembers(channelId, cTs, cId, limit);
+        String next = null;
+        if (rows.size() == limit) {
+            var last = rows.get(rows.size() - 1);
+            next = Pagination.encode(last.createdAt, last.userId);
+        }
+        return MembersResult.ok(rows, next, channel.get().ownerUserId);
+    }
+
+    @Transactional
+    public ModifyMembersResult addMembers(String firebaseUid, long channelId, List<Long> memberUserIds) {
+        var actor = requireProvisionedUser(firebaseUid);
+        if (actor.isEmpty()) return ModifyMembersResult.userNotProvisioned();
+        if (actor.get().isAnonymous) return ModifyMembersResult.anonymousNotAllowed();
+        var channel = channels.findById(channelId);
+        if (channel.isEmpty()) return ModifyMembersResult.notFound();
+        if (channel.get().companyId != actor.get().companyId) return ModifyMembersResult.forbidden();
+        if (!canManageMembers(actor.get(), channel.get())) return ModifyMembersResult.forbidden();
+
+        Set<Long> normalized = normalizeIds(memberUserIds);
+        var validation = validateMemberIds(actor.get().companyId, normalized);
+        if (validation.status() != Status.OK) return new ModifyMembersResult(validation.status(), 0);
+
+        int added = 0;
+        for (Long memberId : normalized) {
+            if (memberId == null) continue;
+            if (channels.addMember(channelId, memberId, false)) {
+                added += 1;
+            }
+        }
+        return new ModifyMembersResult(Status.OK, added);
+    }
+
+    @Transactional
+    public ModifyMembersResult removeMember(String firebaseUid, long channelId, long targetUserId) {
+        var actor = requireProvisionedUser(firebaseUid);
+        if (actor.isEmpty()) return ModifyMembersResult.userNotProvisioned();
+        if (actor.get().isAnonymous) return ModifyMembersResult.anonymousNotAllowed();
+        var channel = channels.findById(channelId);
+        if (channel.isEmpty()) return ModifyMembersResult.notFound();
+        if (channel.get().companyId != actor.get().companyId) return ModifyMembersResult.forbidden();
+        if (channel.get().ownerUserId != null && channel.get().ownerUserId == targetUserId) {
+            return ModifyMembersResult.forbidden();
+        }
+        boolean isSelf = actor.get().id == targetUserId;
+        if (!isSelf && !canManageMembers(actor.get(), channel.get())) return ModifyMembersResult.forbidden();
+        if (!channels.removeMember(channelId, targetUserId)) return ModifyMembersResult.notFound();
+        return new ModifyMembersResult(Status.OK, 1);
+    }
+
+    public ModifyMembersResult updateMemberPermission(String firebaseUid, long channelId, long targetUserId, boolean canManageMembers) {
+        var actor = requireProvisionedUser(firebaseUid);
+        if (actor.isEmpty()) return ModifyMembersResult.userNotProvisioned();
+        if (actor.get().isAnonymous) return ModifyMembersResult.anonymousNotAllowed();
+        var channel = channels.findById(channelId);
+        if (channel.isEmpty()) return ModifyMembersResult.notFound();
+        if (channel.get().companyId != actor.get().companyId) return ModifyMembersResult.forbidden();
+        if (channel.get().ownerUserId == null || channel.get().ownerUserId != actor.get().id) {
+            return ModifyMembersResult.forbidden();
+        }
+        if (!channels.updateMemberPermission(channelId, targetUserId, canManageMembers)) {
+            return ModifyMembersResult.notFound();
+        }
+        return new ModifyMembersResult(Status.OK, 0);
     }
 
     private Optional<UserRepository.UserRow> requireProvisionedUser(String firebaseUid) {
         var user = users.findByFirebaseUid(firebaseUid);
         if (user.isEmpty() || user.get().companyId == null) return Optional.empty();
         return user;
+    }
+
+    private boolean canManageMembers(UserRepository.UserRow actor, ChannelRepository.ChannelRow channel) {
+        if (channel.ownerUserId != null && channel.ownerUserId == actor.id) return true;
+        var member = channels.findMember(channel.id, actor.id);
+        return member.isPresent() && member.get().canManageMembers;
+    }
+
+    private Set<Long> normalizeIds(List<Long> raw) {
+        if (raw == null) return Set.of();
+        return raw.stream().filter(id -> id != null && id > 0).collect(Collectors.toSet());
+    }
+
+    private ValidateMembersResult validateMemberIds(long companyId, Set<Long> memberUserIds) {
+        for (Long memberId : memberUserIds) {
+            var target = users.findById(memberId);
+            if (target.isEmpty()) return new ValidateMembersResult(Status.NOT_FOUND);
+            if (target.get().companyId == null || !target.get().companyId.equals(companyId)) {
+                return new ValidateMembersResult(Status.FORBIDDEN);
+            }
+            if (target.get().isAnonymous) {
+                return new ValidateMembersResult(Status.FORBIDDEN);
+            }
+        }
+        return new ValidateMembersResult(Status.OK);
     }
 
     public enum Status { OK, USER_NOT_PROVISIONED, FORBIDDEN, NOT_FOUND, ANONYMOUS_NOT_ALLOWED }
@@ -121,4 +264,30 @@ public class ChannelService {
         static SendResult notFound() { return new SendResult(Status.NOT_FOUND, null); }
         static SendResult anonymousNotAllowed() { return new SendResult(Status.ANONYMOUS_NOT_ALLOWED, null); }
     }
+
+    public record CreateResult(Status status, Map<String, Object> channel) {
+        static CreateResult userNotProvisioned() { return new CreateResult(Status.USER_NOT_PROVISIONED, null); }
+        static CreateResult anonymousNotAllowed() { return new CreateResult(Status.ANONYMOUS_NOT_ALLOWED, null); }
+        static CreateResult notFound() { return new CreateResult(Status.NOT_FOUND, null); }
+        static CreateResult forbidden() { return new CreateResult(Status.FORBIDDEN, null); }
+    }
+
+    public record MembersResult(Status status, List<ChannelRepository.ChannelMemberRow> members, String nextCursor, Long ownerUserId) {
+        static MembersResult ok(List<ChannelRepository.ChannelMemberRow> members, String nextCursor, Long ownerUserId) {
+            return new MembersResult(Status.OK, members, nextCursor, ownerUserId);
+        }
+        static MembersResult userNotProvisioned() { return new MembersResult(Status.USER_NOT_PROVISIONED, List.of(), null, null); }
+        static MembersResult forbidden() { return new MembersResult(Status.FORBIDDEN, List.of(), null, null); }
+        static MembersResult notFound() { return new MembersResult(Status.NOT_FOUND, List.of(), null, null); }
+        static MembersResult anonymousNotAllowed() { return new MembersResult(Status.ANONYMOUS_NOT_ALLOWED, List.of(), null, null); }
+    }
+
+    public record ModifyMembersResult(Status status, int changedCount) {
+        static ModifyMembersResult userNotProvisioned() { return new ModifyMembersResult(Status.USER_NOT_PROVISIONED, 0); }
+        static ModifyMembersResult forbidden() { return new ModifyMembersResult(Status.FORBIDDEN, 0); }
+        static ModifyMembersResult notFound() { return new ModifyMembersResult(Status.NOT_FOUND, 0); }
+        static ModifyMembersResult anonymousNotAllowed() { return new ModifyMembersResult(Status.ANONYMOUS_NOT_ALLOWED, 0); }
+    }
+
+    private record ValidateMembersResult(Status status) {}
 }

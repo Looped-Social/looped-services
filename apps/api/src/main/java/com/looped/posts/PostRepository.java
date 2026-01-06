@@ -31,6 +31,10 @@ public class PostRepository {
             "dc.name AS author_display_community_name, " +
             "dc.kind AS author_display_community_kind, " +
             "dc.specialization_type AS author_display_community_specialization_type, " +
+            "ds.id AS author_display_specialization_id, " +
+            "ds.name AS author_display_specialization_name, " +
+            "ds.kind AS author_display_specialization_kind, " +
+            "ds.specialization_type AS author_display_specialization_type, " +
             "CASE WHEN p.is_anon THEN true ELSE COALESCE(u.is_anonymous, false) END AS author_is_anonymous " +
             "FROM posts p " +
             "LEFT JOIN communities c ON c.id = p.community_id " +
@@ -38,6 +42,8 @@ public class PostRepository {
             "LEFT JOIN community_verifications cv ON cv.user_id = u.id AND cv.community_id = u.display_community_id " +
             "AND cv.verified = true AND (cv.expires_at IS NULL OR cv.expires_at > now()) " +
             "LEFT JOIN communities dc ON dc.id = cv.community_id " +
+            "LEFT JOIN communities ds ON ds.id = u.display_specialization_id " +
+            "AND ds.kind = 'specialization' AND ds.specialization_type IN ('major','department') " +
             "LEFT JOIN anonymous_profiles ap ON ap.id = p.anon_profile_id ";
 
     private static final RowMapper<PostRow> MAPPER = new RowMapper<>() {
@@ -79,6 +85,11 @@ public class PostRepository {
             p.authorDisplayCommunityName = rs.getString("author_display_community_name");
             p.authorDisplayCommunityKind = rs.getString("author_display_community_kind");
             p.authorDisplayCommunitySpecializationType = rs.getString("author_display_community_specialization_type");
+            long displaySpecializationId = rs.getLong("author_display_specialization_id");
+            p.authorDisplaySpecializationId = rs.wasNull() ? null : displaySpecializationId;
+            p.authorDisplaySpecializationName = rs.getString("author_display_specialization_name");
+            p.authorDisplaySpecializationKind = rs.getString("author_display_specialization_kind");
+            p.authorDisplaySpecializationType = rs.getString("author_display_specialization_type");
             p.authorIsAnonymous = rs.getBoolean("author_is_anonymous");
             return p;
         }
@@ -161,6 +172,8 @@ public class PostRepository {
                 "u.profile_image_url AS author_profile_image_url, " +
                 "dc.id AS author_display_community_id, dc.name AS author_display_community_name, " +
                 "dc.kind AS author_display_community_kind, dc.specialization_type AS author_display_community_specialization_type, " +
+                "ds.id AS author_display_specialization_id, ds.name AS author_display_specialization_name, " +
+                "ds.kind AS author_display_specialization_kind, ds.specialization_type AS author_display_specialization_type, " +
                 "CASE WHEN p.is_anon THEN true ELSE COALESCE(u.is_anonymous, false) END AS author_is_anonymous, " +
                 scoreExpr + " AS score FROM posts p " +
                 "LEFT JOIN communities c ON c.id = p.community_id " +
@@ -168,6 +181,8 @@ public class PostRepository {
                 "LEFT JOIN community_verifications cv ON cv.user_id = u.id AND cv.community_id = u.display_community_id " +
                 "AND cv.verified = true AND (cv.expires_at IS NULL OR cv.expires_at > now()) " +
                 "LEFT JOIN communities dc ON dc.id = cv.community_id " +
+                "LEFT JOIN communities ds ON ds.id = u.display_specialization_id " +
+                "AND ds.kind = 'specialization' AND ds.specialization_type IN ('major','department') " +
                 "LEFT JOIN anonymous_profiles ap ON ap.id = p.anon_profile_id " +
                 "WHERE p.created_at >= ? AND p.removed_at IS NULL AND (p.author_id IS NULL OR u.id IS NOT NULL)";
         if (cursorScore == null || cursorTs == null || cursorId == null) {
@@ -177,7 +192,9 @@ public class PostRepository {
                             "removed_at, removed_by, removed_reason, " +
                             "author_handle, author_display_name, author_first_name, author_last_name, author_profile_image_url, " +
                             "author_display_community_id, author_display_community_name, author_display_community_kind, " +
-                            "author_display_community_specialization_type, author_is_anonymous " +
+                            "author_display_community_specialization_type, " +
+                            "author_display_specialization_id, author_display_specialization_name, author_display_specialization_kind, " +
+                            "author_display_specialization_type, author_is_anonymous " +
                             "FROM (" + base + ") s ORDER BY score DESC, created_at DESC, id DESC LIMIT ?",
                     MAPPER, asOf, since, limit
             );
@@ -188,7 +205,9 @@ public class PostRepository {
                         "removed_at, removed_by, removed_reason, " +
                         "author_handle, author_display_name, author_first_name, author_last_name, author_profile_image_url, " +
                         "author_display_community_id, author_display_community_name, author_display_community_kind, " +
-                        "author_display_community_specialization_type, author_is_anonymous " +
+                        "author_display_community_specialization_type, " +
+                        "author_display_specialization_id, author_display_specialization_name, author_display_specialization_kind, " +
+                        "author_display_specialization_type, author_is_anonymous " +
                         "FROM (" + base + ") s WHERE (score < ? OR (score = ? AND (created_at < ? OR (created_at = ? AND id < ?)))) " +
                         "ORDER BY score DESC, created_at DESC, id DESC LIMIT ?",
                 MAPPER, asOf, since, cursorScore, cursorScore, cursorTs, cursorTs, cursorId, limit
@@ -208,6 +227,8 @@ public class PostRepository {
                 "u.profile_image_url AS author_profile_image_url, " +
                 "dc.id AS author_display_community_id, dc.name AS author_display_community_name, " +
                 "dc.kind AS author_display_community_kind, dc.specialization_type AS author_display_community_specialization_type, " +
+                "ds.id AS author_display_specialization_id, ds.name AS author_display_specialization_name, " +
+                "ds.kind AS author_display_specialization_kind, ds.specialization_type AS author_display_specialization_type, " +
                 "CASE WHEN p.is_anon THEN true ELSE COALESCE(u.is_anonymous, false) END AS author_is_anonymous, " +
                 scoreExpr + " AS score FROM posts p " +
                 "LEFT JOIN communities c ON c.id = p.community_id " +
@@ -215,6 +236,8 @@ public class PostRepository {
                 "LEFT JOIN community_verifications cv ON cv.user_id = u.id AND cv.community_id = u.display_community_id " +
                 "AND cv.verified = true AND (cv.expires_at IS NULL OR cv.expires_at > now()) " +
                 "LEFT JOIN communities dc ON dc.id = cv.community_id " +
+                "LEFT JOIN communities ds ON ds.id = u.display_specialization_id " +
+                "AND ds.kind = 'specialization' AND ds.specialization_type IN ('major','department') " +
                 "LEFT JOIN anonymous_profiles ap ON ap.id = p.anon_profile_id " +
                 "WHERE p.created_at >= ? AND p.removed_at IS NULL AND p.community_id = ? " +
                 "AND (p.author_id IS NULL OR u.id IS NOT NULL)";
@@ -225,7 +248,9 @@ public class PostRepository {
                             "removed_at, removed_by, removed_reason, " +
                             "author_handle, author_display_name, author_first_name, author_last_name, author_profile_image_url, " +
                             "author_display_community_id, author_display_community_name, author_display_community_kind, " +
-                            "author_display_community_specialization_type, author_is_anonymous " +
+                            "author_display_community_specialization_type, " +
+                            "author_display_specialization_id, author_display_specialization_name, author_display_specialization_kind, " +
+                            "author_display_specialization_type, author_is_anonymous " +
                             "FROM (" + base + ") s ORDER BY score DESC, created_at DESC, id DESC LIMIT ?",
                     MAPPER, asOf, since, communityId, limit
             );
@@ -236,7 +261,9 @@ public class PostRepository {
                         "removed_at, removed_by, removed_reason, " +
                         "author_handle, author_display_name, author_first_name, author_last_name, author_profile_image_url, " +
                         "author_display_community_id, author_display_community_name, author_display_community_kind, " +
-                        "author_display_community_specialization_type, author_is_anonymous " +
+                        "author_display_community_specialization_type, " +
+                        "author_display_specialization_id, author_display_specialization_name, author_display_specialization_kind, " +
+                        "author_display_specialization_type, author_is_anonymous " +
                         "FROM (" + base + ") s WHERE (score < ? OR (score = ? AND (created_at < ? OR (created_at = ? AND id < ?)))) " +
                         "ORDER BY score DESC, created_at DESC, id DESC LIMIT ?",
                 MAPPER, asOf, since, communityId, cursorScore, cursorScore, cursorTs, cursorTs, cursorId, limit
@@ -305,6 +332,8 @@ public class PostRepository {
                 "u.profile_image_url AS author_profile_image_url, " +
                 "dc.id AS author_display_community_id, dc.name AS author_display_community_name, " +
                 "dc.kind AS author_display_community_kind, dc.specialization_type AS author_display_community_specialization_type, " +
+                "ds.id AS author_display_specialization_id, ds.name AS author_display_specialization_name, " +
+                "ds.kind AS author_display_specialization_kind, ds.specialization_type AS author_display_specialization_type, " +
                 "CASE WHEN p.is_anon THEN true ELSE COALESCE(u.is_anonymous, false) END AS author_is_anonymous, " +
                 "c.name AS community_name, c.kind AS community_kind, " +
                 scoreExpr + " AS score FROM posts p " +
@@ -313,6 +342,8 @@ public class PostRepository {
                 "LEFT JOIN community_verifications cv ON cv.user_id = u.id AND cv.community_id = u.display_community_id " +
                 "AND cv.verified = true AND (cv.expires_at IS NULL OR cv.expires_at > now()) " +
                 "LEFT JOIN communities dc ON dc.id = cv.community_id " +
+                "LEFT JOIN communities ds ON ds.id = u.display_specialization_id " +
+                "AND ds.kind = 'specialization' AND ds.specialization_type IN ('major','department') " +
                 "LEFT JOIN anonymous_profiles ap ON ap.id = p.anon_profile_id " +
                 "WHERE p.media_asset_id IS NOT NULL AND p.created_at >= ? AND p.removed_at IS NULL AND (p.author_id IS NULL OR u.id IS NOT NULL) ";
         if (communityId != null) {
@@ -390,6 +421,10 @@ public class PostRepository {
         public String authorDisplayCommunityName;
         public String authorDisplayCommunityKind;
         public String authorDisplayCommunitySpecializationType;
+        public Long authorDisplaySpecializationId;
+        public String authorDisplaySpecializationName;
+        public String authorDisplaySpecializationKind;
+        public String authorDisplaySpecializationType;
         public boolean authorIsAnonymous;
     }
 
@@ -431,6 +466,11 @@ public class PostRepository {
             p.authorDisplayCommunityName = rs.getString("author_display_community_name");
             p.authorDisplayCommunityKind = rs.getString("author_display_community_kind");
             p.authorDisplayCommunitySpecializationType = rs.getString("author_display_community_specialization_type");
+            long displaySpecializationId = rs.getLong("author_display_specialization_id");
+            p.authorDisplaySpecializationId = rs.wasNull() ? null : displaySpecializationId;
+            p.authorDisplaySpecializationName = rs.getString("author_display_specialization_name");
+            p.authorDisplaySpecializationKind = rs.getString("author_display_specialization_kind");
+            p.authorDisplaySpecializationType = rs.getString("author_display_specialization_type");
             p.authorIsAnonymous = rs.getBoolean("author_is_anonymous");
             p.communityName = rs.getString("community_name");
             p.communityKind = rs.getString("community_kind");

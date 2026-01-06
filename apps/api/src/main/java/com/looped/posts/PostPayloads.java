@@ -33,6 +33,16 @@ public final class PostPayloads {
             }
             out.put("author_display_community", display);
         }
+        if (!row.authorIsAnonymous && row.authorDisplaySpecializationId != null) {
+            Map<String, Object> display = new HashMap<>();
+            display.put("id", row.authorDisplaySpecializationId);
+            display.put("name", row.authorDisplaySpecializationName);
+            display.put("kind", row.authorDisplaySpecializationKind);
+            if (row.authorDisplaySpecializationType != null) {
+                display.put("specialization_type", row.authorDisplaySpecializationType);
+            }
+            out.put("author_display_specialization", display);
+        }
         out.put("anon_profile_id", row.anonProfileId);
         out.put("company_id", row.companyId);
         out.put("community_id", row.communityId);

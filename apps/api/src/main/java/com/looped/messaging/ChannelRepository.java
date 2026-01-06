@@ -29,10 +29,13 @@ public class ChannelRepository {
             ChannelRow row = new ChannelRow();
             row.id = rs.getLong("id");
             row.companyId = rs.getLong("company_id");
+            long owner = rs.getLong("owner_user_id");
+            row.ownerUserId = rs.wasNull() ? null : owner;
             row.name = rs.getString("name");
             row.isPublic = rs.getBoolean("is_public");
             row.createdAt = rs.getObject("created_at", OffsetDateTime.class);
             row.memberCount = rs.getInt("member_count");
+            row.viewerCanManageMembers = rs.getBoolean("viewer_can_manage_members");
             return row;
         }
     };
@@ -58,8 +61,9 @@ public class ChannelRepository {
 
     public Optional<ChannelRow> findById(long id) {
         var rows = jdbc.query(
-                "SELECT id, company_id, name, is_public, created_at, " +
+                "SELECT id, company_id, owner_user_id, name, is_public, created_at, " +
                         "(SELECT COUNT(*) FROM channel_members m WHERE m.channel_id = channels.id) AS member_count " +
+                        ", false AS viewer_can_manage_members " +
                         "FROM channels WHERE id = ?",
                 channelMapper, id
         );
@@ -67,15 +71,21 @@ public class ChannelRepository {
     }
 
     public List<ChannelRow> listForUser(long companyId, long userId, OffsetDateTime cursorTs, Long cursorId, int limit) {
-        String base = "SELECT id, company_id, name, is_public, created_at, " +
-                "(SELECT COUNT(*) FROM channel_members m WHERE m.channel_id = channels.id) AS member_count " +
-                "FROM channels WHERE company_id = ? AND (is_public = true OR EXISTS (SELECT 1 FROM channel_members m WHERE m.channel_id = channels.id AND m.user_id = ?)) ";
+        String base = "SELECT channels.id, channels.company_id, channels.owner_user_id, channels.name, channels.is_public, " +
+                "channels.created_at AS created_at, " +
+                "(SELECT COUNT(*) FROM channel_members m WHERE m.channel_id = channels.id) AS member_count, " +
+                "COALESCE(cm.can_manage_members, false) AS viewer_can_manage_members " +
+                "FROM channels " +
+                "LEFT JOIN channel_members cm ON cm.channel_id = channels.id AND cm.user_id = ? " +
+                "WHERE channels.company_id = ? AND (channels.is_public = true " +
+                "OR EXISTS (SELECT 1 FROM channel_members m WHERE m.channel_id = channels.id AND m.user_id = ?)) ";
         if (cursorTs == null || cursorId == null) {
-            base += "ORDER BY created_at DESC, id DESC LIMIT " + limit;
-            return jdbc.query(base, channelMapper, companyId, userId);
+            base += "ORDER BY channels.created_at DESC, channels.id DESC LIMIT " + limit;
+            return jdbc.query(base, channelMapper, userId, companyId, userId);
         }
-        base += "AND (created_at < ? OR (created_at = ? AND id < ?)) ORDER BY created_at DESC, id DESC LIMIT " + limit;
-        return jdbc.query(base, channelMapper, companyId, userId, cursorTs, cursorTs, cursorId);
+        base += "AND (channels.created_at < ? OR (channels.created_at = ? AND channels.id < ?)) " +
+                "ORDER BY channels.created_at DESC, channels.id DESC LIMIT " + limit;
+        return jdbc.query(base, channelMapper, userId, companyId, userId, cursorTs, cursorTs, cursorId);
     }
 
     public boolean isMember(long channelId, long userId) {
@@ -86,8 +96,24 @@ public class ChannelRepository {
         return Boolean.TRUE.equals(exists);
     }
 
-    public void addMember(long channelId, long userId) {
-        jdbc.update("INSERT INTO channel_members(channel_id, user_id) VALUES (?,?) ON CONFLICT DO NOTHING", channelId, userId);
+    public Optional<ChannelMemberRow> findMember(long channelId, long userId) {
+        var rows = jdbc.query(
+                "SELECT cm.user_id, cm.can_manage_members, cm.created_at, u.handle, u.display_name, " +
+                        "u.profile_image_url, u.company_id " +
+                        "FROM channel_members cm " +
+                        "JOIN users u ON u.id = cm.user_id AND u.deleted_at IS NULL " +
+                        "WHERE cm.channel_id = ? AND cm.user_id = ?",
+                memberMapper, channelId, userId
+        );
+        return rows.isEmpty() ? Optional.empty() : Optional.of(rows.get(0));
+    }
+
+    public boolean addMember(long channelId, long userId, boolean canManageMembers) {
+        int rows = jdbc.update(
+                "INSERT INTO channel_members(channel_id, user_id, can_manage_members) VALUES (?,?,?) ON CONFLICT DO NOTHING",
+                channelId, userId, canManageMembers
+        );
+        return rows > 0;
     }
 
     public List<ChannelMessageRow> listMessages(long channelId, OffsetDateTime cursorTs, Long cursorId, int limit) {
@@ -121,13 +147,84 @@ public class ChannelRepository {
         return rows.isEmpty() ? null : rows.get(0);
     }
 
+    public List<ChannelMemberRow> listMembers(long channelId, OffsetDateTime cursorTs, Long cursorId, int limit) {
+        String base = "SELECT cm.user_id, cm.can_manage_members, cm.created_at, u.handle, u.display_name, " +
+                "u.profile_image_url, u.company_id " +
+                "FROM channel_members cm " +
+                "JOIN users u ON u.id = cm.user_id AND u.deleted_at IS NULL " +
+                "WHERE cm.channel_id = ? ";
+        Object[] params;
+        if (cursorTs == null || cursorId == null) {
+            base += "ORDER BY cm.created_at DESC, cm.user_id DESC LIMIT ?";
+            params = new Object[]{channelId, limit};
+        } else {
+            base += "AND (cm.created_at < ? OR (cm.created_at = ? AND cm.user_id < ?)) " +
+                    "ORDER BY cm.created_at DESC, cm.user_id DESC LIMIT ?";
+            params = new Object[]{channelId, cursorTs, cursorTs, cursorId, limit};
+        }
+        return jdbc.query(base, memberMapper, params);
+    }
+
+    public boolean updateMemberPermission(long channelId, long userId, boolean canManageMembers) {
+        int rows = jdbc.update(
+                "UPDATE channel_members SET can_manage_members = ? WHERE channel_id = ? AND user_id = ?",
+                canManageMembers, channelId, userId
+        );
+        return rows > 0;
+    }
+
+    public boolean removeMember(long channelId, long userId) {
+        int rows = jdbc.update(
+                "DELETE FROM channel_members WHERE channel_id = ? AND user_id = ?",
+                channelId, userId
+        );
+        return rows > 0;
+    }
+
+    public long insertChannel(long companyId, long ownerUserId, String name, boolean isPublic) {
+        Long id = jdbc.query(
+                "INSERT INTO channels(company_id, owner_user_id, name, is_public) VALUES (?,?,?,?) RETURNING id",
+                rs -> rs.next() ? rs.getLong(1) : null,
+                companyId, ownerUserId, name, isPublic
+        );
+        return Optional.ofNullable(id).orElseThrow();
+    }
+
     public static class ChannelRow {
         public long id;
         public long companyId;
+        public Long ownerUserId;
         public String name;
         public boolean isPublic;
         public OffsetDateTime createdAt;
         public int memberCount;
+        public boolean viewerCanManageMembers;
+    }
+
+    private final RowMapper<ChannelMemberRow> memberMapper = new RowMapper<>() {
+        @Override
+        public ChannelMemberRow mapRow(ResultSet rs, int rowNum) throws SQLException {
+            ChannelMemberRow row = new ChannelMemberRow();
+            row.userId = rs.getLong("user_id");
+            row.canManageMembers = rs.getBoolean("can_manage_members");
+            row.createdAt = rs.getObject("created_at", OffsetDateTime.class);
+            row.handle = rs.getString("handle");
+            row.displayName = rs.getString("display_name");
+            row.profileImageUrl = rs.getString("profile_image_url");
+            long companyId = rs.getLong("company_id");
+            row.companyId = rs.wasNull() ? null : companyId;
+            return row;
+        }
+    };
+
+    public static class ChannelMemberRow {
+        public long userId;
+        public String handle;
+        public String displayName;
+        public String profileImageUrl;
+        public Long companyId;
+        public boolean canManageMembers;
+        public OffsetDateTime createdAt;
     }
 
     public static class ChannelMessageRow {

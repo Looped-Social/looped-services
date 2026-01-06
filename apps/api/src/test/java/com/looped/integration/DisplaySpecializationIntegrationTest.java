@@ -19,6 +19,7 @@ import java.time.Instant;
 import java.util.List;
 
 import static org.hamcrest.Matchers.equalTo;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -90,5 +91,40 @@ class DisplaySpecializationIntegrationTest extends PostgresTestBase {
                         .content("{\"specializationId\":" + communityId + "}"))
                 .andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.error").value(equalTo("invalid_specialization")));
+    }
+
+    @Test
+    void display_specialization_appears_on_posts() throws Exception {
+        long companyId = jdbc.queryForObject("INSERT INTO companies(name, domain) VALUES ('SpecPostCo','specpost.co') RETURNING id", Long.class);
+        long authorId = jdbc.queryForObject(
+                "INSERT INTO users(firebase_uid, handle, company_id, display_name) VALUES (?,?,?,?) RETURNING id",
+                Long.class, "uid-display-spec-post", "displayspecpost", companyId, "Author"
+        );
+        long authorPrincipal = jdbc.queryForObject(
+                "INSERT INTO principals(kind, user_id) VALUES ('user', ?) RETURNING id",
+                Long.class, authorId
+        );
+        long postCommunityId = jdbc.queryForObject(
+                "INSERT INTO communities(kind, name) VALUES ('company', 'SpecPostCo') RETURNING id",
+                Long.class
+        );
+        long specializationId = jdbc.queryForObject(
+                "INSERT INTO communities(kind, specialization_type, name) VALUES ('specialization', 'major', 'Computer Science') RETURNING id",
+                Long.class
+        );
+        jdbc.update("UPDATE users SET display_specialization_id = ? WHERE id = ?", specializationId, authorId);
+        long postId = jdbc.queryForObject(
+                "INSERT INTO posts(author_id, author_principal_id, company_id, community_id, content) VALUES (?,?,?,?,?) RETURNING id",
+                Long.class, authorId, authorPrincipal, companyId, postCommunityId, "post body"
+        );
+
+        String auth = "Bearer " + token("uid-display-spec-post");
+
+        mockMvc.perform(get("/v1/posts/" + postId)
+                        .header("Authorization", auth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.author_display_specialization.id").value((int) specializationId))
+                .andExpect(jsonPath("$.author_display_specialization.kind").value("specialization"))
+                .andExpect(jsonPath("$.author_display_specialization.specialization_type").value("major"));
     }
 }
