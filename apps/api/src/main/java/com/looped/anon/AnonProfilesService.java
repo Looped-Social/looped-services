@@ -242,6 +242,34 @@ public class AnonProfilesService {
         return RepliesResult.ok(rows, next);
     }
 
+    public RepliesForViewerResult repliesForViewer(String firebaseUid, long anonProfileId, String cursor, int limit) {
+        var actor = users.findByFirebaseUid(firebaseUid);
+        if (actor.isEmpty() || actor.get().companyId == null) return RepliesForViewerResult.userNotProvisioned();
+        var profile = profiles.findById(anonProfileId);
+        if (profile.isEmpty()) return RepliesForViewerResult.notFound();
+        if (profile.get().companyId != null && !actor.get().companyId.equals(profile.get().companyId)) {
+            return RepliesForViewerResult.forbidden();
+        }
+        var targetPrincipal = principals.createForAnon(anonProfileId);
+        var viewerPrincipal = principals.createForUser(actor.get().id);
+
+        OffsetDateTime cTs = null; Long cId = null;
+        if (cursor != null && !cursor.isBlank()) {
+            try {
+                var decoded = Pagination.decode(cursor);
+                cTs = decoded.timestamp();
+                cId = decoded.id();
+            } catch (IllegalArgumentException ignored) {}
+        }
+        var rows = comments.findByAuthorPrincipalWithView(targetPrincipal.id, viewerPrincipal.id, cTs, cId, limit);
+        String next = null;
+        if (rows.size() == limit) {
+            var last = rows.get(rows.size() - 1).comment;
+            next = Pagination.encode(last.createdAt, last.id);
+        }
+        return RepliesForViewerResult.ok(rows, next);
+    }
+
     public FollowsResult followers(String firebaseUid, long anonProfileId, String cursor, int limit) {
         return followList(firebaseUid, anonProfileId, cursor, limit, true);
     }
@@ -322,6 +350,13 @@ public class AnonProfilesService {
     public record RepliesResult(AnonStatus status, List<CommentsRepository.CommentViewRow> comments, String nextCursor) {
         static RepliesResult ok(List<CommentsRepository.CommentViewRow> comments, String nextCursor) { return new RepliesResult(AnonStatus.OK, comments, nextCursor); }
         static RepliesResult invalidAnonProof() { return new RepliesResult(AnonStatus.INVALID_ANON_PROOF, List.of(), null); }
+    }
+
+    public record RepliesForViewerResult(Status status, List<CommentsRepository.CommentViewRow> comments, String nextCursor) {
+        static RepliesForViewerResult ok(List<CommentsRepository.CommentViewRow> comments, String nextCursor) { return new RepliesForViewerResult(Status.OK, comments, nextCursor); }
+        static RepliesForViewerResult userNotProvisioned() { return new RepliesForViewerResult(Status.USER_NOT_PROVISIONED, List.of(), null); }
+        static RepliesForViewerResult notFound() { return new RepliesForViewerResult(Status.NOT_FOUND, List.of(), null); }
+        static RepliesForViewerResult forbidden() { return new RepliesForViewerResult(Status.FORBIDDEN, List.of(), null); }
     }
 
     public record FollowsResult(Status status, List<PrincipalProfilesRepository.PrincipalProfileRow> principals, String nextCursor) {

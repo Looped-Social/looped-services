@@ -188,30 +188,51 @@ public class AnonProfilesController {
             @RequestParam(value = "anonSig", required = false) String anonSig
     ) {
         boolean isAnon = Boolean.TRUE.equals(asAnon);
-        if (isAnon && !hasAnonProof(asAnon, anonProfileId, anonCert, anonCertKid, anonSig)) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
-                    "error", "invalid_anon_proof",
-                    "message", "Invalid anonymous proof"
-            ));
-        }
-        if (!isAnon) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
-                    "error", "invalid_anon_proof",
-                    "message", "Invalid anonymous proof"
-            ));
-        }
-        if (jwt != null) {
-            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of(
-                    "error", "anon_jwt_not_allowed",
-                    "message", "Do not send Authorization for anonymous actions"
-            ));
-        }
         int lim = Math.max(1, Math.min(limit, 100));
-        var res = service.replies(id, cursor, lim, toAnonProof(asAnon, anonProfileId, anonCert, anonCertKid, anonSig));
+        if (isAnon) {
+            if (!hasAnonProof(asAnon, anonProfileId, anonCert, anonCertKid, anonSig)) {
+                return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
+                        "error", "invalid_anon_proof",
+                        "message", "Invalid anonymous proof"
+                ));
+            }
+            if (jwt != null) {
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of(
+                        "error", "anon_jwt_not_allowed",
+                        "message", "Do not send Authorization for anonymous actions"
+                ));
+            }
+            var res = service.replies(id, cursor, lim, toAnonProof(asAnon, anonProfileId, anonCert, anonCertKid, anonSig));
+            return switch (res.status()) {
+                case INVALID_ANON_PROOF -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
+                        "error", "invalid_anon_proof",
+                        "message", "Invalid anonymous proof"
+                ));
+                case OK -> {
+                    List<Map<String, Object>> items = res.comments().stream().map(CommentPayloads::from).toList();
+                    Map<String, Object> body = new HashMap<>();
+                    body.put("items", items);
+                    if (res.nextCursor() != null) body.put("next_cursor", res.nextCursor());
+                    yield ResponseEntity.ok(body);
+                }
+            };
+        }
+        if (jwt == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of(
+                    "error", "unauthorized",
+                    "message", "Authorization is required"
+            ));
+        }
+        var res = service.repliesForViewer(jwt.getSubject(), id, cursor, lim);
         return switch (res.status()) {
-            case INVALID_ANON_PROOF -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
-                    "error", "invalid_anon_proof",
-                    "message", "Invalid anonymous proof"
+            case USER_NOT_PROVISIONED -> ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
+                    "error", "user_not_provisioned"
+            ));
+            case NOT_FOUND -> ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of(
+                    "error", "not_found"
+            ));
+            case FORBIDDEN -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
+                    "error", "forbidden"
             ));
             case OK -> {
                 List<Map<String, Object>> items = res.comments().stream().map(CommentPayloads::from).toList();
