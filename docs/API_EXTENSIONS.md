@@ -28,6 +28,11 @@
   - `GET /v1/users/search?query=&cursor=&limit=` (same-company scope); requires non-blank `query`.
   - `GET /v1/users?cursor=&limit=` default directory ordered by join date/activity.
   - Items: `{ id, handle, username, display_name, bio, company_id, profile_image_url }` + `next_cursor` when more.
+- **Blocks**
+  - `GET /v1/users/blocked?cursor=&limit=` → `{ items: [{ principal_id, id, handle, display_name, profile_image_url, company_id, is_anonymous }], next_cursor }`
+  - `POST /v1/users/{id}/block` → `{ user_id, blocked: true }` (201 when created, 200 when already blocked)
+  - `DELETE /v1/users/{id}/block` → `{ user_id, blocked: false }`
+  - Errors: `409 user_not_provisioned`, `404 not_found`, `422 invalid_target` (self-block)
 - **Direct messages (DMs) with polling**
   - `GET /v1/conversations?cursor=&limit=` → `{ items: [{ id, other_user_id, other_user_profile, last_message, last_message_timestamp, unread_count }], next_cursor }`
   - `POST /v1/conversations` → `{ id, other_user_id, other_user_profile, last_message, last_message_timestamp, unread_count }`

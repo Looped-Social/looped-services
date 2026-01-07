@@ -62,6 +62,18 @@ public class PrincipalProfilesRepository {
                 MAPPER, followerPrincipalId, cursorTs, cursorTs, cursorPrincipalId, limit);
     }
 
+    public List<PrincipalProfileRow> blocked(long blockerPrincipalId, OffsetDateTime cursorTs, Long cursorPrincipalId, int limit) {
+        if (cursorTs == null || cursorPrincipalId == null) {
+            return jdbc.query(baseBlockedQuery() +
+                            " ORDER BY b.created_at DESC, p.id DESC LIMIT ?",
+                    MAPPER, blockerPrincipalId, limit);
+        }
+        return jdbc.query(baseBlockedQuery() +
+                        " AND (b.created_at < ? OR (b.created_at = ? AND p.id < ?)) " +
+                        " ORDER BY b.created_at DESC, p.id DESC LIMIT ?",
+                MAPPER, blockerPrincipalId, cursorTs, cursorTs, cursorPrincipalId, limit);
+    }
+
     private String baseFollowersQuery() {
         return "SELECT p.id AS principal_id, p.kind, p.user_id, p.anon_profile_id, " +
                 "COALESCE(u.handle, ap.handle) AS handle, " +
@@ -88,6 +100,20 @@ public class PrincipalProfilesRepository {
                 "LEFT JOIN users u ON u.id = p.user_id AND u.deleted_at IS NULL " +
                 "LEFT JOIN anonymous_profiles ap ON ap.id = p.anon_profile_id " +
                 "WHERE f.follower_principal_id = ?";
+    }
+
+    private String baseBlockedQuery() {
+        return "SELECT p.id AS principal_id, p.kind, p.user_id, p.anon_profile_id, " +
+                "COALESCE(u.handle, ap.handle) AS handle, " +
+                "u.display_name, u.profile_image_url, " +
+                "COALESCE(u.company_id, ap.company_id) AS company_id, " +
+                "CASE WHEN p.kind = 'anon' THEN true ELSE COALESCE(u.is_anonymous, false) END AS is_anonymous, " +
+                "b.created_at AS follow_created_at " +
+                "FROM principal_blocks b " +
+                "JOIN principals p ON p.id = b.blocked_principal_id " +
+                "LEFT JOIN users u ON u.id = p.user_id AND u.deleted_at IS NULL " +
+                "LEFT JOIN anonymous_profiles ap ON ap.id = p.anon_profile_id " +
+                "WHERE b.blocker_principal_id = ?";
     }
 
     public static class PrincipalProfileRow {
