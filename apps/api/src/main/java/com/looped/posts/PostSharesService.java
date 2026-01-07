@@ -1,6 +1,7 @@
 package com.looped.posts;
 
 import com.looped.principals.PrincipalRepository;
+import com.looped.notifications.NotificationPublisher;
 import com.looped.users.UserRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -11,15 +12,18 @@ public class PostSharesService {
     private final PostSharesRepository shares;
     private final UserRepository users;
     private final PrincipalRepository principals;
+    private final NotificationPublisher notifications;
 
     public PostSharesService(PostRepository posts,
                              PostSharesRepository shares,
                              UserRepository users,
-                             PrincipalRepository principals) {
+                             PrincipalRepository principals,
+                             NotificationPublisher notifications) {
         this.posts = posts;
         this.shares = shares;
         this.users = users;
         this.principals = principals;
+        this.notifications = notifications;
     }
 
     @Transactional
@@ -32,6 +36,9 @@ public class PostSharesService {
         var principal = principals.createForUser(userOpt.get().id);
         shares.insert(principal.id, postId);
         shares.incrementPostShares(postId);
+        try {
+            notifications.notifyRepost(postOpt.get(), principal.id);
+        } catch (RuntimeException ignored) {}
         var current = posts.findById(postId).orElseThrow();
         return Result.ok(current.shareCount);
     }

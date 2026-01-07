@@ -17,10 +17,12 @@ public class RateLimiter {
     }
 
     public boolean allowIp(String ip) {
+        if (!props.isEnabled()) return true;
         return allow("ip", ip, props.getPerIp().getWindowSeconds(), props.getPerIp().getMaxRequests());
     }
 
     public boolean allowUser(String user) {
+        if (!props.isEnabled()) return true;
         return allow("user", user, props.getPerUser().getWindowSeconds(), props.getPerUser().getMaxRequests());
     }
 

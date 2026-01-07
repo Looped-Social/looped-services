@@ -62,8 +62,11 @@
 - **Notifications**
   - `GET /v1/notifications?cursor=&limit=` → `{ items: [{ id, type, created_at, unread, payload }], next_cursor }`
   - `POST /v1/notifications/{id}/read` → `{ "read": true }`
-  - `GET /v1/notifications/preferences` → `{ notifications: { channels: { in_app|push|email: { enabled, types: { follow, like, comment, mention, post_from_followed, announcement, system } } } } }`
+  - `GET /v1/notifications/preferences` → `{ notifications: { channels: { in_app|push|email: { enabled, types: { follow, like, comment, reply, mention, post_from_followed, repost, announcement, system } } } } }`
   - `PUT /v1/notifications/preferences` → same response; body updates any `enabled` or per-type flags.
+  - Payload fields (by type): `actor_principal_id`, `actor_user_id`, `actor_anon_profile_id`, `actor_is_anonymous`, `actor_display_name`, `actor_profile_image_url`, `post_id`, `comment_id`, `context`, `deeplink`, `action_deeplink` (announcements).
+  - Deeplinks: `looped://post/{post_id}` (like/comment/mention/post_from_followed/repost), `looped://comment/{comment_id}` (reply or mention-in-comment), `looped://user/{user_id}` (follow), `looped://announcement/{notification_id}` (announcement/system).
+  - Push payload (APNs custom keys): `type`, `notification_id`, `deeplink` (when present).
 - **Post shares**
   - `POST /v1/posts/{id}/share` → `{ post_id, share_count }`
   - Every call records a share event and increments `share_count`.
@@ -127,6 +130,8 @@
   - `GET /v1/users/{id}/comments?cursor=&limit=` → `{ items: [{ id, post_id, content, created_at, parent_id? }], next_cursor }`
 - **Community permissions**
   - `GET /v1/communities/{id}/permissions` → `{ can_post: true|false, requires_verification: true|false }`
+- **Community details**
+  - `GET /v1/communities/{id}` → `{ id, kind, name, short_name?, description?, image_url?, member_count, specialization_type?, is_following }`
 - **Profile display community**
   - `PUT /v1/users/me/display-community` with `{ communityId: <id|null> }` → user payload (same shape as `/v1/me.user`). `null` clears the display community.
 - **Profile display specialization**

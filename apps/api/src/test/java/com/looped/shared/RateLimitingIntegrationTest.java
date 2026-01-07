@@ -16,6 +16,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @SpringBootTest(properties = {
+        "rateLimit.enabled=true",
         "rateLimit.perIp.windowSeconds=60",
         "rateLimit.perIp.maxRequests=3",
         "rateLimit.perUser.windowSeconds=60",
@@ -43,4 +44,3 @@ class RateLimitingIntegrationTest extends PostgresTestBase {
         mockMvc.perform(get("/health")).andExpect(status().isTooManyRequests());
     }
 }
-

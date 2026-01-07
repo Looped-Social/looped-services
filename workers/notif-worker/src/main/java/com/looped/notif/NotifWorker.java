@@ -101,6 +101,9 @@ public class NotifWorker {
         if (event.deeplink != null && !event.deeplink.isBlank()) {
             payloadBuilder.addCustomProperty("deeplink", event.deeplink);
         }
+        if (event.notification_id != null) {
+            payloadBuilder.addCustomProperty("notification_id", event.notification_id);
+        }
         payloadBuilder.addCustomProperty("sent_at", Instant.now().toString());
         String payload = payloadBuilder.build();
 
@@ -161,6 +164,7 @@ public class NotifWorker {
     private static final class PushEvent {
         public String type;
         public Long user_id;
+        public Long notification_id;
         public String apns_token;
         public String title;
         public String body;

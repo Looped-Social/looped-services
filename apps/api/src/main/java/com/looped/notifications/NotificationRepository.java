@@ -78,6 +78,14 @@ public class NotificationRepository {
         return id == null ? 0L : id;
     }
 
+    public boolean updatePayload(long notificationId, Map<String, Object> payload) {
+        int updated = jdbc.update(
+                "UPDATE notifications SET payload = ?::jsonb WHERE id = ?",
+                toJson(payload), notificationId
+        );
+        return updated > 0;
+    }
+
     public int[][] insertBatch(java.util.List<NotificationInsert> inserts) {
         if (inserts == null || inserts.isEmpty()) return new int[0][0];
         return jdbc.batchUpdate(

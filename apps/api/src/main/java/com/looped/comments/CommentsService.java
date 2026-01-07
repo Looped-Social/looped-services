@@ -109,10 +109,12 @@ public class CommentsService {
             effectiveCompanyId = actor.get().companyId;
         }
 
+        CommentsRepository.CommentRow parentComment = null;
         if (parentId != null) {
             var parent = comments.findById(parentId);
             if (parent.isEmpty()) return CreateResult.parentNotFound();
             if (parent.get().postId != postId) return CreateResult.invalidParent();
+            parentComment = parent.get();
         }
 
         var inserted = comments.insert(postId, actorUserId, actorPrincipalId, effectiveCompanyId, content, parentId);
@@ -124,6 +126,9 @@ public class CommentsService {
         var view = comments.findViewById(inserted.id, actorPrincipalId, post.get().authorPrincipalId).orElseThrow();
         try {
             notifications.notifyComment(post.get(), inserted.id, actorPrincipalId);
+            if (parentComment != null) {
+                notifications.notifyReply(parentComment, inserted.id, actorPrincipalId);
+            }
             notifyMentions(actorPrincipalId, actorUserId, effectiveCompanyId, content, postId, inserted.id, post.get().authorId);
         } catch (RuntimeException ignored) {}
         return CreateResult.ok(view);

@@ -12,10 +12,14 @@ import java.util.Optional;
 public class NotificationService {
     private final NotificationRepository repo;
     private final UserRepository users;
+    private final NotificationPreferencesService preferences;
 
-    public NotificationService(NotificationRepository repo, UserRepository users) {
+    public NotificationService(NotificationRepository repo,
+                               UserRepository users,
+                               NotificationPreferencesService preferences) {
         this.repo = repo;
         this.users = users;
+        this.preferences = preferences;
     }
 
     public ListResult list(String firebaseUid, String cursor, int limit) {
@@ -29,13 +33,33 @@ public class NotificationService {
                 cId = decoded.id();
             } catch (IllegalArgumentException ignored) {}
         }
-        var rows = repo.findByUser(actor.get().id, cTs, cId, limit);
-        String next = null;
-        if (rows.size() == limit) {
+        NotificationPreferences prefs = preferences.preferencesForUserId(actor.get().id);
+        List<NotificationRepository.NotificationRow> filtered = new java.util.ArrayList<>();
+        NotificationRepository.NotificationRow lastIncluded = null;
+        int lastBatchSize = 0;
+        while (filtered.size() < limit) {
+            var rows = repo.findByUser(actor.get().id, cTs, cId, limit);
+            lastBatchSize = rows.size();
+            if (rows.isEmpty()) break;
+            for (var row : rows) {
+                var type = NotificationType.fromValue(row.type).orElse(null);
+                if (type == null || prefs.allows(NotificationChannel.IN_APP, type)) {
+                    filtered.add(row);
+                    lastIncluded = row;
+                    if (filtered.size() == limit) break;
+                }
+            }
+            if (filtered.size() == limit) break;
+            if (rows.size() < limit) break;
             var last = rows.get(rows.size() - 1);
-            next = Pagination.encode(last.createdAt, last.id);
+            cTs = last.createdAt;
+            cId = last.id;
         }
-        return ListResult.ok(rows, next);
+        String next = null;
+        if (filtered.size() == limit && lastBatchSize == limit && lastIncluded != null) {
+            next = Pagination.encode(lastIncluded.createdAt, lastIncluded.id);
+        }
+        return ListResult.ok(filtered, next);
     }
 
     public MarkReadResult markRead(String firebaseUid, long notificationId) {
