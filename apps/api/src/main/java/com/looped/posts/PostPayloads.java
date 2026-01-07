@@ -53,7 +53,8 @@ public final class PostPayloads {
         out.put("likes_count", row.likesCount);
         out.put("comments_count", row.commentsCount);
         out.put("share_count", row.shareCount);
-        out.put("is_saved", false);
+        out.put("user_liked", row.userLiked);
+        out.put("is_saved", row.isSaved);
         out.put("created_at", row.createdAt);
         return out;
     }

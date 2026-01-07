@@ -18,19 +18,22 @@ public class PostCollectionsService {
     private final LikesRepository likes;
     private final SavedPostsRepository savedPosts;
     private final AnonProofService anonProofs;
+    private final PostStateService postState;
 
     public PostCollectionsService(UserRepository users,
                                   PrincipalRepository principals,
                                   PostRepository posts,
                                   LikesRepository likes,
                                   SavedPostsRepository savedPosts,
-                                  AnonProofService anonProofs) {
+                                  AnonProofService anonProofs,
+                                  PostStateService postState) {
         this.users = users;
         this.principals = principals;
         this.posts = posts;
         this.likes = likes;
         this.savedPosts = savedPosts;
         this.anonProofs = anonProofs;
+        this.postState = postState;
     }
 
     public ListResult liked(String firebaseUid, String cursor, int limit) {
@@ -46,6 +49,7 @@ public class PostCollectionsService {
             next = Pagination.encode(last.likedAt, last.post.id);
         }
         List<PostRepository.PostRow> posts = rows.stream().map(r -> r.post).toList();
+        postState.applyForPrincipal(principal.id, posts);
         return ListResult.ok(posts, next);
     }
 
@@ -62,6 +66,7 @@ public class PostCollectionsService {
             next = Pagination.encode(last.savedAt, last.post.id);
         }
         List<PostRepository.PostRow> posts = rows.stream().map(r -> r.post).toList();
+        postState.applyForPrincipal(principal.id, posts);
         return ListResult.ok(posts, next);
     }
 
@@ -82,6 +87,8 @@ public class PostCollectionsService {
             next = Pagination.encode(last.savedAt, last.post.id);
         }
         List<PostRepository.PostRow> posts = rows.stream().map(r -> r.post).toList();
+        var viewerPrincipal = principals.createForUser(actor.get().id);
+        postState.applyForPrincipal(viewerPrincipal.id, posts);
         return ListResult.ok(posts, next);
     }
 

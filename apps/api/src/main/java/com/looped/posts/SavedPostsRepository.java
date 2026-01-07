@@ -7,7 +7,9 @@ import org.springframework.stereotype.Repository;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.OffsetDateTime;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 @Repository
 public class SavedPostsRepository {
@@ -41,6 +43,22 @@ public class SavedPostsRepository {
                         "AND (s.created_at < ? OR (s.created_at = ? AND p.id < ?)) " +
                         "ORDER BY s.created_at DESC, p.id DESC LIMIT ?",
                 MAPPER, principalId, cursorTs, cursorTs, cursorPostId, limit);
+    }
+
+    public Set<Long> findSavedPostIds(long principalId, List<Long> postIds) {
+        if (postIds == null || postIds.isEmpty()) return Set.of();
+        String placeholders = String.join(",", java.util.Collections.nCopies(postIds.size(), "?"));
+        Object[] params = new Object[postIds.size() + 1];
+        params[0] = principalId;
+        for (int i = 0; i < postIds.size(); i++) {
+            params[i + 1] = postIds.get(i);
+        }
+        List<Long> rows = jdbc.queryForList(
+                "SELECT post_id FROM principal_saved_posts WHERE saver_principal_id = ? AND post_id IN (" + placeholders + ")",
+                Long.class,
+                params
+        );
+        return new HashSet<>(rows);
     }
 
     private static final String BASE_QUERY = "SELECT " +

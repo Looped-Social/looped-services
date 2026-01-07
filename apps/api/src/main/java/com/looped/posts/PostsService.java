@@ -35,6 +35,7 @@ public class PostsService {
     private final HashtagPostsRepository hashtagPosts;
     private final FollowsRepository follows;
     private final NotificationPublisher notifications;
+    private final PostStateService postState;
 
     public PostsService(PostRepository posts,
                         UserRepository users,
@@ -47,7 +48,8 @@ public class PostsService {
                         HashtagsRepository hashtags,
                         HashtagPostsRepository hashtagPosts,
                         FollowsRepository follows,
-                        NotificationPublisher notifications) {
+                        NotificationPublisher notifications,
+                        PostStateService postState) {
         this.posts = posts;
         this.users = users;
         this.principals = principals;
@@ -60,6 +62,7 @@ public class PostsService {
         this.hashtagPosts = hashtagPosts;
         this.follows = follows;
         this.notifications = notifications;
+        this.postState = postState;
     }
 
     public CreateResult create(String firebaseUid, String idempotencyKey, String content, Long mediaAssetId, Long communityId,
@@ -102,6 +105,7 @@ public class PostsService {
                 notifyPostFromFollowed(p.authorPrincipalId, p.id);
                 notifyMentions(p.authorPrincipalId, null, effectiveCompanyId, content, p.id);
             } catch (RuntimeException ignored) {}
+            postState.applyForPrincipal(verified.actor().principalId(), java.util.List.of(p));
             return CreateResult.ok(p, true);
         }
 
@@ -152,6 +156,7 @@ public class PostsService {
                 notifyPostFromFollowed(p.authorPrincipalId, p.id);
                 notifyMentions(p.authorPrincipalId, userId, companyId, content, p.id);
             } catch (RuntimeException ignored) {}
+            postState.applyForPrincipal(principal.id, java.util.List.of(p));
             return CreateResult.ok(p, true);
         } catch (DataAccessException e) {
             if (useIdem) {
@@ -170,6 +175,8 @@ public class PostsService {
         if (u.isEmpty()) return GetResult.userNotProvisioned();
         var p = posts.findById(id);
         if (p.isEmpty()) return GetResult.notFound();
+        var principal = principals.createForUser(u.get().id);
+        postState.applyForPrincipal(principal.id, java.util.List.of(p.get()));
         return GetResult.ok(p.get());
     }
 
@@ -201,6 +208,7 @@ public class PostsService {
         indexHashtags(postId, post.get().companyId, content);
 
         var updatedPost = posts.findById(postId).orElseThrow();
+        postState.applyForPrincipal(actorPrincipalId, java.util.List.of(updatedPost));
         return EditResult.ok(updatedPost);
     }
 

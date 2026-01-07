@@ -1,6 +1,7 @@
 package com.looped.posts;
 
 import com.looped.communities.CommunitiesRepository;
+import com.looped.principals.PrincipalRepository;
 import com.looped.shared.Pagination;
 import com.looped.shared.RankPagination;
 import com.looped.users.UserRepository;
@@ -13,12 +14,17 @@ import java.util.List;
 public class FeedService {
     private final PostRepository posts;
     private final UserRepository users;
+    private final PrincipalRepository principals;
     private final CommunitiesRepository communities;
+    private final PostStateService postState;
 
-    public FeedService(PostRepository posts, UserRepository users, CommunitiesRepository communities) {
+    public FeedService(PostRepository posts, UserRepository users, PrincipalRepository principals,
+                       CommunitiesRepository communities, PostStateService postState) {
         this.posts = posts;
         this.users = users;
+        this.principals = principals;
         this.communities = communities;
+        this.postState = postState;
     }
 
     public FeedResult feed(String firebaseUid, String cursor, int limit, Long communityId, String mode) {
@@ -30,9 +36,12 @@ public class FeedService {
             return FeedResult.communityNotFound();
         }
         Mode resolved = Mode.from(mode);
-        return resolved == Mode.NEW
+        var principal = principals.createForUser(u.get().id);
+        FeedResult result = resolved == Mode.NEW
                 ? feedNew(cursor, limit, communityId)
                 : feedForYou(cursor, limit, communityId);
+        postState.applyForPrincipal(principal.id, result.items());
+        return result;
     }
 
     private FeedResult feedNew(String cursor, int limit, Long communityId) {
@@ -94,6 +103,8 @@ public class FeedService {
         OffsetDateTime asOf = OffsetDateTime.now();
         OffsetDateTime since = asOf.minusDays(3);
         var list = posts.findTrendingWithMedia(asOf, since, communityId, limit);
+        var principal = principals.createForUser(u.get().id);
+        postState.applyForPrincipal(principal.id, list);
         return TrendingResult.ok(list);
     }
 

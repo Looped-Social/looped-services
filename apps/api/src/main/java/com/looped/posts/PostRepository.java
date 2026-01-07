@@ -426,6 +426,8 @@ public class PostRepository {
         public String authorDisplaySpecializationKind;
         public String authorDisplaySpecializationType;
         public boolean authorIsAnonymous;
+        public boolean userLiked;
+        public boolean isSaved;
     }
 
     public static class TrendingRow extends PostRow {

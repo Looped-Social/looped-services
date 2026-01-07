@@ -6,6 +6,8 @@ import com.looped.companies.CompanyRepository;
 import com.looped.communities.CommunitiesRepository;
 import com.looped.communities.CommunityVerificationsRepository;
 import com.looped.posts.PostRepository;
+import com.looped.posts.PostStateService;
+import com.looped.principals.PrincipalRepository;
 import com.looped.shared.Pagination;
 import com.looped.verification.VerificationRepository;
 import org.springframework.beans.factory.annotation.Value;
@@ -23,6 +25,8 @@ public class UsersService {
     private final UserRepository users;
     private final VerificationRepository verifications;
     private final PostRepository posts;
+    private final PrincipalRepository principals;
+    private final PostStateService postState;
     private final CommentsRepository comments;
     private final CompanyRepository companies;
     private final CommunitiesRepository communities;
@@ -35,6 +39,8 @@ public class UsersService {
     public UsersService(UserRepository users,
                         VerificationRepository verifications,
                         PostRepository posts,
+                        PrincipalRepository principals,
+                        PostStateService postState,
                         CommentsRepository comments,
                         CompanyRepository companies,
                         CommunitiesRepository communities,
@@ -46,6 +52,8 @@ public class UsersService {
         this.users = users;
         this.verifications = verifications;
         this.posts = posts;
+        this.principals = principals;
+        this.postState = postState;
         this.comments = comments;
         this.companies = companies;
         this.communities = communities;
@@ -87,6 +95,8 @@ public class UsersService {
         }
 
         var rows = posts.findByAuthor(targetUserId, cTs, cId, limit);
+        var principal = principals.createForUser(actor.get().id);
+        postState.applyForPrincipal(principal.id, rows);
         String next = null;
         if (rows.size() == limit) {
             var last = rows.get(rows.size() - 1);

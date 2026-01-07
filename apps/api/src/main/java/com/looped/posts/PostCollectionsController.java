@@ -60,7 +60,7 @@ public class PostCollectionsController {
                     "error", "user_not_provisioned",
                     "message", "Complete onboarding before viewing saved posts"
             ));
-            case OK -> ResponseEntity.ok(toListPayload(res.posts(), res.nextCursor(), true));
+            case OK -> ResponseEntity.ok(toListPayload(res.posts(), res.nextCursor()));
             default -> ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
                     "error", "unexpected_status",
                     "message", "Unexpected status for saved posts"
@@ -169,9 +169,9 @@ public class PostCollectionsController {
         }
     }
 
-    private Map<String, Object> toListPayload(List<PostRepository.PostRow> posts, String nextCursor, boolean isSaved) {
+    private Map<String, Object> toListPayload(List<PostRepository.PostRow> posts, String nextCursor) {
         List<Map<String, Object>> items = posts.stream()
-                .map(p -> isSaved ? PostPayloads.fromSaved(p, true) : PostPayloads.from(p))
+                .map(PostPayloads::from)
                 .toList();
         Map<String, Object> body = new HashMap<>();
         body.put("items", items);
@@ -179,9 +179,5 @@ public class PostCollectionsController {
             body.put("next_cursor", nextCursor);
         }
         return body;
-    }
-
-    private Map<String, Object> toListPayload(List<PostRepository.PostRow> posts, String nextCursor) {
-        return toListPayload(posts, nextCursor, false);
     }
 }

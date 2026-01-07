@@ -3,6 +3,8 @@ package com.looped.discovery;
 import com.looped.shared.Pagination;
 import com.looped.communities.CommunitiesRepository;
 import com.looped.posts.PostRepository;
+import com.looped.posts.PostStateService;
+import com.looped.principals.PrincipalRepository;
 import com.looped.users.UserRepository;
 import org.springframework.stereotype.Service;
 
@@ -15,12 +17,17 @@ public class DiscoveryService {
     private final HashtagsRepository hashtags;
     private final PostRepository posts;
     private final UserRepository users;
+    private final PrincipalRepository principals;
+    private final PostStateService postState;
 
-    public DiscoveryService(CommunitiesRepository communities, HashtagsRepository hashtags, PostRepository posts, UserRepository users) {
+    public DiscoveryService(CommunitiesRepository communities, HashtagsRepository hashtags, PostRepository posts,
+                            UserRepository users, PrincipalRepository principals, PostStateService postState) {
         this.communities = communities;
         this.hashtags = hashtags;
         this.posts = posts;
         this.users = users;
+        this.principals = principals;
+        this.postState = postState;
     }
 
     public CommunitySearchResult searchCommunities(String firebaseUid, String query, String kind, String specializationType,
@@ -89,6 +96,8 @@ public class DiscoveryService {
             } catch (IllegalArgumentException ignored) {}
         }
         var rows = posts.findByHashtag(actor.get().companyId, normalized, cTs, cId, limit);
+        var principal = principals.createForUser(actor.get().id);
+        postState.applyForPrincipal(principal.id, rows);
         String next = null;
         if (rows.size() == limit) {
             var last = rows.get(rows.size() - 1);

@@ -171,7 +171,7 @@ public class AnonProfilesController {
                     "error", "invalid_anon_proof",
                     "message", "Invalid anonymous proof"
             ));
-            case OK -> ResponseEntity.ok(toPostListPayload(res.posts(), res.nextCursor(), true));
+            case OK -> ResponseEntity.ok(toPostListPayload(res.posts(), res.nextCursor()));
         };
     }
 
@@ -286,16 +286,6 @@ public class AnonProfilesController {
 
     private Map<String, Object> toPostListPayload(List<com.looped.posts.PostRepository.PostRow> posts, String nextCursor) {
         List<Map<String, Object>> items = posts.stream().map(PostPayloads::from).toList();
-        Map<String, Object> body = new HashMap<>();
-        body.put("items", items);
-        if (nextCursor != null) body.put("next_cursor", nextCursor);
-        return body;
-    }
-
-    private Map<String, Object> toPostListPayload(List<com.looped.posts.PostRepository.PostRow> posts, String nextCursor, boolean saved) {
-        List<Map<String, Object>> items = posts.stream()
-                .map(post -> saved ? PostPayloads.fromSaved(post, true) : PostPayloads.from(post))
-                .toList();
         Map<String, Object> body = new HashMap<>();
         body.put("items", items);
         if (nextCursor != null) body.put("next_cursor", nextCursor);

@@ -4,6 +4,7 @@ import com.looped.communities.CommunitiesRepository;
 import com.looped.comments.CommentsRepository;
 import com.looped.posts.LikesRepository;
 import com.looped.posts.PostRepository;
+import com.looped.posts.PostStateService;
 import com.looped.posts.SavedPostsRepository;
 import com.looped.principals.PrincipalProfilesRepository;
 import com.looped.principals.PrincipalRepository;
@@ -26,6 +27,7 @@ public class AnonProfilesService {
     private final PrincipalProfilesRepository follows;
     private final LikesRepository likes;
     private final SavedPostsRepository savedPosts;
+    private final PostStateService postState;
     private final CommentsRepository comments;
     private final CommunitiesRepository communities;
     private final AnonIssuerRepository issuers;
@@ -39,6 +41,7 @@ public class AnonProfilesService {
                                PrincipalProfilesRepository follows,
                                LikesRepository likes,
                                SavedPostsRepository savedPosts,
+                               PostStateService postState,
                                CommentsRepository comments,
                                CommunitiesRepository communities,
                                AnonIssuerRepository issuers,
@@ -51,6 +54,7 @@ public class AnonProfilesService {
         this.follows = follows;
         this.likes = likes;
         this.savedPosts = savedPosts;
+        this.postState = postState;
         this.comments = comments;
         this.communities = communities;
         this.issuers = issuers;
@@ -177,6 +181,8 @@ public class AnonProfilesService {
         }
 
         var rows = posts.findByAuthorPrincipal(principal.id, cTs, cId, limit);
+        var viewerPrincipal = principals.createForUser(actor.get().id);
+        postState.applyForPrincipal(viewerPrincipal.id, rows);
         String next = null;
         if (rows.size() == limit) {
             var last = rows.get(rows.size() - 1);
@@ -199,6 +205,7 @@ public class AnonProfilesService {
             next = Pagination.encode(last.likedAt, last.post.id);
         }
         var posts = rows.stream().map(r -> r.post).toList();
+        postState.applyForPrincipal(verified.actor().principalId(), posts);
         return AnonPostListResult.ok(posts, next);
     }
 
@@ -216,6 +223,7 @@ public class AnonProfilesService {
             next = Pagination.encode(last.savedAt, last.post.id);
         }
         var posts = rows.stream().map(r -> r.post).toList();
+        postState.applyForPrincipal(verified.actor().principalId(), posts);
         return AnonPostListResult.ok(posts, next);
     }
 

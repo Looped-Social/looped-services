@@ -39,7 +39,7 @@ public class UserSavedPostsController {
                     "error", "not_found"
             ));
             case OK -> {
-                List<Map<String, Object>> items = res.posts().stream().map(p -> PostPayloads.fromSaved(p, true)).toList();
+                List<Map<String, Object>> items = res.posts().stream().map(PostPayloads::from).toList();
                 Map<String, Object> body = new HashMap<>();
                 body.put("items", items);
                 if (res.nextCursor() != null) body.put("next_cursor", res.nextCursor());
