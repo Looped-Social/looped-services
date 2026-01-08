@@ -48,7 +48,15 @@ public class AppealService {
         var userOpt = users.findByFirebaseUid(firebaseUid);
         if (userOpt.isEmpty()) return ListResult.userNotProvisioned();
         var items = appeals.listByUser(userOpt.get().id, normalizeStatus(status));
-        return ListResult.ok(items);
+        if (items.isEmpty()) return ListResult.ok(items);
+        var filtered = items.stream().filter(row -> {
+            if (!"post_removal".equalsIgnoreCase(row.targetType)) return true;
+            var postOpt = posts.findByIdIncludingRemoved(row.targetId);
+            if (postOpt.isEmpty()) return true;
+            var post = postOpt.get();
+            return post.removedReason == null || !"user_deleted".equalsIgnoreCase(post.removedReason);
+        }).toList();
+        return ListResult.ok(filtered);
     }
 
     private CreateResult createUserBanAppeal(long userId, String reason) {
@@ -66,6 +74,7 @@ public class AppealService {
         if (post.removedAt == null) return CreateResult.notRemoved();
         var principal = principals.createForUser(userId);
         if (post.authorPrincipalId != principal.id) return CreateResult.forbidden();
+        if ("user_deleted".equalsIgnoreCase(post.removedReason)) return CreateResult.selfDeleted();
         long appealId = appeals.insert(userId, "post_removal", targetId, reason);
         return CreateResult.ok(appealId);
     }
@@ -91,6 +100,7 @@ public class AppealService {
         INVALID_TARGET,
         NOT_FOUND,
         NOT_REMOVED,
+        SELF_DELETED,
         FORBIDDEN,
         DUPLICATE,
         NO_ACTIVE_BAN
@@ -103,6 +113,7 @@ public class AppealService {
         static CreateResult invalidTarget() { return new CreateResult(Status.INVALID_TARGET, null); }
         static CreateResult notFound() { return new CreateResult(Status.NOT_FOUND, null); }
         static CreateResult notRemoved() { return new CreateResult(Status.NOT_REMOVED, null); }
+        static CreateResult selfDeleted() { return new CreateResult(Status.SELF_DELETED, null); }
         static CreateResult forbidden() { return new CreateResult(Status.FORBIDDEN, null); }
         static CreateResult duplicate() { return new CreateResult(Status.DUPLICATE, null); }
         static CreateResult noActiveBan() { return new CreateResult(Status.NO_ACTIVE_BAN, null); }

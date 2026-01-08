@@ -60,11 +60,15 @@ public class UsersController {
             @Validated @RequestBody UpdateProfileRequest body
     ) {
         boolean anonymous = body.isAnonymous() != null && body.isAnonymous();
-        var res = service.updateProfile(jwt.getSubject(), body.displayName(), body.bio(), anonymous, body.showFollowerCount());
+        var res = service.updateProfile(jwt.getSubject(), body.displayName(), body.bio(), anonymous,
+                body.showFollowerCount(), body.messagePermission());
         return switch (res.status()) {
             case USER_NOT_PROVISIONED -> ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
                     "error", "user_not_provisioned",
                     "message", "Complete onboarding before updating profile"
+            ));
+            case INVALID_MESSAGE_PERMISSION -> ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of(
+                    "error", "invalid_message_permission"
             ));
             case OK -> ResponseEntity.ok(UserPayloads.fromProfile(res.profile()));
             default -> ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
@@ -344,6 +348,7 @@ public class UsersController {
                     "message", "Cross-company access denied"
             ));
             case OK -> ResponseEntity.ok(UserPayloads.fromProfile(res.profile(), res.includeFollowerCounts()));
+            default -> ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         };
     }
 
@@ -378,6 +383,7 @@ public class UsersController {
                 }
                 yield ResponseEntity.ok(body);
             }
+            default -> ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         };
     }
 
@@ -407,6 +413,7 @@ public class UsersController {
                 if (res.nextCursor() != null) body.put("next_cursor", res.nextCursor());
                 yield ResponseEntity.ok(body);
             }
+            default -> ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         };
     }
 
@@ -414,7 +421,8 @@ public class UsersController {
             @Size(max = 100) String displayName,
             @Size(max = 500) String bio,
             @NotNull Boolean isAnonymous,
-            Boolean showFollowerCount
+            Boolean showFollowerCount,
+            String messagePermission
     ) {}
 
     public record UpdateDisplayCommunityRequest(Long communityId) {}

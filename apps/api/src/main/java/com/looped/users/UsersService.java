@@ -105,10 +105,15 @@ public class UsersService {
         return PostsResult.ok(rows, next);
     }
 
-    public UpdateProfileResult updateProfile(String firebaseUid, String displayName, String bio, boolean isAnonymous, Boolean showFollowerCount) {
+    public UpdateProfileResult updateProfile(String firebaseUid, String displayName, String bio, boolean isAnonymous,
+                                             Boolean showFollowerCount, String messagePermission) {
         var actor = requireProvisionedUser(firebaseUid);
         if (actor.isEmpty()) return UpdateProfileResult.userNotProvisioned();
-        users.updateProfile(actor.get().id, displayName, bio, isAnonymous, showFollowerCount);
+        String normalizedPermission = normalizeMessagePermission(messagePermission);
+        if (messagePermission != null && normalizedPermission == null) {
+            return UpdateProfileResult.invalidMessagePermission();
+        }
+        users.updateProfile(actor.get().id, displayName, bio, isAnonymous, showFollowerCount, normalizedPermission);
         var updated = users.findById(actor.get().id).orElse(actor.get());
         var verification = verifications.findByUserId(actor.get().id).orElse(null);
         return UpdateProfileResult.ok(buildProfile(updated, verification));
@@ -386,6 +391,7 @@ public class UsersService {
                 row.bio,
                 row.isAnonymous,
                 row.showFollowerCount,
+                row.messagePermission,
                 row.companyId,
                 row.createdAt,
                 row.profileImageUrl,
@@ -431,7 +437,18 @@ public class UsersService {
         return normalized;
     }
 
-    public enum Status { OK, USER_NOT_PROVISIONED, NOT_FOUND, FORBIDDEN }
+    private String normalizeMessagePermission(String raw) {
+        if (raw == null) return null;
+        String normalized = raw.trim().toLowerCase(Locale.ROOT);
+        if (normalized.isBlank()) return null;
+        if (!normalized.equals("company") && !normalized.equals("following") && !normalized.equals("no_one")
+                && !normalized.equals("all")) {
+            return null;
+        }
+        return normalized;
+    }
+
+    public enum Status { OK, USER_NOT_PROVISIONED, NOT_FOUND, FORBIDDEN, INVALID_MESSAGE_PERMISSION }
 
     public record ProfileResult(Status status, UserProfile profile, boolean includeFollowerCounts) {
         static ProfileResult ok(UserProfile profile, boolean includeFollowerCounts) {
@@ -445,6 +462,7 @@ public class UsersService {
     public record UpdateProfileResult(Status status, UserProfile profile) {
         static UpdateProfileResult ok(UserProfile profile) { return new UpdateProfileResult(Status.OK, profile); }
         static UpdateProfileResult userNotProvisioned() { return new UpdateProfileResult(Status.USER_NOT_PROVISIONED, null); }
+        static UpdateProfileResult invalidMessagePermission() { return new UpdateProfileResult(Status.INVALID_MESSAGE_PERMISSION, null); }
     }
 
     public enum UpdateIdentityStatus { OK, USER_NOT_PROVISIONED, INVALID_USERNAME, USERNAME_TAKEN, CONFLICT }
@@ -481,9 +499,10 @@ public class UsersService {
     }
 
     public record UserProfile(long id, String handle, String firstName, String lastName, LocalDate dateOfBirth,
-                              String displayName, String bio, boolean isAnonymous, boolean showFollowerCount, Long companyId,
-                              OffsetDateTime createdAt, String profileImageUrl, Verification verification,
-                              DisplayCommunity displayCommunity, DisplaySpecialization displaySpecialization, ProfileStats stats) {}
+                              String displayName, String bio, boolean isAnonymous, boolean showFollowerCount,
+                              String messagePermission, Long companyId, OffsetDateTime createdAt, String profileImageUrl,
+                              Verification verification, DisplayCommunity displayCommunity,
+                              DisplaySpecialization displaySpecialization, ProfileStats stats) {}
 
     public record DisplayCommunity(long id, String name, String kind, String specializationType) {}
 

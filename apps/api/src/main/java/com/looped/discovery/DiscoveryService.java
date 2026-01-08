@@ -55,10 +55,14 @@ public class DiscoveryService {
         return CommunitySearchResult.ok(rows, next);
     }
 
-    public RecommendedCommunitiesResult recommendedCommunities(String firebaseUid, int limit) {
+    public RecommendedCommunitiesResult recommendedCommunities(String firebaseUid, String kind,
+                                                               String specializationType, int limit) {
         var actor = users.findByFirebaseUid(firebaseUid);
-        if (actor.isEmpty()) return RecommendedCommunitiesResult.userNotProvisioned();
-        var rows = communities.recommended(actor.get().id, limit);
+        Long userId = null;
+        if (actor.isPresent() && actor.get().companyId != null) {
+            userId = actor.get().id;
+        }
+        var rows = communities.recommended(userId, kind, specializationType, limit);
         return RecommendedCommunitiesResult.ok(rows);
     }
 

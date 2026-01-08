@@ -80,10 +80,23 @@ public class DiscoveryController {
     @GetMapping("/communities/recommended")
     public ResponseEntity<?> recommendedCommunities(
             @AuthenticationPrincipal Jwt jwt,
+            @RequestParam(value = "kind", required = false) String kind,
             @RequestParam(value = "limit", required = false, defaultValue = "8") int limit
     ) {
         int lim = Math.max(1, Math.min(limit, 50));
-        var res = service.recommendedCommunities(jwt.getSubject(), lim);
+        boolean kindProvided = kind != null && !kind.isBlank();
+        String normalizedKind = normalizeKind(kind);
+        String specializationType = kind != null ? normalizeSpecializationTypeFromKind(kind) : null;
+        if (kindProvided && normalizedKind == null) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of(
+                    "error", "invalid_kind",
+                    "message", "kind must be company, school, sector, profession, specialization, major, department, or unknown"
+            ));
+        }
+        if ("unknown".equals(normalizedKind)) {
+            normalizedKind = null;
+        }
+        var res = service.recommendedCommunities(jwt.getSubject(), normalizedKind, specializationType, lim);
         return switch (res.status()) {
             case USER_NOT_PROVISIONED -> ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
                     "error", "user_not_provisioned",

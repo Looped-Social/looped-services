@@ -18,6 +18,10 @@ public class ConversationService {
     private static final String REQUEST_STATUS_PENDING = "pending";
     private static final String REQUEST_STATUS_APPROVED = "approved";
     private static final String REQUEST_STATUS_REJECTED = "rejected";
+    private static final String MESSAGE_PERMISSION_COMPANY = "company";
+    private static final String MESSAGE_PERMISSION_FOLLOWING = "following";
+    private static final String MESSAGE_PERMISSION_NO_ONE = "no_one";
+    private static final String MESSAGE_PERMISSION_ALL = "all";
 
     private final ConversationRepository conversations;
     private final UserRepository users;
@@ -77,9 +81,11 @@ public class ConversationService {
         if (actor.get().isAnonymous) return StartResult.anonymousNotAllowed();
         var participant = users.findById(participantUserId);
         if (participant.isEmpty()) return StartResult.notFound();
-        if (!actor.get().companyId.equals(participant.get().companyId)) return StartResult.forbidden();
 
         Long existing = conversations.findExistingDirect(actor.get().id, participantUserId);
+        if (existing == null && !canStartConversation(actor.get(), participant.get())) {
+            return StartResult.forbidden();
+        }
         long conversationId = existing != null ? existing : conversations.insertConversation(actor.get().companyId);
         OffsetDateTime now = OffsetDateTime.now();
         conversations.addParticipant(conversationId, actor.get().id, now);
@@ -114,7 +120,6 @@ public class ConversationService {
 
         var company = conversations.conversationCompany(conversationId);
         if (company.isEmpty()) return MessagesResult.notFound();
-        if (!company.get().equals(actor.get().companyId)) return MessagesResult.forbidden();
         if (!conversations.isParticipant(conversationId, actor.get().id)) return MessagesResult.forbidden();
         var request = messageRequests.findByConversationRecipient(conversationId, actor.get().id);
         if (request.isPresent() && !REQUEST_STATUS_APPROVED.equals(request.get().status)) {
@@ -149,7 +154,6 @@ public class ConversationService {
         if (actor.get().isAnonymous) return SendResult.anonymousNotAllowed();
         var company = conversations.conversationCompany(conversationId);
         if (company.isEmpty()) return SendResult.notFound();
-        if (!company.get().equals(actor.get().companyId)) return SendResult.forbidden();
         if (!conversations.isParticipant(conversationId, actor.get().id)) return SendResult.forbidden();
         var request = messageRequests.findByConversationRecipient(conversationId, actor.get().id);
         if (request.isPresent() && !REQUEST_STATUS_APPROVED.equals(request.get().status)) {
@@ -225,5 +229,34 @@ public class ConversationService {
         if (REQUEST_STATUS_PENDING.equals(existing.get().status)) {
             messageRequests.updatePendingMessage(conversationId, recipientId, messageId);
         }
+    }
+
+    private boolean canStartConversation(UserRepository.UserRow sender, UserRepository.UserRow recipient) {
+        String permission = normalizeMessagePermission(recipient.messagePermission);
+        if (permission == null || MESSAGE_PERMISSION_COMPANY.equals(permission)) {
+            return sender.companyId.equals(recipient.companyId);
+        }
+        if (MESSAGE_PERMISSION_NO_ONE.equals(permission)) {
+            return false;
+        }
+        if (MESSAGE_PERMISSION_ALL.equals(permission)) {
+            return true;
+        }
+        if (MESSAGE_PERMISSION_FOLLOWING.equals(permission)) {
+            if (!sender.companyId.equals(recipient.companyId)) {
+                return false;
+            }
+            var senderPrincipal = principals.createForUser(sender.id);
+            var recipientPrincipal = principals.createForUser(recipient.id);
+            return follows.exists(recipientPrincipal.id, senderPrincipal.id);
+        }
+        return sender.companyId.equals(recipient.companyId);
+    }
+
+    private String normalizeMessagePermission(String raw) {
+        if (raw == null) return null;
+        String normalized = raw.trim().toLowerCase(java.util.Locale.ROOT);
+        if (normalized.isBlank()) return null;
+        return normalized;
     }
 }

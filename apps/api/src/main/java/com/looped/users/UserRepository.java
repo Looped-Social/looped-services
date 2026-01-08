@@ -13,7 +13,7 @@ import java.util.Optional;
 public class UserRepository {
     private final JdbcTemplate jdbcTemplate;
     private static final String BASE_COLUMNS = "id, firebase_uid, handle, email, company_id, first_name, last_name, " +
-            "date_of_birth, display_name, bio, is_anonymous, show_follower_count, profile_image_url, " +
+            "date_of_birth, display_name, bio, is_anonymous, show_follower_count, message_permission, profile_image_url, " +
             "display_community_id, display_specialization_id, created_at, deleted_at, deleted_by";
 
     public UserRepository(JdbcTemplate jdbcTemplate) {
@@ -37,6 +37,7 @@ public class UserRepository {
             row.bio = rs.getString("bio");
             row.isAnonymous = rs.getBoolean("is_anonymous");
             row.showFollowerCount = rs.getBoolean("show_follower_count");
+            row.messagePermission = rs.getString("message_permission");
             row.profileImageUrl = rs.getString("profile_image_url");
             long displayCommunity = rs.getLong("display_community_id");
             row.displayCommunityId = rs.wasNull() ? null : displayCommunity;
@@ -111,11 +112,13 @@ public class UserRepository {
         );
     }
 
-    public void updateProfile(long userId, String displayName, String bio, boolean isAnonymous, Boolean showFollowerCount) {
+    public void updateProfile(long userId, String displayName, String bio, boolean isAnonymous,
+                              Boolean showFollowerCount, String messagePermission) {
         jdbcTemplate.update(
                 "UPDATE users SET display_name = ?, bio = ?, is_anonymous = ?, " +
-                        "show_follower_count = COALESCE(?, show_follower_count) WHERE id = ?",
-                displayName, bio, isAnonymous, showFollowerCount, userId
+                        "show_follower_count = COALESCE(?, show_follower_count), " +
+                        "message_permission = COALESCE(?, message_permission) WHERE id = ?",
+                displayName, bio, isAnonymous, showFollowerCount, messagePermission, userId
         );
     }
 
@@ -469,6 +472,7 @@ public class UserRepository {
         public String bio;
         public boolean isAnonymous;
         public boolean showFollowerCount;
+        public String messagePermission;
         public String profileImageUrl;
         public Long displayCommunityId;
         public Long displaySpecializationId;

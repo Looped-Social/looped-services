@@ -32,11 +32,15 @@ public class UserAliasController {
             @Valid @RequestBody UsersController.UpdateProfileRequest body
     ) {
         boolean anonymous = body.isAnonymous() != null && body.isAnonymous();
-        var res = users.updateProfile(jwt.getSubject(), body.displayName(), body.bio(), anonymous, body.showFollowerCount());
+        var res = users.updateProfile(jwt.getSubject(), body.displayName(), body.bio(), anonymous,
+                body.showFollowerCount(), body.messagePermission());
         return switch (res.status()) {
             case USER_NOT_PROVISIONED -> ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
                     "error", "user_not_provisioned",
                     "message", "Complete onboarding before updating profile"
+            ));
+            case INVALID_MESSAGE_PERMISSION -> ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of(
+                    "error", "invalid_message_permission"
             ));
             case OK -> ResponseEntity.ok(UserPayloads.fromProfile(res.profile()));
             default -> ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();

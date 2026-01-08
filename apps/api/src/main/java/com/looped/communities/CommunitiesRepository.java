@@ -7,6 +7,7 @@ import org.springframework.stereotype.Repository;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.OffsetDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
@@ -186,13 +187,30 @@ public class CommunitiesRepository {
         );
     }
 
-    public List<RecommendedRow> recommended(long userId, int limit) {
-        return jdbc.query(
+    public List<RecommendedRow> recommended(Long userId, String kind, String specializationType, int limit) {
+        StringBuilder sql = new StringBuilder(
                 "SELECT c.id, c.kind, c.name, c.description, c.member_count, c.image_url, c.specialization_type, c.verification_ttl_days, " +
                         "CASE WHEN cf.user_id IS NULL THEN false ELSE true END AS is_following " +
                         "FROM communities c " +
-                        "LEFT JOIN community_follows cf ON cf.community_id = c.id AND cf.user_id = ? " +
-                        "ORDER BY c.member_count DESC, c.created_at DESC, c.id DESC LIMIT ?",
+                        "LEFT JOIN community_follows cf ON cf.community_id = c.id AND cf.user_id = COALESCE(?, -1::bigint) "
+        );
+        List<Object> params = new ArrayList<>();
+        params.add(userId);
+        boolean hasWhere = false;
+        if (kind != null && !kind.isBlank()) {
+            sql.append("WHERE c.kind = ? ");
+            params.add(kind);
+            hasWhere = true;
+        }
+        if (specializationType != null && !specializationType.isBlank()) {
+            sql.append(hasWhere ? "AND " : "WHERE ");
+            sql.append("c.specialization_type = ? ");
+            params.add(specializationType);
+        }
+        sql.append("ORDER BY c.member_count DESC, c.created_at DESC, c.id DESC LIMIT ?");
+        params.add(limit);
+        return jdbc.query(
+                sql.toString(),
                 (rs, rowNum) -> {
                     RecommendedRow row = new RecommendedRow();
                     row.id = rs.getLong("id");
@@ -207,7 +225,7 @@ public class CommunitiesRepository {
                     row.isFollowing = rs.getBoolean("is_following");
                     return row;
                 },
-                userId, limit
+                params.toArray()
         );
     }
 

@@ -35,6 +35,7 @@ public class ViolationsRepository {
                 "SELECT 'post_removal' AS target_type, p.id AS target_id, p.removed_reason AS reason, " +
                 "'removed' AS status, p.removed_at AS created_at " +
                 "FROM posts p WHERE p.author_principal_id = ? AND p.removed_at IS NOT NULL " +
+                "AND (p.removed_reason IS NULL OR p.removed_reason <> 'user_deleted') " +
                 "UNION ALL " +
                 "SELECT 'user_ban' AS target_type, b.id AS target_id, b.reason AS reason, " +
                 "'active' AS status, b.created_at AS created_at " +

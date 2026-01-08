@@ -24,6 +24,7 @@ public final class UserPayloads {
         map.put("bio", profile.bio());
         map.put("is_anonymous", profile.isAnonymous());
         map.put("show_follower_count", profile.showFollowerCount());
+        map.put("message_permission", profile.messagePermission());
         map.put("company_id", profile.companyId());
         map.put("created_at", profile.createdAt());
         map.put("profile_image_url", profile.profileImageUrl());

@@ -44,6 +44,9 @@ public class AppealsController {
             case NOT_REMOVED -> ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
                     "error", "post_not_removed"
             ));
+            case SELF_DELETED -> ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
+                    "error", "post_self_deleted"
+            ));
             case FORBIDDEN -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
                     "error", "forbidden"
             ));
@@ -66,18 +69,20 @@ public class AppealsController {
                     "error", "user_not_provisioned"
             ));
         }
-        List<Map<String, Object>> items = res.items().stream().map(r -> Map.<String, Object>of(
-                "id", r.id,
-                "target_type", r.targetType,
-                "target_id", r.targetId,
-                "reason", r.reason,
-                "status", r.status,
-                "created_at", r.createdAt,
-                "updated_at", r.updatedAt,
-                "reviewed_at", r.reviewedAt,
-                "reviewed_by", r.reviewedBy,
-                "reviewed_reason", r.reviewedReason
-        )).toList();
+        List<Map<String, Object>> items = res.items().stream().map(r -> {
+            Map<String, Object> map = new java.util.HashMap<>();
+            map.put("id", r.id);
+            map.put("target_type", r.targetType);
+            map.put("target_id", r.targetId);
+            map.put("reason", r.reason);
+            map.put("status", r.status);
+            map.put("created_at", r.createdAt);
+            map.put("updated_at", r.updatedAt);
+            map.put("reviewed_at", r.reviewedAt);
+            map.put("reviewed_by", r.reviewedBy);
+            map.put("reviewed_reason", r.reviewedReason);
+            return map;
+        }).toList();
         return ResponseEntity.ok(Map.of("items", items));
     }
 
