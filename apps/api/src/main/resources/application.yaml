@@ -32,6 +32,9 @@ management:
 s3:
   bucket: ${S3_BUCKET:looped-dev-media}
   region: ${AWS_REGION:us-east-1}
+  verification:
+    bucket: ${S3_VERIFICATION_BUCKET:}
+    region: ${S3_VERIFICATION_REGION:${AWS_REGION:us-east-1}}
 
 cloudfront:
   domain: ${CLOUDFRONT_DOMAIN:}
@@ -81,6 +84,13 @@ rate-limit:
 verification:
   echo-code: ${VERIFICATION_ECHO_CODE:false}
   code-ttl-seconds: ${VERIFICATION_CODE_TTL_SECONDS:600}
+  photo-id:
+    max-image-bytes: ${VERIFICATION_PHOTO_ID_MAX_IMAGE_BYTES:10485760} # 10MB
+    session-ttl: ${VERIFICATION_PHOTO_ID_SESSION_TTL:PT30M}
+    presign-ttl: ${VERIFICATION_PHOTO_ID_PRESIGN_TTL:PT15M}
+    admin-download-ttl: ${VERIFICATION_PHOTO_ID_ADMIN_DOWNLOAD_TTL:PT5M}
+    rejected-delete-after-days: ${VERIFICATION_PHOTO_ID_REJECTED_DELETE_AFTER_DAYS:7}
+    cleanup-cron: "${VERIFICATION_PHOTO_ID_CLEANUP_CRON:0 */5 * * * *}"
 
 email:
   enabled: ${EMAIL_ENABLED:true}

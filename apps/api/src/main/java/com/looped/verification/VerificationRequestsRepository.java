@@ -25,16 +25,23 @@ public class VerificationRequestsRepository {
             Row row = new Row();
             row.id = rs.getLong("id");
             row.userId = rs.getLong("user_id");
+            row.userHandle = rs.getString("user_handle");
+            row.userDisplayName = rs.getString("user_display_name");
             row.email = rs.getString("email");
             row.method = rs.getString("method");
             row.status = rs.getString("status");
             row.mediaKey = rs.getString("media_key");
+            row.selfieKey = rs.getString("selfie_key");
+            row.idFrontKey = rs.getString("id_front_key");
+            row.idBackKey = rs.getString("id_back_key");
             row.metadata = rs.getString("metadata");
             row.submittedAt = rs.getObject("submitted_at", OffsetDateTime.class);
             row.reviewedAt = rs.getObject("reviewed_at", OffsetDateTime.class);
             long reviewedBy = rs.getLong("reviewed_by");
             row.reviewedBy = rs.wasNull() ? null : reviewedBy;
             row.rejectReason = rs.getString("reject_reason");
+            row.deleteAfterAt = rs.getObject("delete_after_at", OffsetDateTime.class);
+            row.mediaDeletedAt = rs.getObject("media_deleted_at", OffsetDateTime.class);
             row.companyDomain = rs.getString("company_domain");
             long communityId = rs.getLong("community_id");
             row.communityId = rs.wasNull() ? null : communityId;
@@ -63,7 +70,7 @@ public class VerificationRequestsRepository {
 
     public Optional<Row> findById(long id) {
         var list = jdbc.query(
-                "SELECT vr.*, c.domain AS company_domain, cm.name AS community_name, cm.kind AS community_kind " +
+                "SELECT vr.*, u.handle AS user_handle, u.display_name AS user_display_name, c.domain AS company_domain, cm.name AS community_name, cm.kind AS community_kind " +
                         "FROM verification_requests vr " +
                         "JOIN users u ON u.id = vr.user_id " +
                         "JOIN companies c ON c.id = u.company_id " +
@@ -83,21 +90,49 @@ public class VerificationRequestsRepository {
         return rows > 0;
     }
 
+    public boolean updateStatusWithDeleteAfter(long id, String status, Long reviewedBy, String rejectReason, OffsetDateTime deleteAfterAt) {
+        int rows = jdbc.update(
+                "UPDATE verification_requests SET status = ?, reviewed_at = now(), reviewed_by = ?, reject_reason = ?, delete_after_at = ? " +
+                        "WHERE id = ?",
+                status, reviewedBy, rejectReason, deleteAfterAt, id
+        );
+        return rows > 0;
+    }
+
+    public boolean markMediaDeleted(long id) {
+        int rows = jdbc.update(
+                "UPDATE verification_requests SET media_deleted_at = now() WHERE id = ?",
+                id
+        );
+        return rows > 0;
+    }
+
     public List<Row> listForAdmin(String status, OffsetDateTime cursorTs, Long cursorId, int limit) {
-        String base = "SELECT vr.*, c.domain AS company_domain, cm.name AS community_name, cm.kind AS community_kind " +
+        return listForAdmin(status, null, cursorTs, cursorId, limit);
+    }
+
+    public List<Row> listForAdmin(String status, String method, OffsetDateTime cursorTs, Long cursorId, int limit) {
+        String base = "SELECT vr.*, u.handle AS user_handle, u.display_name AS user_display_name, c.domain AS company_domain, cm.name AS community_name, cm.kind AS community_kind " +
                 "FROM verification_requests vr " +
                 "JOIN users u ON u.id = vr.user_id " +
                 "JOIN companies c ON c.id = u.company_id " +
                 "LEFT JOIN communities cm ON cm.id = vr.community_id ";
         String where = "";
         Object[] params;
-        if (status != null && !status.isBlank()) {
+        boolean hasStatus = status != null && !status.isBlank();
+        boolean hasMethod = method != null && !method.isBlank();
+        if (hasStatus && hasMethod) {
+            where = "WHERE vr.status = ? AND vr.method = ? ";
+        } else if (hasStatus) {
             where = "WHERE vr.status = ? ";
+        } else if (hasMethod) {
+            where = "WHERE vr.method = ? ";
         }
         if (cursorTs == null || cursorId == null) {
-            params = (status != null && !status.isBlank())
-                    ? new Object[]{status, limit}
-                    : new Object[]{limit};
+            if (hasStatus && hasMethod) params = new Object[]{status, method, limit};
+            else if (hasStatus) params = new Object[]{status, limit};
+            else if (hasMethod) params = new Object[]{method, limit};
+            else params = new Object[]{limit};
             return jdbc.query(
                     base + where + "ORDER BY vr.submitted_at DESC, vr.id DESC LIMIT ?",
                     params, MAPPER
@@ -108,14 +143,65 @@ public class VerificationRequestsRepository {
             where = "WHERE ";
             cursorClause = "(vr.submitted_at < ? OR (vr.submitted_at = ? AND vr.id < ?)) ";
         }
-        if (status != null && !status.isBlank()) {
-            params = new Object[]{status, cursorTs, cursorTs, cursorId, limit};
-        } else {
-            params = new Object[]{cursorTs, cursorTs, cursorId, limit};
-        }
+        if (hasStatus && hasMethod) params = new Object[]{status, method, cursorTs, cursorTs, cursorId, limit};
+        else if (hasStatus) params = new Object[]{status, cursorTs, cursorTs, cursorId, limit};
+        else if (hasMethod) params = new Object[]{method, cursorTs, cursorTs, cursorId, limit};
+        else params = new Object[]{cursorTs, cursorTs, cursorId, limit};
         return jdbc.query(
                 base + where + cursorClause + "ORDER BY vr.submitted_at DESC, vr.id DESC LIMIT ?",
                 params, MAPPER
+        );
+    }
+
+    public Optional<Row> findLatestForUserAndMethod(long userId, String method) {
+        var list = jdbc.query(
+                "SELECT vr.*, u.handle AS user_handle, u.display_name AS user_display_name, c.domain AS company_domain, cm.name AS community_name, cm.kind AS community_kind " +
+                        "FROM verification_requests vr " +
+                        "JOIN users u ON u.id = vr.user_id " +
+                        "JOIN companies c ON c.id = u.company_id " +
+                        "LEFT JOIN communities cm ON cm.id = vr.community_id " +
+                        "WHERE vr.user_id = ? AND vr.method = ? " +
+                        "ORDER BY vr.submitted_at DESC, vr.id DESC " +
+                        "LIMIT 1",
+                MAPPER, userId, method
+        );
+        return list.isEmpty() ? Optional.empty() : Optional.of(list.get(0));
+    }
+
+    public boolean existsPendingForUserAndMethod(long userId, String method) {
+        Integer n = jdbc.query(
+                "SELECT 1 FROM verification_requests WHERE user_id = ? AND method = ? AND status = 'pending' LIMIT 1",
+                rs -> rs.next() ? 1 : null,
+                userId, method
+        );
+        return n != null;
+    }
+
+    public long insertPhotoId(long userId, String email, String status, String selfieKey, String idFrontKey, String idBackKey) {
+        Long id = jdbc.query(
+                "INSERT INTO verification_requests(user_id, email, method, status, selfie_key, id_front_key, id_back_key) " +
+                        "VALUES (?, ?, 'photo_id', ?, ?, ?, ?) RETURNING id",
+                rs -> rs.next() ? rs.getLong(1) : null,
+                userId, normalizeEmail(email), status, selfieKey, idFrontKey, idBackKey
+        );
+        if (id == null) {
+            throw new IllegalStateException("Failed to insert verification request");
+        }
+        return id;
+    }
+
+    public List<Row> listDuePhotoIdDeletes(int limit) {
+        return jdbc.query(
+                "SELECT vr.*, u.handle AS user_handle, u.display_name AS user_display_name, c.domain AS company_domain, cm.name AS community_name, cm.kind AS community_kind " +
+                        "FROM verification_requests vr " +
+                        "JOIN users u ON u.id = vr.user_id " +
+                        "JOIN companies c ON c.id = u.company_id " +
+                        "LEFT JOIN communities cm ON cm.id = vr.community_id " +
+                        "WHERE vr.method = 'photo_id' AND vr.status = 'rejected' AND vr.media_deleted_at IS NULL " +
+                        "AND vr.delete_after_at IS NOT NULL AND vr.delete_after_at <= now() " +
+                        "ORDER BY vr.delete_after_at ASC, vr.id ASC " +
+                        "LIMIT ?",
+                MAPPER, limit
         );
     }
 
@@ -129,15 +215,22 @@ public class VerificationRequestsRepository {
     public static class Row {
         public long id;
         public long userId;
+        public String userHandle;
+        public String userDisplayName;
         public String email;
         public String method;
         public String status;
         public String mediaKey;
+        public String selfieKey;
+        public String idFrontKey;
+        public String idBackKey;
         public String metadata;
         public OffsetDateTime submittedAt;
         public OffsetDateTime reviewedAt;
         public Long reviewedBy;
         public String rejectReason;
+        public OffsetDateTime deleteAfterAt;
+        public OffsetDateTime mediaDeletedAt;
         public String companyDomain;
         public Long communityId;
         public String communityName;
