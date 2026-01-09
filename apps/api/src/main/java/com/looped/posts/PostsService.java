@@ -175,6 +175,9 @@ public class PostsService {
         if (u.isEmpty()) return GetResult.userNotProvisioned();
         var p = posts.findById(id);
         if (p.isEmpty()) return GetResult.notFound();
+        if (u.get().hideAnonymousPosts && p.get().authorIsAnonymous && (p.get().authorId == null || p.get().authorId != u.get().id)) {
+            return GetResult.notFound();
+        }
         var principal = principals.createForUser(u.get().id);
         postState.applyForPrincipal(principal.id, java.util.List.of(p.get()));
         return GetResult.ok(p.get());

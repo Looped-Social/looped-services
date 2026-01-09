@@ -37,14 +37,16 @@ public class FeedService {
         }
         Mode resolved = Mode.from(mode);
         var principal = principals.createForUser(u.get().id);
+        long viewerUserId = u.get().id;
+        boolean hideAnonymousPosts = u.get().hideAnonymousPosts;
         FeedResult result = resolved == Mode.NEW
-                ? feedNew(cursor, limit, communityId)
-                : feedForYou(cursor, limit, communityId);
+                ? feedNew(cursor, limit, communityId, viewerUserId, hideAnonymousPosts)
+                : feedForYou(cursor, limit, communityId, viewerUserId, hideAnonymousPosts);
         postState.applyForPrincipal(principal.id, result.items());
         return result;
     }
 
-    private FeedResult feedNew(String cursor, int limit, Long communityId) {
+    private FeedResult feedNew(String cursor, int limit, Long communityId, long viewerUserId, boolean hideAnonymousPosts) {
         OffsetDateTime cTs = null;
         Long cId = null;
         if (cursor != null && !cursor.isBlank()) {
@@ -56,7 +58,7 @@ public class FeedService {
                 // treat as no cursor
             }
         }
-        var list = posts.findNew(communityId, cTs, cId, limit);
+        var list = posts.findNew(communityId, cTs, cId, limit, viewerUserId, hideAnonymousPosts);
         String next = null;
         if (list.size() == limit) {
             var last = list.get(list.size() - 1);
@@ -65,7 +67,7 @@ public class FeedService {
         return FeedResult.ok(list, next);
     }
 
-    private FeedResult feedForYou(String cursor, int limit, Long communityId) {
+    private FeedResult feedForYou(String cursor, int limit, Long communityId, long viewerUserId, boolean hideAnonymousPosts) {
         RankPagination.Cursor rankedCursor = null;
         if (cursor != null && !cursor.isBlank()) {
             try {
@@ -80,8 +82,8 @@ public class FeedService {
         OffsetDateTime cTs = rankedCursor == null ? null : rankedCursor.timestamp();
         Long cId = rankedCursor == null ? null : rankedCursor.id();
         var list = communityId == null
-                ? posts.findPopular(asOf, since, score, cTs, cId, limit)
-                : posts.findPopularByCommunity(communityId, asOf, since, score, cTs, cId, limit);
+                ? posts.findPopular(asOf, since, score, cTs, cId, limit, viewerUserId, hideAnonymousPosts)
+                : posts.findPopularByCommunity(communityId, asOf, since, score, cTs, cId, limit, viewerUserId, hideAnonymousPosts);
         String next = null;
         if (list.size() == limit) {
             var last = list.get(list.size() - 1);
@@ -102,7 +104,7 @@ public class FeedService {
         }
         OffsetDateTime asOf = OffsetDateTime.now();
         OffsetDateTime since = asOf.minusDays(3);
-        var list = posts.findTrendingWithMedia(asOf, since, communityId, limit);
+        var list = posts.findTrendingWithMedia(asOf, since, communityId, limit, u.get().id, u.get().hideAnonymousPosts);
         var principal = principals.createForUser(u.get().id);
         postState.applyForPrincipal(principal.id, list);
         return TrendingResult.ok(list);

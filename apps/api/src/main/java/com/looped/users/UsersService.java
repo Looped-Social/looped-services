@@ -10,6 +10,7 @@ import com.looped.posts.PostRepository;
 import com.looped.posts.PostStateService;
 import com.looped.principals.PrincipalRepository;
 import com.looped.shared.Pagination;
+import com.looped.shared.RankPagination;
 import com.looped.verification.VerificationRepository;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DataAccessException;
@@ -101,7 +102,7 @@ public class UsersService {
             } catch (IllegalArgumentException ignored) {}
         }
 
-        var rows = posts.findByAuthor(targetUserId, cTs, cId, limit);
+        var rows = posts.findByAuthor(targetUserId, cTs, cId, limit, actor.get().id, actor.get().hideAnonymousPosts);
         var principal = principals.createForUser(actor.get().id);
         postState.applyForPrincipal(principal.id, rows);
         String next = null;
@@ -258,19 +259,34 @@ public class UsersService {
     public SearchResult search(String firebaseUid, String query, String cursor, int limit) {
         var actor = requireProvisionedUser(firebaseUid);
         if (actor.isEmpty()) return SearchResult.userNotProvisioned();
-        OffsetDateTime cTs = null; Long cId = null;
+
+        RankPagination.Cursor rankedCursor = null;
         if (cursor != null && !cursor.isBlank()) {
             try {
-                var decoded = Pagination.decode(cursor);
-                cTs = decoded.timestamp();
-                cId = decoded.id();
+                rankedCursor = RankPagination.decode(cursor);
             } catch (IllegalArgumentException ignored) {}
         }
-        var rows = users.searchCompanyUsers(actor.get().companyId, query, cTs, cId, limit);
+        OffsetDateTime asOf = rankedCursor == null ? OffsetDateTime.now() : rankedCursor.asOf();
+        Long score = rankedCursor == null ? null : rankedCursor.score();
+        OffsetDateTime cTs = rankedCursor == null ? null : rankedCursor.timestamp();
+        Long cId = rankedCursor == null ? null : rankedCursor.id();
+
+        String prefixQuery = UsersSearchQuery.toPrefixTsquery(query);
+        var scoredRows = users.searchCompanyUsersRanked(
+                actor.get().companyId,
+                query,
+                prefixQuery,
+                asOf,
+                score,
+                cTs,
+                cId,
+                limit
+        );
+        var rows = scoredRows.stream().map(r -> r.user).toList();
         String next = null;
-        if (rows.size() == limit) {
-            var last = rows.get(rows.size() - 1);
-            next = Pagination.encode(last.createdAt, last.id);
+        if (scoredRows.size() == limit) {
+            var last = scoredRows.get(scoredRows.size() - 1);
+            next = RankPagination.encode(asOf, last.score, last.user.createdAt, last.user.id);
         }
         return SearchResult.ok(rows, next);
     }
@@ -420,6 +436,7 @@ public class UsersService {
                 row.isAnonymous,
                 row.showFollowerCount,
                 row.messagePermission,
+                row.hideAnonymousPosts,
                 row.companyId,
                 row.createdAt,
                 row.profileImageUrl,
@@ -542,7 +559,7 @@ public class UsersService {
 
     public record UserProfile(long id, String handle, String firstName, String lastName, LocalDate dateOfBirth,
                               String displayName, String bio, boolean isAnonymous, boolean showFollowerCount,
-                              String messagePermission, Long companyId, OffsetDateTime createdAt, String profileImageUrl,
+                              String messagePermission, boolean hideAnonymousPosts, Long companyId, OffsetDateTime createdAt, String profileImageUrl,
                               Verification verification, DisplayCommunity displayCommunity,
                               DisplaySpecialization displaySpecialization, ProfileStats stats) {}
 

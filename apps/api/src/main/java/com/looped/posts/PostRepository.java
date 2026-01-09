@@ -17,6 +17,11 @@ public class PostRepository {
         this.jdbc = jdbc;
     }
 
+    private static String hideAnonymousFilter(boolean hideAnonymousPosts) {
+        if (!hideAnonymousPosts) return "";
+        return "AND (NOT (p.is_anon OR COALESCE(u.is_anonymous, false)) OR p.author_id = ?) ";
+    }
+
     private static final String BASE_SELECT =
             "SELECT p.id, p.author_id, p.author_principal_id, p.is_anon, p.anon_profile_id, p.anon_company_id, " +
             "p.company_id, p.community_id, c.name AS community_name, c.kind AS community_kind, " +
@@ -141,26 +146,38 @@ public class PostRepository {
         );
     }
 
-    public java.util.List<PostRow> findNew(Long communityId, java.time.OffsetDateTime cursorTs, Long cursorId, int limit) {
+    public java.util.List<PostRow> findNew(Long communityId, java.time.OffsetDateTime cursorTs, Long cursorId, int limit,
+                                           long viewerUserId, boolean hideAnonymousPosts) {
         String base = BASE_SELECT + "WHERE p.removed_at IS NULL AND (p.author_id IS NULL OR u.id IS NOT NULL) ";
+        java.util.List<Object> args = new java.util.ArrayList<>();
         if (communityId != null) {
             base += "AND p.community_id = ? ";
+            args.add(communityId);
+        }
+        if (hideAnonymousPosts) {
+            base += hideAnonymousFilter(true);
+            args.add(viewerUserId);
         }
         if (cursorTs == null || cursorId == null) {
             if (communityId != null) {
-                return jdbc.query(base + "ORDER BY p.created_at DESC, p.id DESC LIMIT ?", MAPPER, communityId, limit);
+                args.add(limit);
+                return jdbc.query(base + "ORDER BY p.created_at DESC, p.id DESC LIMIT ?", MAPPER, args.toArray());
             }
-            return jdbc.query(base + "ORDER BY p.created_at DESC, p.id DESC LIMIT ?", MAPPER, limit);
+            args.add(limit);
+            return jdbc.query(base + "ORDER BY p.created_at DESC, p.id DESC LIMIT ?", MAPPER, args.toArray());
         }
         String paging = "AND (p.created_at < ? OR (p.created_at = ? AND p.id < ?)) " +
                 "ORDER BY p.created_at DESC, p.id DESC LIMIT ?";
-        if (communityId != null) {
-            return jdbc.query(base + paging, MAPPER, communityId, cursorTs, cursorTs, cursorId, limit);
-        }
-        return jdbc.query(base + paging, MAPPER, cursorTs, cursorTs, cursorId, limit);
+        args.add(cursorTs);
+        args.add(cursorTs);
+        args.add(cursorId);
+        args.add(limit);
+        return jdbc.query(base + paging, MAPPER, args.toArray());
     }
 
-    public java.util.List<PostRow> findPopular(java.time.OffsetDateTime asOf, java.time.OffsetDateTime since, Long cursorScore, java.time.OffsetDateTime cursorTs, Long cursorId, int limit) {
+    public java.util.List<PostRow> findPopular(java.time.OffsetDateTime asOf, java.time.OffsetDateTime since, Long cursorScore,
+                                               java.time.OffsetDateTime cursorTs, Long cursorId, int limit,
+                                               long viewerUserId, boolean hideAnonymousPosts) {
         String scoreExpr = "((p.likes_count * 2 + p.comments_count + p.share_count) * 1000 - " +
                 "FLOOR(EXTRACT(EPOCH FROM (?::timestamptz - p.created_at)) / 3600))";
         String base = "SELECT p.id, p.author_id, p.author_principal_id, p.is_anon, p.anon_profile_id, p.anon_company_id, " +
@@ -185,6 +202,9 @@ public class PostRepository {
                 "AND ds.kind = 'specialization' AND ds.specialization_type IN ('major','department') " +
                 "LEFT JOIN anonymous_profiles ap ON ap.id = p.anon_profile_id " +
                 "WHERE p.created_at >= ? AND p.removed_at IS NULL AND (p.author_id IS NULL OR u.id IS NOT NULL)";
+        if (hideAnonymousPosts) {
+            base += " " + hideAnonymousFilter(true);
+        }
         if (cursorScore == null || cursorTs == null || cursorId == null) {
             return jdbc.query(
                     "SELECT id, author_id, author_principal_id, is_anon, anon_profile_id, anon_company_id, company_id, community_id, " +
@@ -196,7 +216,8 @@ public class PostRepository {
                             "author_display_specialization_id, author_display_specialization_name, author_display_specialization_kind, " +
                             "author_display_specialization_type, author_is_anonymous " +
                             "FROM (" + base + ") s ORDER BY score DESC, created_at DESC, id DESC LIMIT ?",
-                    MAPPER, asOf, since, limit
+                    MAPPER,
+                    hideAnonymousPosts ? new Object[]{asOf, since, viewerUserId, limit} : new Object[]{asOf, since, limit}
             );
         }
         return jdbc.query(
@@ -210,12 +231,16 @@ public class PostRepository {
                         "author_display_specialization_type, author_is_anonymous " +
                         "FROM (" + base + ") s WHERE (score < ? OR (score = ? AND (created_at < ? OR (created_at = ? AND id < ?)))) " +
                         "ORDER BY score DESC, created_at DESC, id DESC LIMIT ?",
-                MAPPER, asOf, since, cursorScore, cursorScore, cursorTs, cursorTs, cursorId, limit
+                MAPPER,
+                hideAnonymousPosts
+                        ? new Object[]{asOf, since, viewerUserId, cursorScore, cursorScore, cursorTs, cursorTs, cursorId, limit}
+                        : new Object[]{asOf, since, cursorScore, cursorScore, cursorTs, cursorTs, cursorId, limit}
         );
     }
 
     public java.util.List<PostRow> findPopularByCommunity(long communityId, java.time.OffsetDateTime asOf, java.time.OffsetDateTime since,
-                                                          Long cursorScore, java.time.OffsetDateTime cursorTs, Long cursorId, int limit) {
+                                                          Long cursorScore, java.time.OffsetDateTime cursorTs, Long cursorId, int limit,
+                                                          long viewerUserId, boolean hideAnonymousPosts) {
         String scoreExpr = "((p.likes_count * 2 + p.comments_count + p.share_count) * 1000 - " +
                 "FLOOR(EXTRACT(EPOCH FROM (?::timestamptz - p.created_at)) / 3600))";
         String base = "SELECT p.id, p.author_id, p.author_principal_id, p.is_anon, p.anon_profile_id, p.anon_company_id, " +
@@ -241,6 +266,9 @@ public class PostRepository {
                 "LEFT JOIN anonymous_profiles ap ON ap.id = p.anon_profile_id " +
                 "WHERE p.created_at >= ? AND p.removed_at IS NULL AND p.community_id = ? " +
                 "AND (p.author_id IS NULL OR u.id IS NOT NULL)";
+        if (hideAnonymousPosts) {
+            base += " " + hideAnonymousFilter(true);
+        }
         if (cursorScore == null || cursorTs == null || cursorId == null) {
             return jdbc.query(
                     "SELECT id, author_id, author_principal_id, is_anon, anon_profile_id, anon_company_id, company_id, community_id, " +
@@ -252,7 +280,10 @@ public class PostRepository {
                             "author_display_specialization_id, author_display_specialization_name, author_display_specialization_kind, " +
                             "author_display_specialization_type, author_is_anonymous " +
                             "FROM (" + base + ") s ORDER BY score DESC, created_at DESC, id DESC LIMIT ?",
-                    MAPPER, asOf, since, communityId, limit
+                    MAPPER,
+                    hideAnonymousPosts
+                            ? new Object[]{asOf, since, communityId, viewerUserId, limit}
+                            : new Object[]{asOf, since, communityId, limit}
             );
         }
         return jdbc.query(
@@ -266,23 +297,32 @@ public class PostRepository {
                         "author_display_specialization_type, author_is_anonymous " +
                         "FROM (" + base + ") s WHERE (score < ? OR (score = ? AND (created_at < ? OR (created_at = ? AND id < ?)))) " +
                         "ORDER BY score DESC, created_at DESC, id DESC LIMIT ?",
-                MAPPER, asOf, since, communityId, cursorScore, cursorScore, cursorTs, cursorTs, cursorId, limit
+                MAPPER,
+                hideAnonymousPosts
+                        ? new Object[]{asOf, since, communityId, viewerUserId, cursorScore, cursorScore, cursorTs, cursorTs, cursorId, limit}
+                        : new Object[]{asOf, since, communityId, cursorScore, cursorScore, cursorTs, cursorTs, cursorId, limit}
         );
     }
 
-    public java.util.List<PostRow> findByAuthor(long authorId, java.time.OffsetDateTime cursorTs, Long cursorId, int limit) {
+    public java.util.List<PostRow> findByAuthor(long authorId, java.time.OffsetDateTime cursorTs, Long cursorId, int limit,
+                                               long viewerUserId, boolean hideAnonymousPosts) {
+        String filter = hideAnonymousPosts ? hideAnonymousFilter(true) : "";
         if (cursorTs == null || cursorId == null) {
             return jdbc.query(
-                    BASE_SELECT + "WHERE p.author_id=? AND p.removed_at IS NULL AND u.id IS NOT NULL " +
+                    BASE_SELECT + "WHERE p.author_id=? AND p.removed_at IS NULL AND u.id IS NOT NULL " + filter +
                             "ORDER BY p.created_at DESC, p.id DESC LIMIT ?",
-                    MAPPER, authorId, limit
+                    MAPPER,
+                    hideAnonymousPosts ? new Object[]{authorId, viewerUserId, limit} : new Object[]{authorId, limit}
             );
         } else {
             return jdbc.query(
-                    BASE_SELECT + "WHERE p.author_id=? AND p.removed_at IS NULL AND u.id IS NOT NULL " +
+                    BASE_SELECT + "WHERE p.author_id=? AND p.removed_at IS NULL AND u.id IS NOT NULL " + filter +
                             "AND (p.created_at < ? OR (p.created_at = ? AND p.id < ?)) " +
                             "ORDER BY p.created_at DESC, p.id DESC LIMIT ?",
-                    MAPPER, authorId, cursorTs, cursorTs, cursorId, limit
+                    MAPPER,
+                    hideAnonymousPosts
+                            ? new Object[]{authorId, viewerUserId, cursorTs, cursorTs, cursorId, limit}
+                            : new Object[]{authorId, cursorTs, cursorTs, cursorId, limit}
             );
         }
     }
@@ -304,25 +344,34 @@ public class PostRepository {
         }
     }
 
-    public java.util.List<PostRow> findByHashtag(long companyId, String name, java.time.OffsetDateTime cursorTs, Long cursorId, int limit) {
+    public java.util.List<PostRow> findByHashtag(long companyId, String name, java.time.OffsetDateTime cursorTs, Long cursorId, int limit,
+                                                 long viewerUserId, boolean hideAnonymousPosts) {
         String base = BASE_SELECT +
                 "JOIN hashtag_posts hp ON hp.post_id = p.id " +
                 "JOIN hashtags h ON h.id = hp.hashtag_id " +
                 "WHERE h.company_id = ? AND h.name = ? AND p.removed_at IS NULL AND (p.author_id IS NULL OR u.id IS NOT NULL) ";
+        if (hideAnonymousPosts) {
+            base += hideAnonymousFilter(true);
+        }
         if (cursorTs == null || cursorId == null) {
             return jdbc.query(
                     base + "ORDER BY p.created_at ASC, p.id ASC LIMIT ?",
-                    MAPPER, companyId, name, limit
+                    MAPPER,
+                    hideAnonymousPosts ? new Object[]{companyId, name, viewerUserId, limit} : new Object[]{companyId, name, limit}
             );
         }
         return jdbc.query(
                 base + "AND (p.created_at > ? OR (p.created_at = ? AND p.id > ?)) " +
                         "ORDER BY p.created_at ASC, p.id ASC LIMIT ?",
-                MAPPER, companyId, name, cursorTs, cursorTs, cursorId, limit
+                MAPPER,
+                hideAnonymousPosts
+                        ? new Object[]{companyId, name, viewerUserId, cursorTs, cursorTs, cursorId, limit}
+                        : new Object[]{companyId, name, cursorTs, cursorTs, cursorId, limit}
         );
     }
 
-    public java.util.List<TrendingRow> findTrendingWithMedia(java.time.OffsetDateTime asOf, java.time.OffsetDateTime since, Long communityId, int limit) {
+    public java.util.List<TrendingRow> findTrendingWithMedia(java.time.OffsetDateTime asOf, java.time.OffsetDateTime since, Long communityId, int limit,
+                                                             long viewerUserId, boolean hideAnonymousPosts) {
         String scoreExpr = "((p.likes_count * 2 + p.comments_count + p.share_count) * 1000 - " +
                 "FLOOR(EXTRACT(EPOCH FROM (?::timestamptz - p.created_at)) / 3600))";
         String base = "SELECT p.id, p.author_id, p.author_principal_id, p.is_anon, p.anon_profile_id, p.anon_company_id, " +
@@ -349,19 +398,27 @@ public class PostRepository {
         if (communityId != null) {
             base += "AND p.community_id = ? ";
         }
+        if (hideAnonymousPosts) {
+            base += hideAnonymousFilter(true);
+        }
         base += "ORDER BY score DESC, p.created_at DESC, p.id DESC LIMIT ?";
 
         Object[] params;
         if (communityId != null) {
-            params = new Object[]{asOf, since, communityId, limit};
+            params = hideAnonymousPosts
+                    ? new Object[]{asOf, since, communityId, viewerUserId, limit}
+                    : new Object[]{asOf, since, communityId, limit};
         } else {
-            params = new Object[]{asOf, since, limit};
+            params = hideAnonymousPosts
+                    ? new Object[]{asOf, since, viewerUserId, limit}
+                    : new Object[]{asOf, since, limit};
         }
         return jdbc.query(base, TRENDING_MAPPER, params);
     }
 
     public java.util.List<ScoredPostRow> searchCompanyPosts(long companyId, String query, String prefixQuery, java.time.OffsetDateTime asOf,
-                                                           Long cursorScore, java.time.OffsetDateTime cursorTs, Long cursorId, int limit) {
+                                                           Long cursorScore, java.time.OffsetDateTime cursorTs, Long cursorId, int limit,
+                                                           long viewerUserId, boolean hideAnonymousPosts) {
         String vectorEn = "to_tsvector('english', COALESCE(p.content, ''))";
         String vectorSimple = "to_tsvector('simple', COALESCE(p.content, ''))";
         String match = "(" + vectorEn + " @@ q.q_web OR (q.q_prefix IS NOT NULL AND " + vectorSimple + " @@ q.q_prefix))";
@@ -410,19 +467,26 @@ public class PostRepository {
                         "WHERE p.company_id = ? " +
                         "AND p.removed_at IS NULL " +
                         "AND (p.author_id IS NULL OR u.id IS NOT NULL) " +
+                        (hideAnonymousPosts ? hideAnonymousFilter(true) : "") +
                         "AND " + match;
 
         if (cursorScore == null || cursorTs == null || cursorId == null) {
             return jdbc.query(
                     "SELECT * FROM (" + base + ") s ORDER BY score DESC, created_at DESC, id DESC LIMIT ?",
-                    SCORED_MAPPER, query, prefixQuery, asOf, companyId, limit
+                    SCORED_MAPPER,
+                    hideAnonymousPosts
+                            ? new Object[]{query, prefixQuery, asOf, companyId, viewerUserId, limit}
+                            : new Object[]{query, prefixQuery, asOf, companyId, limit}
             );
         }
         return jdbc.query(
                 "SELECT * FROM (" + base + ") s " +
                         "WHERE (score < ? OR (score = ? AND (created_at < ? OR (created_at = ? AND id < ?)))) " +
                         "ORDER BY score DESC, created_at DESC, id DESC LIMIT ?",
-                SCORED_MAPPER, query, prefixQuery, asOf, companyId, cursorScore, cursorScore, cursorTs, cursorTs, cursorId, limit
+                SCORED_MAPPER,
+                hideAnonymousPosts
+                        ? new Object[]{query, prefixQuery, asOf, companyId, viewerUserId, cursorScore, cursorScore, cursorTs, cursorTs, cursorId, limit}
+                        : new Object[]{query, prefixQuery, asOf, companyId, cursorScore, cursorScore, cursorTs, cursorTs, cursorId, limit}
         );
     }
 

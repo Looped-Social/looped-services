@@ -1,6 +1,7 @@
 package com.looped.discovery;
 
 import com.looped.shared.Pagination;
+import com.looped.shared.RankPagination;
 import com.looped.communities.CommunitiesRepository;
 import com.looped.posts.PostRepository;
 import com.looped.posts.PostStateService;
@@ -34,23 +35,33 @@ public class DiscoveryService {
                                                    String cursor, int limit) {
         var actor = users.findByFirebaseUid(firebaseUid);
         if (actor.isEmpty()) return CommunitySearchResult.userNotProvisioned();
-        OffsetDateTime cTs = null; Long cId = null;
-        if (cursor != null && !cursor.isBlank()) {
+
+        boolean hasCursor = cursor != null && !cursor.isBlank();
+        RankPagination.Cursor rankedCursor = null;
+        if (hasCursor) {
             try {
-                var decoded = Pagination.decode(cursor);
-                cTs = decoded.timestamp();
-                cId = decoded.id();
+                rankedCursor = RankPagination.decode(cursor);
             } catch (IllegalArgumentException ignored) {}
         }
-        var rows = kind == null
-                ? communities.search(query, cTs, cId, limit)
+        OffsetDateTime asOf = rankedCursor == null ? OffsetDateTime.now() : rankedCursor.asOf();
+        Long score = rankedCursor == null ? null : rankedCursor.score();
+        OffsetDateTime cTs = rankedCursor == null ? null : rankedCursor.timestamp();
+        Long cId = rankedCursor == null ? null : rankedCursor.id();
+
+        String prefixQuery = DiscoverySearchQuery.toPrefixTsquery(query);
+        var scored = kind == null
+                ? communities.searchRanked(query, prefixQuery, asOf, score, cTs, cId, limit)
                 : (specializationType == null
-                    ? communities.searchByKind(kind, query, cTs, cId, limit)
-                    : communities.searchByKindAndSpecializationType(kind, specializationType, query, cTs, cId, limit));
+                    ? communities.searchRankedByKind(kind, query, prefixQuery, asOf, score, cTs, cId, limit)
+                    : communities.searchRankedByKindAndSpecializationType(kind, specializationType, query, prefixQuery, asOf, score, cTs, cId, limit));
+        var rows = scored.stream().map(r -> r.community).toList();
+        if (!hasCursor && rows.isEmpty()) {
+            rows = communities.searchByLikePopularity(query, kind, specializationType, limit);
+        }
         String next = null;
-        if (rows.size() == limit) {
-            var last = rows.get(rows.size() - 1);
-            next = Pagination.encode(last.createdAt, last.id);
+        if (scored.size() == limit) {
+            var last = scored.get(scored.size() - 1);
+            next = RankPagination.encode(asOf, last.score, last.community.createdAt, last.community.id);
         }
         return CommunitySearchResult.ok(rows, next);
     }
@@ -69,19 +80,25 @@ public class DiscoveryService {
     public HashtagSearchResult searchHashtags(String firebaseUid, String query, String cursor, int limit) {
         var actor = users.findByFirebaseUid(firebaseUid);
         if (actor.isEmpty() || actor.get().companyId == null) return HashtagSearchResult.userNotProvisioned();
-        OffsetDateTime cTs = null; Long cId = null;
+
+        RankPagination.Cursor rankedCursor = null;
         if (cursor != null && !cursor.isBlank()) {
             try {
-                var decoded = Pagination.decode(cursor);
-                cTs = decoded.timestamp();
-                cId = decoded.id();
+                rankedCursor = RankPagination.decode(cursor);
             } catch (IllegalArgumentException ignored) {}
         }
-        var rows = hashtags.search(actor.get().companyId, query, cTs, cId, limit);
+        OffsetDateTime asOf = rankedCursor == null ? OffsetDateTime.now() : rankedCursor.asOf();
+        Long score = rankedCursor == null ? null : rankedCursor.score();
+        OffsetDateTime cTs = rankedCursor == null ? null : rankedCursor.timestamp();
+        Long cId = rankedCursor == null ? null : rankedCursor.id();
+
+        String prefixQuery = DiscoverySearchQuery.toPrefixTsquery(query);
+        var scored = hashtags.searchRanked(actor.get().companyId, query, prefixQuery, asOf, score, cTs, cId, limit);
+        var rows = scored.stream().map(r -> r.hashtag).toList();
         String next = null;
-        if (rows.size() == limit) {
-            var last = rows.get(rows.size() - 1);
-            next = Pagination.encode(last.createdAt, last.id);
+        if (scored.size() == limit) {
+            var last = scored.get(scored.size() - 1);
+            next = RankPagination.encode(asOf, last.score, last.hashtag.createdAt, last.hashtag.id);
         }
         return HashtagSearchResult.ok(rows, next);
     }
@@ -89,6 +106,8 @@ public class DiscoveryService {
     public HashtagPostsResult postsByHashtag(String firebaseUid, String name, String cursor, int limit) {
         var actor = users.findByFirebaseUid(firebaseUid);
         if (actor.isEmpty() || actor.get().companyId == null) return HashtagPostsResult.userNotProvisioned();
+        long viewerUserId = actor.get().id;
+        boolean hideAnonymousPosts = actor.get().hideAnonymousPosts;
         String normalized = HashtagParser.normalize(name);
         if (normalized == null) return HashtagPostsResult.invalidQuery();
         OffsetDateTime cTs = null; Long cId = null;
@@ -99,7 +118,7 @@ public class DiscoveryService {
                 cId = decoded.id();
             } catch (IllegalArgumentException ignored) {}
         }
-        var rows = posts.findByHashtag(actor.get().companyId, normalized, cTs, cId, limit);
+        var rows = posts.findByHashtag(actor.get().companyId, normalized, cTs, cId, limit, viewerUserId, hideAnonymousPosts);
         var principal = principals.createForUser(actor.get().id);
         postState.applyForPrincipal(principal.id, rows);
         String next = null;

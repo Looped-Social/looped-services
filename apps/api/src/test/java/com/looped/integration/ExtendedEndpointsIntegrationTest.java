@@ -230,6 +230,105 @@ class ExtendedEndpointsIntegrationTest extends PostgresTestBase {
     }
 
     @Test
+    void message_search_matches_people_and_content() throws Exception {
+        long companyId = jdbc.queryForObject("INSERT INTO companies(name, domain) VALUES ('SearchCo','search.co') RETURNING id", Long.class);
+        jdbc.queryForObject("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?) RETURNING id",
+                Long.class, "uid-search", "searcher", companyId);
+        long adamId = jdbc.queryForObject("INSERT INTO users(firebase_uid, handle, company_id, display_name) VALUES (?,?,?,?) RETURNING id",
+                Long.class, "uid-adam", "adamsandler", companyId, "Adam Sandler");
+        long ericId = jdbc.queryForObject("INSERT INTO users(firebase_uid, handle, company_id, display_name) VALUES (?,?,?,?) RETURNING id",
+                Long.class, "uid-eric", "eric", companyId, "Eric");
+
+        String auth = "Bearer " + token("uid-search");
+
+        var startAdamResp = mockMvc.perform(post("/v1/conversations")
+                        .header("Authorization", auth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"participantUserId\":" + adamId + "}"))
+                .andExpect(status().isCreated())
+                .andReturn();
+        String adamConversationId = new com.fasterxml.jackson.databind.ObjectMapper()
+                .readTree(startAdamResp.getResponse().getContentAsString())
+                .get("id").asText();
+
+        mockMvc.perform(post("/v1/conversations/" + adamConversationId + "/messages")
+                        .header("Authorization", auth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"content\":\"hello\",\"attachments\":[]}"))
+                .andExpect(status().isCreated());
+
+        var startEricResp = mockMvc.perform(post("/v1/conversations")
+                        .header("Authorization", auth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"participantUserId\":" + ericId + "}"))
+                .andExpect(status().isCreated())
+                .andReturn();
+        String ericConversationId = new com.fasterxml.jackson.databind.ObjectMapper()
+                .readTree(startEricResp.getResponse().getContentAsString())
+                .get("id").asText();
+
+        mockMvc.perform(post("/v1/conversations/" + ericConversationId + "/messages")
+                        .header("Authorization", auth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"content\":\"we talked about ice cream\",\"attachments\":[]}"))
+                .andExpect(status().isCreated());
+
+        var chanResp = mockMvc.perform(post("/v1/channels")
+                        .header("Authorization", auth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"Ice Cream Club\",\"memberUserIds\":[]}"))
+                .andExpect(status().isCreated())
+                .andReturn();
+        String channelId = new com.fasterxml.jackson.databind.ObjectMapper()
+                .readTree(chanResp.getResponse().getContentAsString())
+                .get("id").asText();
+
+        mockMvc.perform(post("/v1/channels/" + channelId + "/messages")
+                        .header("Authorization", auth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"content\":\"ice cream with sprinkles\",\"attachments\":[]}"))
+                .andExpect(status().isCreated());
+
+        mockMvc.perform(get("/v1/messages/search?query=adam")
+                        .header("Authorization", auth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items", not(empty())))
+                .andExpect(jsonPath("$.items[0].type", equalTo("conversation")))
+                .andExpect(jsonPath("$.items[0].other_user_profile.handle", equalTo("adamsandler")));
+
+        mockMvc.perform(get("/v1/messages/search?query=ice%20cream")
+                        .header("Authorization", auth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[*].type", hasItems("conversation", "channel")))
+                .andExpect(jsonPath("$.items[?(@.type=='conversation')].other_user_profile.handle", hasItem("eric")));
+    }
+
+    @Test
+    void discovery_search_is_relevant() throws Exception {
+        long companyId = jdbc.queryForObject("INSERT INTO companies(name, domain) VALUES ('DiscCo','disc.co') RETURNING id", Long.class);
+        jdbc.queryForObject("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?) RETURNING id",
+                Long.class, "uid-disc", "discoverer", companyId);
+
+        jdbc.update("INSERT INTO communities(kind, name, description, member_count) VALUES ('company','Ice Cream Club','Best place for frozen treats', 1000)");
+        jdbc.update("INSERT INTO communities(kind, name, description, member_count) VALUES ('company','Eric Group','We once talked about ice cream', 10)");
+
+        jdbc.update("INSERT INTO hashtags(company_id, name, usage_count) VALUES (?,?,?)", companyId, "icecream", 500);
+        jdbc.update("INSERT INTO hashtags(company_id, name, usage_count) VALUES (?,?,?)", companyId, "inception", 5);
+
+        String auth = "Bearer " + token("uid-disc");
+
+        mockMvc.perform(get("/v1/communities/search?query=ice%20cream")
+                        .header("Authorization", auth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].name", equalTo("Ice Cream Club")));
+
+        mockMvc.perform(get("/v1/hashtags/search?query=ice")
+                        .header("Authorization", auth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].name", equalTo("icecream")));
+    }
+
+    @Test
     void violations_list_for_removed_posts_and_active_bans() throws Exception {
         long companyId = jdbc.queryForObject("INSERT INTO companies(name, domain) VALUES ('ViolCo','viol.co') RETURNING id", Long.class);
         long userId = jdbc.queryForObject("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?) RETURNING id",

@@ -9,10 +9,14 @@ public final class UserPayloads {
     private UserPayloads() {}
 
     public static Map<String, Object> fromProfile(UsersService.UserProfile profile) {
-        return fromProfile(profile, true);
+        return fromProfile(profile, true, false);
     }
 
     public static Map<String, Object> fromProfile(UsersService.UserProfile profile, boolean includeFollowerCounts) {
+        return fromProfile(profile, includeFollowerCounts, false);
+    }
+
+    public static Map<String, Object> fromProfile(UsersService.UserProfile profile, boolean includeFollowerCounts, boolean includePrivatePreferences) {
         Map<String, Object> map = new HashMap<>();
         map.put("id", profile.id());
         map.put("handle", profile.handle());
@@ -25,6 +29,9 @@ public final class UserPayloads {
         map.put("is_anonymous", profile.isAnonymous());
         map.put("show_follower_count", profile.showFollowerCount());
         map.put("message_permission", profile.messagePermission());
+        if (includePrivatePreferences) {
+            map.put("hide_anonymous_posts", profile.hideAnonymousPosts());
+        }
         map.put("company_id", profile.companyId());
         map.put("created_at", profile.createdAt());
         map.put("profile_image_url", profile.profileImageUrl());

@@ -39,7 +39,7 @@ public class UsersController {
         return switch (res.status()) {
             case BAD_REQUEST -> ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of("error", res.error()));
             case CONFLICT -> ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", res.error()));
-            case OK -> ResponseEntity.status(HttpStatus.CREATED).body(UserPayloads.fromProfile(res.profile()));
+            case OK -> ResponseEntity.status(HttpStatus.CREATED).body(UserPayloads.fromProfile(res.profile(), true, true));
         };
     }
 
@@ -83,7 +83,7 @@ public class UsersController {
             case CDN_NOT_CONFIGURED -> ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(Map.of(
                     "error", "cdn_not_configured"
             ));
-            case OK -> ResponseEntity.ok(UserPayloads.fromProfile(res.profile()));
+            case OK -> ResponseEntity.ok(UserPayloads.fromProfile(res.profile(), true, true));
             default -> ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         };
     }
@@ -107,7 +107,7 @@ public class UsersController {
                     "error", "community_not_verified",
                     "message", "You must be verified in this community"
             ));
-            case OK -> ResponseEntity.ok(UserPayloads.fromProfile(res.profile()));
+            case OK -> ResponseEntity.ok(UserPayloads.fromProfile(res.profile(), true, true));
             default -> ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         };
     }
@@ -131,7 +131,7 @@ public class UsersController {
                     "error", "invalid_specialization",
                     "message", "Specialization must be a major or department"
             ));
-            case OK -> ResponseEntity.ok(UserPayloads.fromProfile(res.profile()));
+            case OK -> ResponseEntity.ok(UserPayloads.fromProfile(res.profile(), true, true));
             default -> ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         };
     }
@@ -153,7 +153,7 @@ public class UsersController {
             case USERNAME_TAKEN -> ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
                     "error", "username_taken"
             ));
-            case OK -> ResponseEntity.ok(UserPayloads.fromProfile(res.profile()));
+            case OK -> ResponseEntity.ok(UserPayloads.fromProfile(res.profile(), true, true));
             default -> ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         };
     }

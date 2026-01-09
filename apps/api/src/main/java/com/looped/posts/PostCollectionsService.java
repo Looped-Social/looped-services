@@ -42,7 +42,8 @@ public class PostCollectionsService {
         var principal = principals.createForUser(actor.get().id);
 
         var cursorParts = decodeCursor(cursor);
-        var rows = likes.findLikedPosts(principal.id, cursorParts.timestamp, cursorParts.postId, limit);
+        var rows = likes.findLikedPosts(principal.id, cursorParts.timestamp, cursorParts.postId, limit,
+                actor.get().id, actor.get().hideAnonymousPosts);
         String next = null;
         if (rows.size() == limit) {
             var last = rows.get(rows.size() - 1);
@@ -59,7 +60,8 @@ public class PostCollectionsService {
         var principal = principals.createForUser(actor.get().id);
 
         var cursorParts = decodeCursor(cursor);
-        var rows = savedPosts.findSavedPosts(principal.id, cursorParts.timestamp, cursorParts.postId, limit);
+        var rows = savedPosts.findSavedPosts(principal.id, cursorParts.timestamp, cursorParts.postId, limit,
+                actor.get().id, actor.get().hideAnonymousPosts);
         String next = null;
         if (rows.size() == limit) {
             var last = rows.get(rows.size() - 1);
@@ -80,7 +82,8 @@ public class PostCollectionsService {
         var targetPrincipal = principals.createForUser(targetUserId);
 
         var cursorParts = decodeCursor(cursor);
-        var rows = savedPosts.findSavedPosts(targetPrincipal.id, cursorParts.timestamp, cursorParts.postId, limit);
+        var rows = savedPosts.findSavedPosts(targetPrincipal.id, cursorParts.timestamp, cursorParts.postId, limit,
+                actor.get().id, actor.get().hideAnonymousPosts);
         String next = null;
         if (rows.size() == limit) {
             var last = rows.get(rows.size() - 1);

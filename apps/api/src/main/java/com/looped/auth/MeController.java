@@ -48,7 +48,7 @@ public class MeController {
             return resp;
         }
         resp.put("provisioned", true);
-        resp.put("user", UserPayloads.fromProfile(profile.get()));
+        resp.put("user", UserPayloads.fromProfile(profile.get(), true, true));
         return resp;
     }
 }

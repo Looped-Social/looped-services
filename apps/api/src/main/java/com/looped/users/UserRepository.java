@@ -14,7 +14,7 @@ public class UserRepository {
     private final JdbcTemplate jdbcTemplate;
     private static final String BASE_COLUMNS = "id, firebase_uid, handle, email, company_id, first_name, last_name, " +
             "date_of_birth, display_name, bio, is_anonymous, show_follower_count, message_permission, profile_image_url, " +
-            "display_community_id, display_specialization_id, created_at, deleted_at, deleted_by";
+            "hide_anonymous_posts, display_community_id, display_specialization_id, created_at, deleted_at, deleted_by";
 
     public UserRepository(JdbcTemplate jdbcTemplate) {
         this.jdbcTemplate = jdbcTemplate;
@@ -39,6 +39,7 @@ public class UserRepository {
             row.showFollowerCount = rs.getBoolean("show_follower_count");
             row.messagePermission = rs.getString("message_permission");
             row.profileImageUrl = rs.getString("profile_image_url");
+            row.hideAnonymousPosts = rs.getBoolean("hide_anonymous_posts");
             long displayCommunity = rs.getLong("display_community_id");
             row.displayCommunityId = rs.wasNull() ? null : displayCommunity;
             long displaySpecialization = rs.getLong("display_specialization_id");
@@ -123,6 +124,13 @@ public class UserRepository {
         );
     }
 
+    public void updateHideAnonymousPosts(long userId, boolean hideAnonymousPosts) {
+        jdbcTemplate.update(
+                "UPDATE users SET hide_anonymous_posts = ? WHERE id = ?",
+                hideAnonymousPosts, userId
+        );
+    }
+
     public void updateDisplayCommunity(long userId, Long communityId) {
         jdbcTemplate.update(
                 "UPDATE users SET display_community_id = ? WHERE id = ?",
@@ -199,6 +207,76 @@ public class UserRepository {
                         "AND (created_at < ? OR (created_at = ? AND id < ?)) " +
                         "ORDER BY created_at DESC, id DESC LIMIT ?",
                 MAPPER, companyId, like, like, cursorTs, cursorTs, cursorId, limit
+        );
+    }
+
+    private static final RowMapper<ScoredUserRow> SCORED_MAPPER = new RowMapper<>() {
+        @Override
+        public ScoredUserRow mapRow(ResultSet rs, int rowNum) throws SQLException {
+            ScoredUserRow row = new ScoredUserRow();
+            row.user = MAPPER.mapRow(rs, rowNum);
+            row.score = rs.getLong("score");
+            return row;
+        }
+    };
+
+    public java.util.List<ScoredUserRow> searchCompanyUsersRanked(
+            long companyId,
+            String query,
+            String prefixQuery,
+            java.time.OffsetDateTime asOf,
+            Long cursorScore,
+            java.time.OffsetDateTime cursorTs,
+            Long cursorId,
+            int limit
+    ) {
+        String vector = "to_tsvector('simple', " +
+                "COALESCE(u.handle,'') || ' ' || COALESCE(u.display_name,'') || ' ' || COALESCE(u.first_name,'') || ' ' || COALESCE(u.last_name,''))";
+        String match = "(" + vector + " @@ q.q_web OR (q.q_prefix IS NOT NULL AND " + vector + " @@ q.q_prefix))";
+        String rank = "GREATEST(" +
+                "ts_rank_cd(" + vector + ", q.q_web), " +
+                "COALESCE(ts_rank_cd(" + vector + ", q.q_prefix), 0)" +
+                ")";
+
+        String exactHandle = "CASE WHEN LOWER(u.handle) = LOWER(?) THEN 2000000 ELSE 0 END";
+        String prefixHandle = "CASE WHEN LOWER(u.handle) LIKE LOWER(?) || '%' THEN 1000000 ELSE 0 END";
+        String prefixDisplay = "CASE WHEN LOWER(COALESCE(u.display_name,'')) LIKE LOWER(?) || '%' THEN 800000 ELSE 0 END";
+        String boost = "(" + exactHandle + " + " + prefixHandle + " + " + prefixDisplay + ")";
+
+        String recency = "LEAST(100000, (1.0 / (1.0 + EXTRACT(EPOCH FROM (?::timestamptz - u.created_at)) / 86400.0)) * 100000)";
+        String scoreExpr = "CAST((" + rank + " * 1000000 + " + boost + " + " + recency + ") AS BIGINT)";
+
+        String base =
+                "WITH q AS (" +
+                        "SELECT websearch_to_tsquery('simple', ?) AS q_web, " +
+                        "to_tsquery('simple', NULLIF(?, '')) AS q_prefix" +
+                        ") " +
+                        "SELECT " + BASE_COLUMNS + ", " + scoreExpr + " AS score " +
+                        "FROM users u CROSS JOIN q " +
+                        "WHERE u.company_id = ? AND u.deleted_at IS NULL AND " + match;
+
+        if (cursorScore == null || cursorTs == null || cursorId == null) {
+            return jdbcTemplate.query(
+                    "SELECT * FROM (" + base + ") s ORDER BY score DESC, created_at DESC, id DESC LIMIT ?",
+                    SCORED_MAPPER,
+                    query, prefixQuery,
+                    query, query, query,
+                    asOf,
+                    companyId,
+                    limit
+            );
+        }
+        return jdbcTemplate.query(
+                "SELECT * FROM (" + base + ") s " +
+                        "WHERE (score < ? OR (score = ? AND (created_at < ? OR (created_at = ? AND id < ?)))) " +
+                        "ORDER BY score DESC, created_at DESC, id DESC LIMIT ?",
+                SCORED_MAPPER,
+                query, prefixQuery,
+                query, query, query,
+                asOf,
+                companyId,
+                cursorScore, cursorScore, cursorTs, cursorTs, cursorId,
+                limit
         );
     }
 
@@ -475,11 +553,17 @@ public class UserRepository {
         public boolean showFollowerCount;
         public String messagePermission;
         public String profileImageUrl;
+        public boolean hideAnonymousPosts;
         public Long displayCommunityId;
         public Long displaySpecializationId;
         public OffsetDateTime createdAt;
         public OffsetDateTime deletedAt;
         public Long deletedBy;
+    }
+
+    public static class ScoredUserRow {
+        public UserRow user;
+        public long score;
     }
 
     public static class DisplayCommunityRow {

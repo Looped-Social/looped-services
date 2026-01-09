@@ -49,6 +49,68 @@ public class HashtagsRepository {
         );
     }
 
+    private static final RowMapper<ScoredHashtagRow> SCORED_MAPPER = new RowMapper<>() {
+        @Override
+        public ScoredHashtagRow mapRow(ResultSet rs, int rowNum) throws SQLException {
+            ScoredHashtagRow out = new ScoredHashtagRow();
+            HashtagRow row = MAPPER.mapRow(rs, rowNum);
+            out.hashtag = row;
+            out.score = rs.getLong("score");
+            return out;
+        }
+    };
+
+    public List<ScoredHashtagRow> searchRanked(long companyId, String query, String prefixQuery,
+                                               OffsetDateTime asOf, Long cursorScore, OffsetDateTime cursorTs, Long cursorId, int limit) {
+        String vector = "to_tsvector('simple', COALESCE(h.name,''))";
+        String match = "(" + vector + " @@ q.q_web OR (q.q_prefix IS NOT NULL AND " + vector + " @@ q.q_prefix))";
+        String rank = "GREATEST(" +
+                "ts_rank_cd(" + vector + ", q.q_web), " +
+                "COALESCE(ts_rank_cd(" + vector + ", q.q_prefix), 0)" +
+                ")";
+
+        String exact = "CASE WHEN LOWER(h.name) = LOWER(?) THEN 900000 ELSE 0 END";
+        String prefix = "CASE WHEN LOWER(h.name) LIKE LOWER(?) || '%' THEN 500000 ELSE 0 END";
+        String boost = "(" + exact + " + " + prefix + ")";
+
+        String popularity = "LEAST(200000, LN(1 + GREATEST(h.usage_count, 0)) * 70000)";
+        String recency = "LEAST(50000, (1.0 / (1.0 + EXTRACT(EPOCH FROM (t.as_of - h.created_at)) / 86400.0)) * 50000)";
+        String scoreExpr = "CAST((" + rank + " * 1000000 + " + boost + " + " + popularity + " + " + recency + ") AS BIGINT)";
+
+        String base =
+                "WITH q AS (" +
+                        "SELECT websearch_to_tsquery('simple', ?) AS q_web, " +
+                        "to_tsquery('simple', NULLIF(?, '')) AS q_prefix" +
+                        "), t AS (SELECT ?::timestamptz AS as_of) " +
+                        "SELECT id, company_id, name, usage_count, created_at, " + scoreExpr + " AS score " +
+                        "FROM hashtags h CROSS JOIN q CROSS JOIN t " +
+                        "WHERE h.company_id = ? AND " + match;
+
+        String order = " ORDER BY score DESC, created_at DESC, id DESC LIMIT ?";
+
+        if (cursorScore == null || cursorTs == null || cursorId == null) {
+            return jdbc.query(
+                    "SELECT * FROM (" + base + ") s" + order,
+                    SCORED_MAPPER,
+                    query, prefixQuery, asOf,
+                    query, query,
+                    companyId,
+                    limit
+            );
+        }
+        return jdbc.query(
+                "SELECT * FROM (" + base + ") s " +
+                        "WHERE (score < ? OR (score = ? AND (created_at < ? OR (created_at = ? AND id < ?)))) " +
+                        "ORDER BY score DESC, created_at DESC, id DESC LIMIT ?",
+                SCORED_MAPPER,
+                query, prefixQuery, asOf,
+                query, query,
+                companyId,
+                cursorScore, cursorScore, cursorTs, cursorTs, cursorId,
+                limit
+        );
+    }
+
     public long upsert(long companyId, String name) {
         Long id = jdbc.query(
                 "INSERT INTO hashtags(company_id, name, usage_count) VALUES (?,?,1) " +
@@ -69,5 +131,10 @@ public class HashtagsRepository {
         public String name;
         public int usageCount;
         public OffsetDateTime createdAt;
+    }
+
+    public static class ScoredHashtagRow {
+        public HashtagRow hashtag;
+        public long score;
     }
 }

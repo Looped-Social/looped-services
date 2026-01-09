@@ -198,7 +198,7 @@ public class AnonProfilesService {
         if (verified.status() != AnonProofService.Status.OK) return AnonPostListResult.invalidAnonProof();
 
         var cursorParts = decodeCursor(cursor);
-        var rows = likes.findLikedPosts(verified.actor().principalId(), cursorParts.timestamp, cursorParts.postId, limit);
+        var rows = likes.findLikedPosts(verified.actor().principalId(), cursorParts.timestamp, cursorParts.postId, limit, 0L, false);
         String next = null;
         if (rows.size() == limit) {
             var last = rows.get(rows.size() - 1);
@@ -216,7 +216,7 @@ public class AnonProfilesService {
         if (verified.status() != AnonProofService.Status.OK) return AnonPostListResult.invalidAnonProof();
 
         var cursorParts = decodeCursor(cursor);
-        var rows = savedPosts.findSavedPosts(verified.actor().principalId(), cursorParts.timestamp, cursorParts.postId, limit);
+        var rows = savedPosts.findSavedPosts(verified.actor().principalId(), cursorParts.timestamp, cursorParts.postId, limit, 0L, false);
         String next = null;
         if (rows.size() == limit) {
             var last = rows.get(rows.size() - 1);

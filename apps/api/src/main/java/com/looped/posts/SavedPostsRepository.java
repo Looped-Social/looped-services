@@ -19,6 +19,11 @@ public class SavedPostsRepository {
         this.jdbc = jdbc;
     }
 
+    private static String hideAnonymousFilter(boolean hideAnonymousPosts) {
+        if (!hideAnonymousPosts) return "";
+        return "AND (NOT (p.is_anon OR COALESCE(u.is_anonymous, false)) OR p.author_id = ?) ";
+    }
+
     public boolean insertIfAbsent(long principalId, long postId) {
         int rows = jdbc.update(
                 "INSERT INTO principal_saved_posts(saver_principal_id, post_id) VALUES (?,?) ON CONFLICT (saver_principal_id, post_id) DO NOTHING",
@@ -32,17 +37,25 @@ public class SavedPostsRepository {
         return rows > 0;
     }
 
-    public List<SavedPostRow> findSavedPosts(long principalId, OffsetDateTime cursorTs, Long cursorPostId, int limit) {
+    public List<SavedPostRow> findSavedPosts(long principalId, OffsetDateTime cursorTs, Long cursorPostId, int limit,
+                                             long viewerUserId, boolean hideAnonymousPosts) {
+        String filter = hideAnonymousFilter(hideAnonymousPosts);
         if (cursorTs == null || cursorPostId == null) {
             return jdbc.query(BASE_QUERY + " WHERE s.saver_principal_id=? AND p.removed_at IS NULL AND (p.author_id IS NULL OR u.id IS NOT NULL) " +
+                            filter +
                             "ORDER BY s.created_at DESC, p.id DESC LIMIT ?",
-                    MAPPER, principalId, limit);
+                    MAPPER,
+                    hideAnonymousPosts ? new Object[]{principalId, viewerUserId, limit} : new Object[]{principalId, limit});
         }
         return jdbc.query(BASE_QUERY +
                         " WHERE s.saver_principal_id=? AND p.removed_at IS NULL AND (p.author_id IS NULL OR u.id IS NOT NULL) " +
+                        filter +
                         "AND (s.created_at < ? OR (s.created_at = ? AND p.id < ?)) " +
                         "ORDER BY s.created_at DESC, p.id DESC LIMIT ?",
-                MAPPER, principalId, cursorTs, cursorTs, cursorPostId, limit);
+                MAPPER,
+                hideAnonymousPosts
+                        ? new Object[]{principalId, viewerUserId, cursorTs, cursorTs, cursorPostId, limit}
+                        : new Object[]{principalId, cursorTs, cursorTs, cursorPostId, limit});
     }
 
     public Set<Long> findSavedPostIds(long principalId, List<Long> postIds) {

@@ -13,6 +13,8 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.net.URLDecoder;
+import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
@@ -37,6 +39,7 @@ public class DiscoveryController {
             @RequestParam(value = "cursor", required = false) String cursor,
             @RequestParam(value = "limit", required = false, defaultValue = "20") int limit
     ) {
+        query = normalizeQueryParam(query);
         if (query == null || query.isBlank()) {
             return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of(
                     "error", "query_required",
@@ -75,6 +78,16 @@ public class DiscoveryController {
                 yield ResponseEntity.ok(body);
             }
         };
+    }
+
+    private static String normalizeQueryParam(String raw) {
+        if (raw == null) return null;
+        if (!raw.contains("%") && !raw.contains("+")) return raw;
+        try {
+            return URLDecoder.decode(raw, StandardCharsets.UTF_8);
+        } catch (IllegalArgumentException ignored) {
+            return raw;
+        }
     }
 
     @GetMapping("/communities/recommended")

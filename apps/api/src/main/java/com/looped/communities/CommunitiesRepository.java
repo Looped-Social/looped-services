@@ -9,6 +9,7 @@ import java.sql.SQLException;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 
 @Repository
@@ -57,6 +58,165 @@ public class CommunitiesRepository {
                         "AND (created_at < ? OR (created_at = ? AND id < ?)) " +
                         "ORDER BY created_at DESC, id DESC LIMIT ?",
                 MAPPER, like, like, cursorTs, cursorTs, cursorId, limit
+        );
+    }
+
+    private static final RowMapper<ScoredCommunityRow> SCORED_MAPPER = new RowMapper<>() {
+        @Override
+        public ScoredCommunityRow mapRow(ResultSet rs, int rowNum) throws SQLException {
+            ScoredCommunityRow out = new ScoredCommunityRow();
+            out.community = MAPPER.mapRow(rs, rowNum);
+            out.score = rs.getLong("score");
+            return out;
+        }
+    };
+
+    public List<ScoredCommunityRow> searchRanked(String query, String prefixQuery, OffsetDateTime asOf,
+                                                 Long cursorScore, OffsetDateTime cursorTs, Long cursorId, int limit) {
+        return searchRankedByKind(null, null, query, prefixQuery, asOf, cursorScore, cursorTs, cursorId, limit);
+    }
+
+    public List<ScoredCommunityRow> searchRankedByKind(String kind, String query, String prefixQuery, OffsetDateTime asOf,
+                                                       Long cursorScore, OffsetDateTime cursorTs, Long cursorId, int limit) {
+        return searchRankedByKind(kind, null, query, prefixQuery, asOf, cursorScore, cursorTs, cursorId, limit);
+    }
+
+    public List<ScoredCommunityRow> searchRankedByKindAndSpecializationType(String kind, String specializationType,
+                                                                            String query, String prefixQuery, OffsetDateTime asOf,
+                                                                            Long cursorScore, OffsetDateTime cursorTs, Long cursorId, int limit) {
+        return searchRankedByKind(kind, specializationType, query, prefixQuery, asOf, cursorScore, cursorTs, cursorId, limit);
+    }
+
+    public List<CommunityRow> searchByLikePopularity(String query, String kind, String specializationType, int limit) {
+        String q = query == null ? "" : query.trim();
+        String like = "%" + q.toLowerCase(Locale.ROOT) + "%";
+
+        String sql = "SELECT " + BASE_COLUMNS + " FROM communities c " +
+                "WHERE (LOWER(c.name) LIKE ? OR LOWER(COALESCE(c.description,'')) LIKE ?) ";
+        List<Object> args = new ArrayList<>();
+        args.add(like);
+        args.add(like);
+        if (kind != null && !kind.isBlank()) {
+            sql += "AND c.kind = ? ";
+            args.add(kind);
+        }
+        if (specializationType != null && !specializationType.isBlank()) {
+            sql += "AND c.specialization_type = ? ";
+            args.add(specializationType);
+        }
+        sql += "ORDER BY c.member_count DESC, c.created_at DESC, c.id DESC LIMIT ?";
+        args.add(limit);
+        return jdbc.query(sql, MAPPER, args.toArray());
+    }
+
+    private List<ScoredCommunityRow> searchRankedByKind(String kind, String specializationType,
+                                                        String query, String prefixQuery, OffsetDateTime asOf,
+                                                        Long cursorScore, OffsetDateTime cursorTs, Long cursorId, int limit) {
+        String vectorEn = "to_tsvector('english', COALESCE(c.name,'') || ' ' || COALESCE(c.description,''))";
+        String vectorSimple = "to_tsvector('simple', COALESCE(c.name,'') || ' ' || COALESCE(c.short_name,'') || ' ' || COALESCE(c.description,''))";
+        String ftsMatch = "(" + vectorEn + " @@ q.q_web OR (q.q_prefix IS NOT NULL AND " + vectorSimple + " @@ q.q_prefix))";
+        String likeMatch = "(LOWER(c.name) LIKE ? OR LOWER(COALESCE(c.description,'')) LIKE ?)";
+        String match = "(" + ftsMatch + " OR " + likeMatch + ")";
+        String rank = "GREATEST(" +
+                "ts_rank_cd(" + vectorEn + ", q.q_web), " +
+                "COALESCE(ts_rank_cd(" + vectorSimple + ", q.q_prefix), 0)" +
+                ")";
+
+        String exactName = "CASE WHEN LOWER(c.name) = LOWER(?) THEN 700000 ELSE 0 END";
+        String prefixName = "CASE WHEN LOWER(c.name) LIKE LOWER(?) || '%' THEN 400000 ELSE 0 END";
+        String prefixShort = "CASE WHEN c.short_name IS NOT NULL AND LOWER(c.short_name) LIKE LOWER(?) || '%' THEN 500000 ELSE 0 END";
+        String boost = "(" + exactName + " + " + prefixName + " + " + prefixShort + ")";
+
+        String popularity = "LEAST(200000, LN(1 + GREATEST(c.member_count, 0)) * 70000)";
+        String recency = "LEAST(100000, (1.0 / (1.0 + EXTRACT(EPOCH FROM (t.as_of - c.created_at)) / 86400.0)) * 100000)";
+        String scoreExpr = "CAST((" + rank + " * 1000000 + " + boost + " + " + popularity + " + " + recency + ") AS BIGINT)";
+
+        String base =
+                "WITH q AS (" +
+                        "SELECT websearch_to_tsquery('english', ?) AS q_web, " +
+                        "to_tsquery('simple', NULLIF(?, '')) AS q_prefix" +
+                        "), t AS (SELECT ?::timestamptz AS as_of) " +
+                        "SELECT " + BASE_COLUMNS + ", " + scoreExpr + " AS score " +
+                        "FROM communities c CROSS JOIN q CROSS JOIN t " +
+                        "WHERE " + match;
+
+        String like = "%" + (query == null ? "" : query.trim().toLowerCase(Locale.ROOT)) + "%";
+
+        if (kind != null && !kind.isBlank()) {
+            base += " AND c.kind = ? ";
+        }
+        if (specializationType != null && !specializationType.isBlank()) {
+            base += " AND c.specialization_type = ? ";
+        }
+
+        String order = " ORDER BY score DESC, created_at DESC, id DESC LIMIT ?";
+
+        if (cursorScore == null || cursorTs == null || cursorId == null) {
+            if (kind != null && !kind.isBlank() && specializationType != null && !specializationType.isBlank()) {
+                return jdbc.query(
+                        "SELECT * FROM (" + base + ") s" + order,
+                        SCORED_MAPPER,
+                        query, prefixQuery, asOf,
+                        query, query, query,
+                        like, like,
+                        kind, specializationType,
+                        limit
+                );
+            }
+            if (kind != null && !kind.isBlank()) {
+                return jdbc.query(
+                        "SELECT * FROM (" + base + ") s" + order,
+                        SCORED_MAPPER,
+                        query, prefixQuery, asOf,
+                        query, query, query,
+                        like, like,
+                        kind,
+                        limit
+                );
+            }
+            return jdbc.query(
+                    "SELECT * FROM (" + base + ") s" + order,
+                    SCORED_MAPPER,
+                    query, prefixQuery, asOf,
+                    query, query, query,
+                    like, like,
+                    limit
+            );
+        }
+
+        String page = " WHERE (score < ? OR (score = ? AND (created_at < ? OR (created_at = ? AND id < ?)))) ";
+        if (kind != null && !kind.isBlank() && specializationType != null && !specializationType.isBlank()) {
+            return jdbc.query(
+                    "SELECT * FROM (" + base + ") s" + page + order,
+                    SCORED_MAPPER,
+                    query, prefixQuery, asOf,
+                    query, query, query,
+                    like, like,
+                    kind, specializationType,
+                    cursorScore, cursorScore, cursorTs, cursorTs, cursorId,
+                    limit
+            );
+        }
+        if (kind != null && !kind.isBlank()) {
+            return jdbc.query(
+                    "SELECT * FROM (" + base + ") s" + page + order,
+                    SCORED_MAPPER,
+                    query, prefixQuery, asOf,
+                    query, query, query,
+                    like, like,
+                    kind,
+                    cursorScore, cursorScore, cursorTs, cursorTs, cursorId,
+                    limit
+            );
+        }
+        return jdbc.query(
+                "SELECT * FROM (" + base + ") s" + page + order,
+                SCORED_MAPPER,
+                query, prefixQuery, asOf,
+                query, query, query,
+                like, like,
+                cursorScore, cursorScore, cursorTs, cursorTs, cursorId,
+                limit
         );
     }
 
@@ -263,6 +423,11 @@ public class CommunitiesRepository {
         public OffsetDateTime createdAt;
         public Integer verificationTtlDays;
         public String shortName;
+    }
+
+    public static class ScoredCommunityRow {
+        public CommunityRow community;
+        public long score;
     }
 
     public static class RecommendedRow {

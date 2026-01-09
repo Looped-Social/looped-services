@@ -19,6 +19,11 @@ public class LikesRepository {
         this.jdbc = jdbc;
     }
 
+    private static String hideAnonymousFilter(boolean hideAnonymousPosts) {
+        if (!hideAnonymousPosts) return "";
+        return "AND (NOT (p.is_anon OR COALESCE(u.is_anonymous, false)) OR p.author_id = ?) ";
+    }
+
     public boolean insertIfAbsent(long principalId, long postId) {
         int rows = jdbc.update(
                 "INSERT INTO post_likes(liker_principal_id, post_id) VALUES (?,?) ON CONFLICT (liker_principal_id, post_id) DO NOTHING",
@@ -43,17 +48,25 @@ public class LikesRepository {
         jdbc.update("UPDATE posts SET likes_count = GREATEST(likes_count - 1, 0) WHERE id=?", postId);
     }
 
-    public List<LikedPostRow> findLikedPosts(long principalId, OffsetDateTime cursorTs, Long cursorPostId, int limit) {
+    public List<LikedPostRow> findLikedPosts(long principalId, OffsetDateTime cursorTs, Long cursorPostId, int limit,
+                                             long viewerUserId, boolean hideAnonymousPosts) {
+        String filter = hideAnonymousFilter(hideAnonymousPosts);
         if (cursorTs == null || cursorPostId == null) {
             return jdbc.query(BASE_QUERY + " WHERE l.liker_principal_id=? AND p.removed_at IS NULL AND (p.author_id IS NULL OR u.id IS NOT NULL) " +
+                            filter +
                             "ORDER BY l.created_at ASC, p.id ASC LIMIT ?",
-                    MAPPER, principalId, limit);
+                    MAPPER,
+                    hideAnonymousPosts ? new Object[]{principalId, viewerUserId, limit} : new Object[]{principalId, limit});
         }
         return jdbc.query(BASE_QUERY +
                         " WHERE l.liker_principal_id=? AND p.removed_at IS NULL AND (p.author_id IS NULL OR u.id IS NOT NULL) " +
+                        filter +
                         "AND (l.created_at > ? OR (l.created_at = ? AND p.id > ?)) " +
                         "ORDER BY l.created_at ASC, p.id ASC LIMIT ?",
-                MAPPER, principalId, cursorTs, cursorTs, cursorPostId, limit);
+                MAPPER,
+                hideAnonymousPosts
+                        ? new Object[]{principalId, viewerUserId, cursorTs, cursorTs, cursorPostId, limit}
+                        : new Object[]{principalId, cursorTs, cursorTs, cursorPostId, limit});
     }
 
     public Set<Long> findLikedPostIds(long principalId, List<Long> postIds) {

@@ -54,7 +54,7 @@ public class UserAliasController {
             case CDN_NOT_CONFIGURED -> ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(Map.of(
                     "error", "cdn_not_configured"
             ));
-            case OK -> ResponseEntity.ok(UserPayloads.fromProfile(res.profile()));
+            case OK -> ResponseEntity.ok(UserPayloads.fromProfile(res.profile(), true, true));
             default -> ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         };
     }

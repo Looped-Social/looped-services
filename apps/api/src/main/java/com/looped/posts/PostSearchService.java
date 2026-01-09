@@ -25,6 +25,8 @@ public class PostSearchService {
     public SearchResult search(String firebaseUid, String query, String cursor, int limit) {
         var actor = users.findByFirebaseUid(firebaseUid);
         if (actor.isEmpty() || actor.get().companyId == null) return SearchResult.userNotProvisioned();
+        long viewerUserId = actor.get().id;
+        boolean hideAnonymousPosts = actor.get().hideAnonymousPosts;
 
         RankPagination.Cursor rankedCursor = null;
         if (cursor != null && !cursor.isBlank()) {
@@ -46,7 +48,9 @@ public class PostSearchService {
                 score,
                 cTs,
                 cId,
-                limit
+                limit,
+                viewerUserId,
+                hideAnonymousPosts
         );
 
         var principal = principals.createForUser(actor.get().id);
@@ -67,4 +71,3 @@ public class PostSearchService {
         static SearchResult userNotProvisioned() { return new SearchResult(Status.USER_NOT_PROVISIONED, List.of(), null); }
     }
 }
-
