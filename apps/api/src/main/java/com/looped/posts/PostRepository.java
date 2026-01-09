@@ -360,6 +360,72 @@ public class PostRepository {
         return jdbc.query(base, TRENDING_MAPPER, params);
     }
 
+    public java.util.List<ScoredPostRow> searchCompanyPosts(long companyId, String query, String prefixQuery, java.time.OffsetDateTime asOf,
+                                                           Long cursorScore, java.time.OffsetDateTime cursorTs, Long cursorId, int limit) {
+        String vectorEn = "to_tsvector('english', COALESCE(p.content, ''))";
+        String vectorSimple = "to_tsvector('simple', COALESCE(p.content, ''))";
+        String match = "(" + vectorEn + " @@ q.q_web OR (q.q_prefix IS NOT NULL AND " + vectorSimple + " @@ q.q_prefix))";
+        String rank = "GREATEST(" +
+                "ts_rank_cd(" + vectorEn + ", q.q_web), " +
+                "COALESCE(ts_rank_cd(" + vectorSimple + ", q.q_prefix), 0)" +
+                ")";
+        String engagement = "LEAST(200000, LN(1 + (p.likes_count * 2 + p.comments_count + p.share_count)) * 50000)";
+        String recency = "LEAST(150000, (1.0 / (1.0 + EXTRACT(EPOCH FROM (?::timestamptz - p.created_at)) / 86400.0)) * 150000)";
+        String scoreExpr = "CAST((" + rank + " * 1000000 + " + engagement + " + " + recency + ") AS BIGINT)";
+
+        String base =
+                "WITH q AS (" +
+                        "SELECT websearch_to_tsquery('english', ?) AS q_web, " +
+                        "to_tsquery('simple', NULLIF(?, '')) AS q_prefix" +
+                        ") " +
+                        "SELECT p.id, p.author_id, p.author_principal_id, p.is_anon, p.anon_profile_id, p.anon_company_id, " +
+                        "p.company_id, p.community_id, c.name AS community_name, c.kind AS community_kind, " +
+                        "p.content, p.media_asset_id, p.likes_count, p.comments_count, p.share_count, p.created_at, " +
+                        "p.removed_at, p.removed_by, p.removed_reason, " +
+                        "COALESCE(u.handle, ap.handle) AS author_handle, " +
+                        "u.display_name AS author_display_name, " +
+                        "u.first_name AS author_first_name, " +
+                        "u.last_name AS author_last_name, " +
+                        "u.profile_image_url AS author_profile_image_url, " +
+                        "dc.id AS author_display_community_id, " +
+                        "dc.name AS author_display_community_name, " +
+                        "dc.kind AS author_display_community_kind, " +
+                        "dc.specialization_type AS author_display_community_specialization_type, " +
+                        "ds.id AS author_display_specialization_id, " +
+                        "ds.name AS author_display_specialization_name, " +
+                        "ds.kind AS author_display_specialization_kind, " +
+                        "ds.specialization_type AS author_display_specialization_type, " +
+                        "CASE WHEN p.is_anon THEN true ELSE COALESCE(u.is_anonymous, false) END AS author_is_anonymous, " +
+                        scoreExpr + " AS score " +
+                        "FROM posts p " +
+                        "LEFT JOIN communities c ON c.id = p.community_id " +
+                        "LEFT JOIN users u ON u.id = p.author_id AND u.deleted_at IS NULL " +
+                        "LEFT JOIN community_verifications cv ON cv.user_id = u.id AND cv.community_id = u.display_community_id " +
+                        "AND cv.verified = true AND (cv.expires_at IS NULL OR cv.expires_at > now()) " +
+                        "LEFT JOIN communities dc ON dc.id = cv.community_id " +
+                        "LEFT JOIN communities ds ON ds.id = u.display_specialization_id " +
+                        "AND ds.kind = 'specialization' AND ds.specialization_type IN ('major','department') " +
+                        "LEFT JOIN anonymous_profiles ap ON ap.id = p.anon_profile_id " +
+                        "CROSS JOIN q " +
+                        "WHERE p.company_id = ? " +
+                        "AND p.removed_at IS NULL " +
+                        "AND (p.author_id IS NULL OR u.id IS NOT NULL) " +
+                        "AND " + match;
+
+        if (cursorScore == null || cursorTs == null || cursorId == null) {
+            return jdbc.query(
+                    "SELECT * FROM (" + base + ") s ORDER BY score DESC, created_at DESC, id DESC LIMIT ?",
+                    SCORED_MAPPER, query, prefixQuery, asOf, companyId, limit
+            );
+        }
+        return jdbc.query(
+                "SELECT * FROM (" + base + ") s " +
+                        "WHERE (score < ? OR (score = ? AND (created_at < ? OR (created_at = ? AND id < ?)))) " +
+                        "ORDER BY score DESC, created_at DESC, id DESC LIMIT ?",
+                SCORED_MAPPER, query, prefixQuery, asOf, companyId, cursorScore, cursorScore, cursorTs, cursorTs, cursorId, limit
+        );
+    }
+
     public void incrementCommentsCount(long postId) {
         jdbc.update("UPDATE posts SET comments_count = comments_count + 1 WHERE id = ?", postId);
     }
@@ -430,10 +496,64 @@ public class PostRepository {
         public boolean isSaved;
     }
 
+    public static class ScoredPostRow extends PostRow {
+        public long score;
+    }
+
     public static class TrendingRow extends PostRow {
         public String communityName;
         public String communityKind;
     }
+
+    private static final RowMapper<ScoredPostRow> SCORED_MAPPER = new RowMapper<>() {
+        @Override
+        public ScoredPostRow mapRow(ResultSet rs, int rowNum) throws SQLException {
+            ScoredPostRow p = new ScoredPostRow();
+            p.id = rs.getLong("id");
+            long authorId = rs.getLong("author_id");
+            p.authorId = rs.wasNull() ? null : authorId;
+            p.authorPrincipalId = rs.getLong("author_principal_id");
+            p.isAnon = rs.getBoolean("is_anon");
+            long anonProfile = rs.getLong("anon_profile_id");
+            p.anonProfileId = rs.wasNull() ? null : anonProfile;
+            long anonCompany = rs.getLong("anon_company_id");
+            p.anonCompanyId = rs.wasNull() ? null : anonCompany;
+            p.companyId = rs.getLong("company_id");
+            long community = rs.getLong("community_id");
+            p.communityId = rs.wasNull() ? null : community;
+            p.communityName = rs.getString("community_name");
+            p.communityKind = rs.getString("community_kind");
+            p.content = rs.getString("content");
+            long media = rs.getLong("media_asset_id");
+            p.mediaAssetId = rs.wasNull() ? null : media;
+            p.likesCount = rs.getInt("likes_count");
+            p.commentsCount = rs.getInt("comments_count");
+            p.shareCount = rs.getInt("share_count");
+            p.createdAt = rs.getObject("created_at", OffsetDateTime.class);
+            p.removedAt = rs.getObject("removed_at", OffsetDateTime.class);
+            long removedBy = rs.getLong("removed_by");
+            p.removedBy = rs.wasNull() ? null : removedBy;
+            p.removedReason = rs.getString("removed_reason");
+            p.authorHandle = rs.getString("author_handle");
+            p.authorDisplayName = rs.getString("author_display_name");
+            p.authorFirstName = rs.getString("author_first_name");
+            p.authorLastName = rs.getString("author_last_name");
+            p.authorProfileImageUrl = rs.getString("author_profile_image_url");
+            long displayCommunityId = rs.getLong("author_display_community_id");
+            p.authorDisplayCommunityId = rs.wasNull() ? null : displayCommunityId;
+            p.authorDisplayCommunityName = rs.getString("author_display_community_name");
+            p.authorDisplayCommunityKind = rs.getString("author_display_community_kind");
+            p.authorDisplayCommunitySpecializationType = rs.getString("author_display_community_specialization_type");
+            long displaySpecializationId = rs.getLong("author_display_specialization_id");
+            p.authorDisplaySpecializationId = rs.wasNull() ? null : displaySpecializationId;
+            p.authorDisplaySpecializationName = rs.getString("author_display_specialization_name");
+            p.authorDisplaySpecializationKind = rs.getString("author_display_specialization_kind");
+            p.authorDisplaySpecializationType = rs.getString("author_display_specialization_type");
+            p.authorIsAnonymous = rs.getBoolean("author_is_anonymous");
+            p.score = rs.getLong("score");
+            return p;
+        }
+    };
 
     private static final RowMapper<TrendingRow> TRENDING_MAPPER = new RowMapper<>() {
         @Override

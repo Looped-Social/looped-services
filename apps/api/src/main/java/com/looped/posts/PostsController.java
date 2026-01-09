@@ -9,15 +9,54 @@ import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 @RestController
 @RequestMapping("/v1/posts")
 public class PostsController {
     private final PostsService postsService;
+    private final PostSearchService postSearchService;
 
-    public PostsController(PostsService postsService) {
+    public PostsController(PostsService postsService, PostSearchService postSearchService) {
         this.postsService = postsService;
+        this.postSearchService = postSearchService;
+    }
+
+    @GetMapping("/search")
+    public ResponseEntity<?> search(
+            @AuthenticationPrincipal Jwt jwt,
+            @RequestParam("query") String query,
+            @RequestParam(value = "cursor", required = false) String cursor,
+            @RequestParam(value = "limit", required = false, defaultValue = "20") int limit
+    ) {
+        if (query == null || query.isBlank()) {
+            return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of(
+                    "error", "query_required",
+                    "message", "query must be provided"
+            ));
+        }
+        int lim = Math.max(1, Math.min(limit, 100));
+        var res = postSearchService.search(jwt.getSubject(), query, cursor, lim);
+        return switch (res.status()) {
+            case USER_NOT_PROVISIONED -> ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
+                    "error", "user_not_provisioned"
+            ));
+            case OK -> {
+                List<Map<String, Object>> items = res.posts().stream()
+                        .map(PostPayloads::search)
+                        .toList();
+                Map<String, Object> body = new HashMap<>();
+                body.put("items", items);
+                if (res.nextCursor() != null) {
+                    body.put("next_cursor", res.nextCursor());
+                    body.put("nextCursor", res.nextCursor());
+                }
+                yield ResponseEntity.ok(body);
+            }
+            default -> ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        };
     }
 
     @PostMapping

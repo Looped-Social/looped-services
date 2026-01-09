@@ -4,6 +4,7 @@ import com.looped.posts.PostPayloads;
 import com.looped.comments.CommentsService;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.Size;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -61,7 +62,7 @@ public class UsersController {
     ) {
         boolean anonymous = body.isAnonymous() != null && body.isAnonymous();
         var res = service.updateProfile(jwt.getSubject(), body.displayName(), body.bio(), anonymous,
-                body.showFollowerCount(), body.messagePermission());
+                body.showFollowerCount(), body.messagePermission(), body.profileMediaAssetId());
         return switch (res.status()) {
             case USER_NOT_PROVISIONED -> ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
                     "error", "user_not_provisioned",
@@ -69,6 +70,18 @@ public class UsersController {
             ));
             case INVALID_MESSAGE_PERMISSION -> ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of(
                     "error", "invalid_message_permission"
+            ));
+            case MEDIA_ASSET_NOT_FOUND -> ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of(
+                    "error", "media_asset_not_found"
+            ));
+            case MEDIA_ASSET_FORBIDDEN -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
+                    "error", "media_asset_forbidden"
+            ));
+            case INVALID_PROFILE_IMAGE -> ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of(
+                    "error", "invalid_profile_image"
+            ));
+            case CDN_NOT_CONFIGURED -> ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(Map.of(
+                    "error", "cdn_not_configured"
             ));
             case OK -> ResponseEntity.ok(UserPayloads.fromProfile(res.profile()));
             default -> ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
@@ -422,7 +435,8 @@ public class UsersController {
             @Size(max = 500) String bio,
             @NotNull Boolean isAnonymous,
             Boolean showFollowerCount,
-            String messagePermission
+            String messagePermission,
+            @Positive Long profileMediaAssetId
     ) {}
 
     public record UpdateDisplayCommunityRequest(Long communityId) {}

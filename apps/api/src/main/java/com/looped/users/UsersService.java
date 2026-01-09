@@ -5,6 +5,7 @@ import com.looped.comments.CommentsRepository;
 import com.looped.companies.CompanyRepository;
 import com.looped.communities.CommunitiesRepository;
 import com.looped.communities.CommunityVerificationsRepository;
+import com.looped.media.MediaRepository;
 import com.looped.posts.PostRepository;
 import com.looped.posts.PostStateService;
 import com.looped.principals.PrincipalRepository;
@@ -31,10 +32,12 @@ public class UsersService {
     private final CompanyRepository companies;
     private final CommunitiesRepository communities;
     private final CommunityVerificationsRepository communityVerifications;
+    private final MediaRepository media;
     private final FirebaseAdminService firebaseAdmin;
     private final int deactivatedRetentionDays;
     private final int usernameTombstoneDays;
     private final String defaultCompanyDomain;
+    private final String cloudfrontDomain;
 
     public UsersService(UserRepository users,
                         VerificationRepository verifications,
@@ -45,10 +48,12 @@ public class UsersService {
                         CompanyRepository companies,
                         CommunitiesRepository communities,
                         CommunityVerificationsRepository communityVerifications,
+                        MediaRepository media,
                         FirebaseAdminService firebaseAdmin,
                         @Value("${retention.deactivated-days:90}") int deactivatedRetentionDays,
                         @Value("${retention.username-tombstone-days:14}") int usernameTombstoneDays,
-                        @Value("${onboarding.default-company-domain:looped.global}") String defaultCompanyDomain) {
+                        @Value("${onboarding.default-company-domain:looped.global}") String defaultCompanyDomain,
+                        @Value("${cloudfront.domain:}") String cloudfrontDomain) {
         this.users = users;
         this.verifications = verifications;
         this.posts = posts;
@@ -58,10 +63,12 @@ public class UsersService {
         this.companies = companies;
         this.communities = communities;
         this.communityVerifications = communityVerifications;
+        this.media = media;
         this.firebaseAdmin = firebaseAdmin;
         this.deactivatedRetentionDays = Math.max(1, deactivatedRetentionDays);
         this.usernameTombstoneDays = Math.max(1, usernameTombstoneDays);
         this.defaultCompanyDomain = defaultCompanyDomain == null ? "" : defaultCompanyDomain.trim().toLowerCase(Locale.ROOT);
+        this.cloudfrontDomain = cloudfrontDomain == null ? "" : cloudfrontDomain.trim();
     }
 
     public ProfileResult profile(String firebaseUid, long targetUserId) {
@@ -106,14 +113,35 @@ public class UsersService {
     }
 
     public UpdateProfileResult updateProfile(String firebaseUid, String displayName, String bio, boolean isAnonymous,
-                                             Boolean showFollowerCount, String messagePermission) {
+                                             Boolean showFollowerCount, String messagePermission, Long profileMediaAssetId) {
         var actor = requireProvisionedUser(firebaseUid);
         if (actor.isEmpty()) return UpdateProfileResult.userNotProvisioned();
         String normalizedPermission = normalizeMessagePermission(messagePermission);
         if (messagePermission != null && normalizedPermission == null) {
             return UpdateProfileResult.invalidMessagePermission();
         }
-        users.updateProfile(actor.get().id, displayName, bio, isAnonymous, showFollowerCount, normalizedPermission);
+
+        String profileImageUrl = null;
+        if (profileMediaAssetId != null) {
+            if (cloudfrontDomain.isBlank()) {
+                return UpdateProfileResult.cdnNotConfigured();
+            }
+            var mediaRow = media.findById(profileMediaAssetId);
+            if (mediaRow.isEmpty()) {
+                return UpdateProfileResult.mediaAssetNotFound();
+            }
+            var asset = mediaRow.get();
+            if (asset.ownerId == null || asset.ownerId.longValue() != actor.get().id) {
+                return UpdateProfileResult.mediaAssetForbidden();
+            }
+            String mime = asset.mimeType == null ? "" : asset.mimeType.trim().toLowerCase(Locale.ROOT);
+            if (!mime.equals("image/jpeg") && !mime.equals("image/png") && !mime.equals("image/webp")) {
+                return UpdateProfileResult.invalidProfileImage();
+            }
+            profileImageUrl = "https://" + cloudfrontDomain + "/" + asset.s3Key;
+        }
+
+        users.updateProfile(actor.get().id, displayName, bio, isAnonymous, showFollowerCount, normalizedPermission, profileImageUrl);
         var updated = users.findById(actor.get().id).orElse(actor.get());
         var verification = verifications.findByUserId(actor.get().id).orElse(null);
         return UpdateProfileResult.ok(buildProfile(updated, verification));
@@ -448,7 +476,17 @@ public class UsersService {
         return normalized;
     }
 
-    public enum Status { OK, USER_NOT_PROVISIONED, NOT_FOUND, FORBIDDEN, INVALID_MESSAGE_PERMISSION }
+    public enum Status {
+        OK,
+        USER_NOT_PROVISIONED,
+        NOT_FOUND,
+        FORBIDDEN,
+        INVALID_MESSAGE_PERMISSION,
+        MEDIA_ASSET_NOT_FOUND,
+        MEDIA_ASSET_FORBIDDEN,
+        INVALID_PROFILE_IMAGE,
+        CDN_NOT_CONFIGURED
+    }
 
     public record ProfileResult(Status status, UserProfile profile, boolean includeFollowerCounts) {
         static ProfileResult ok(UserProfile profile, boolean includeFollowerCounts) {
@@ -463,6 +501,10 @@ public class UsersService {
         static UpdateProfileResult ok(UserProfile profile) { return new UpdateProfileResult(Status.OK, profile); }
         static UpdateProfileResult userNotProvisioned() { return new UpdateProfileResult(Status.USER_NOT_PROVISIONED, null); }
         static UpdateProfileResult invalidMessagePermission() { return new UpdateProfileResult(Status.INVALID_MESSAGE_PERMISSION, null); }
+        static UpdateProfileResult mediaAssetNotFound() { return new UpdateProfileResult(Status.MEDIA_ASSET_NOT_FOUND, null); }
+        static UpdateProfileResult mediaAssetForbidden() { return new UpdateProfileResult(Status.MEDIA_ASSET_FORBIDDEN, null); }
+        static UpdateProfileResult invalidProfileImage() { return new UpdateProfileResult(Status.INVALID_PROFILE_IMAGE, null); }
+        static UpdateProfileResult cdnNotConfigured() { return new UpdateProfileResult(Status.CDN_NOT_CONFIGURED, null); }
     }
 
     public enum UpdateIdentityStatus { OK, USER_NOT_PROVISIONED, INVALID_USERNAME, USERNAME_TAKEN, CONFLICT }

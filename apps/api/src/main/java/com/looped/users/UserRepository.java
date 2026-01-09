@@ -113,12 +113,13 @@ public class UserRepository {
     }
 
     public void updateProfile(long userId, String displayName, String bio, boolean isAnonymous,
-                              Boolean showFollowerCount, String messagePermission) {
+                              Boolean showFollowerCount, String messagePermission, String profileImageUrl) {
         jdbcTemplate.update(
                 "UPDATE users SET display_name = ?, bio = ?, is_anonymous = ?, " +
                         "show_follower_count = COALESCE(?, show_follower_count), " +
-                        "message_permission = COALESCE(?, message_permission) WHERE id = ?",
-                displayName, bio, isAnonymous, showFollowerCount, messagePermission, userId
+                        "message_permission = COALESCE(?, message_permission), " +
+                        "profile_image_url = COALESCE(?, profile_image_url) WHERE id = ?",
+                displayName, bio, isAnonymous, showFollowerCount, messagePermission, profileImageUrl, userId
         );
     }
 

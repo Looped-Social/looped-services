@@ -80,6 +80,8 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.GET, "/v1/users/*/replies").permitAll()
                 .requestMatchers(HttpMethod.POST, "/v1/feedback").permitAll()
                 .requestMatchers("/anon/register", "/anon/revoke").permitAll()
+                .requestMatchers(HttpMethod.PUT, "/users/me").authenticated()
+                .requestMatchers(HttpMethod.POST, "/users/verify-employment").authenticated()
                 .requestMatchers("/v1/**", "/anon/**").authenticated()
                 .anyRequest().permitAll()
             )

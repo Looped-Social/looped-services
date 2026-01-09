@@ -59,6 +59,12 @@ public final class PostPayloads {
         return out;
     }
 
+    public static Map<String, Object> search(PostRepository.PostRow row) {
+        Map<String, Object> out = from(row);
+        out.put("title", titleFromContent(row.content));
+        return out;
+    }
+
     public static Map<String, Object> fromSaved(PostRepository.PostRow row, boolean isSaved) {
         Map<String, Object> out = from(row);
         out.put("is_saved", isSaved);
