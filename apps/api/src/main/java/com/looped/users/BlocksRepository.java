@@ -27,4 +27,15 @@ public class BlocksRepository {
         );
         return rows > 0;
     }
+
+    public boolean existsEitherDirection(long principalA, long principalB) {
+        Integer count = jdbc.queryForObject(
+                "SELECT COUNT(1) FROM principal_blocks " +
+                        "WHERE (blocker_principal_id=? AND blocked_principal_id=?) " +
+                        "OR (blocker_principal_id=? AND blocked_principal_id=?)",
+                Integer.class,
+                principalA, principalB, principalB, principalA
+        );
+        return count != null && count > 0;
+    }
 }

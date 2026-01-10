@@ -1,5 +1,6 @@
 package com.looped.users;
 
+import com.looped.anon.AnonProofService;
 import com.looped.principals.PrincipalProfilesRepository;
 import com.looped.principals.PrincipalRepository;
 import com.looped.shared.Pagination;
@@ -13,44 +14,71 @@ public class BlocksService {
     private final UserRepository users;
     private final PrincipalRepository principals;
     private final PrincipalProfilesRepository profiles;
+    private final AnonProofService anonProofs;
 
     public BlocksService(BlocksRepository blocks,
                          UserRepository users,
                          PrincipalRepository principals,
-                         PrincipalProfilesRepository profiles) {
+                         PrincipalProfilesRepository profiles,
+                         AnonProofService anonProofs) {
         this.blocks = blocks;
         this.users = users;
         this.principals = principals;
         this.profiles = profiles;
+        this.anonProofs = anonProofs;
     }
 
-    public BlockResult block(String firebaseUid, long targetUserId) {
-        var actor = users.findByFirebaseUid(firebaseUid);
-        if (actor.isEmpty()) return BlockResult.userNotProvisioned();
-
+    public BlockResult blockUser(String firebaseUid, long targetUserId, AnonProofService.AnonActionProof anonProof) {
         var target = users.findById(targetUserId);
         if (target.isEmpty()) return BlockResult.notFound();
 
-        var actorPrincipal = principals.createForUser(actor.get().id);
         var targetPrincipal = principals.createForUser(targetUserId);
 
-        if (actorPrincipal.id == targetPrincipal.id) return BlockResult.invalidTarget();
-        boolean created = blocks.insertIfAbsent(actorPrincipal.id, targetPrincipal.id);
+        long actorPrincipalId = resolveActorPrincipalId(firebaseUid, anonProof, "block", targetPrincipal.id);
+        if (actorPrincipalId == 0) return BlockResult.userNotProvisioned();
+        if (actorPrincipalId == -1) return BlockResult.invalidSignature();
+
+        if (actorPrincipalId == targetPrincipal.id) return BlockResult.invalidTarget();
+        boolean created = blocks.insertIfAbsent(actorPrincipalId, targetPrincipal.id);
         return BlockResult.ok(true, created);
     }
 
-    public BlockResult unblock(String firebaseUid, long targetUserId) {
-        var actor = users.findByFirebaseUid(firebaseUid);
-        if (actor.isEmpty()) return BlockResult.userNotProvisioned();
-
+    public BlockResult unblockUser(String firebaseUid, long targetUserId, AnonProofService.AnonActionProof anonProof) {
         var target = users.findById(targetUserId);
         if (target.isEmpty()) return BlockResult.notFound();
 
-        var actorPrincipal = principals.createForUser(actor.get().id);
         var targetPrincipal = principals.createForUser(targetUserId);
 
-        if (actorPrincipal.id == targetPrincipal.id) return BlockResult.invalidTarget();
-        boolean deleted = blocks.delete(actorPrincipal.id, targetPrincipal.id);
+        long actorPrincipalId = resolveActorPrincipalId(firebaseUid, anonProof, "unblock", targetPrincipal.id);
+        if (actorPrincipalId == 0) return BlockResult.userNotProvisioned();
+        if (actorPrincipalId == -1) return BlockResult.invalidSignature();
+
+        if (actorPrincipalId == targetPrincipal.id) return BlockResult.invalidTarget();
+        boolean deleted = blocks.delete(actorPrincipalId, targetPrincipal.id);
+        return BlockResult.ok(false, deleted);
+    }
+
+    public BlockResult blockPrincipal(String firebaseUid, long targetPrincipalId, AnonProofService.AnonActionProof anonProof) {
+        if (principals.findById(targetPrincipalId).isEmpty()) return BlockResult.notFound();
+
+        long actorPrincipalId = resolveActorPrincipalId(firebaseUid, anonProof, "block", targetPrincipalId);
+        if (actorPrincipalId == 0) return BlockResult.userNotProvisioned();
+        if (actorPrincipalId == -1) return BlockResult.invalidSignature();
+
+        if (actorPrincipalId == targetPrincipalId) return BlockResult.invalidTarget();
+        boolean created = blocks.insertIfAbsent(actorPrincipalId, targetPrincipalId);
+        return BlockResult.ok(true, created);
+    }
+
+    public BlockResult unblockPrincipal(String firebaseUid, long targetPrincipalId, AnonProofService.AnonActionProof anonProof) {
+        if (principals.findById(targetPrincipalId).isEmpty()) return BlockResult.notFound();
+
+        long actorPrincipalId = resolveActorPrincipalId(firebaseUid, anonProof, "unblock", targetPrincipalId);
+        if (actorPrincipalId == 0) return BlockResult.userNotProvisioned();
+        if (actorPrincipalId == -1) return BlockResult.invalidSignature();
+
+        if (actorPrincipalId == targetPrincipalId) return BlockResult.invalidTarget();
+        boolean deleted = blocks.delete(actorPrincipalId, targetPrincipalId);
         return BlockResult.ok(false, deleted);
     }
 
@@ -84,13 +112,25 @@ public class BlocksService {
 
     private record CursorParts(OffsetDateTime timestamp, Long principalId) {}
 
-    public enum Status { OK, USER_NOT_PROVISIONED, NOT_FOUND, INVALID_TARGET }
+    private long resolveActorPrincipalId(String firebaseUid, AnonProofService.AnonActionProof anonProof, String action, long targetPrincipalId) {
+        if (anonProof != null && anonProof.anonProfileId() != null) {
+            var verified = anonProofs.verifyAction(anonProof, action, targetPrincipalId);
+            return verified.status() == AnonProofService.Status.OK ? verified.actor().principalId() : -1;
+        }
+        if (firebaseUid == null) return 0;
+        var actor = users.findByFirebaseUid(firebaseUid);
+        if (actor.isEmpty()) return 0;
+        return principals.createForUser(actor.get().id).id;
+    }
+
+    public enum Status { OK, USER_NOT_PROVISIONED, NOT_FOUND, INVALID_TARGET, INVALID_SIGNATURE }
 
     public record BlockResult(Status status, boolean blocked, boolean changed) {
         static BlockResult ok(boolean blocked, boolean changed) { return new BlockResult(Status.OK, blocked, changed); }
         static BlockResult userNotProvisioned() { return new BlockResult(Status.USER_NOT_PROVISIONED, false, false); }
         static BlockResult notFound() { return new BlockResult(Status.NOT_FOUND, false, false); }
         static BlockResult invalidTarget() { return new BlockResult(Status.INVALID_TARGET, false, false); }
+        static BlockResult invalidSignature() { return new BlockResult(Status.INVALID_SIGNATURE, false, false); }
     }
 
     public record ListResult(Status status, java.util.List<PrincipalProfilesRepository.PrincipalProfileRow> users, String nextCursor) {

@@ -38,8 +38,16 @@
 - **Blocks**
   - `GET /v1/users/blocked?cursor=&limit=` → `{ items: [{ principal_id, id, handle, display_name, profile_image_url, company_id, is_anonymous }], next_cursor }`
   - `POST /v1/users/{id}/block` → `{ user_id, blocked: true }` (201 when created, 200 when already blocked)
+    - **JWT mode**: requires `Authorization: Bearer ...`
+    - **Anon mode**: omit `Authorization`, send body `{ "asAnon": true, "anonProfileId": <int>, "anonCert": "<b64>", "anonCertKid": "<kid>", "anonSig": "<b64>" }`
   - `DELETE /v1/users/{id}/block` → `{ user_id, blocked: false }`
-  - Errors: `409 user_not_provisioned`, `404 not_found`, `422 invalid_target` (self-block)
+    - **JWT mode**: requires `Authorization: Bearer ...`
+    - **Anon mode**: omit `Authorization`, send body `{ "asAnon": true, "anonProfileId": <int>, "anonCert": "<b64>", "anonCertKid": "<kid>", "anonSig": "<b64>" }`
+  - `POST /v1/principals/{id}/block` → `{ principal_id, blocked: true }` (201 when created, 200 when already blocked)
+    - Blocks a **principal** (supports blocking anonymous personas).
+    - Supports **JWT mode** and **Anon mode** (same body rules as above).
+  - `DELETE /v1/principals/{id}/block` → `{ principal_id, blocked: false }`
+  - Errors: `401 unauthorized` (missing JWT in JWT mode), `409 user_not_provisioned`, `404 not_found`, `422 invalid_target` (self-block), `403 invalid_anon_proof`, `400 anon_jwt_not_allowed`
 - **Direct messages (DMs) with polling**
   - `GET /v1/conversations?cursor=&limit=` → `{ items: [{ id, other_user_id, other_user_profile, last_message, last_message_timestamp, unread_count }], next_cursor }`
   - `POST /v1/conversations` → `{ id, other_user_id, other_user_profile, last_message, last_message_timestamp, unread_count }`
@@ -108,6 +116,8 @@
     - `POST /v1/posts/{id}/save` with `{ asAnon: true, anonProfileId, anonCert, anonCertKid, anonSig }`
     - `DELETE /v1/posts/{id}/save` with `{ asAnon: true, anonProfileId, anonCert, anonCertKid, anonSig }`
     - `POST /v1/users/{id}/follow` / `DELETE /v1/users/{id}/follow` with `{ asAnon: true, anonProfileId, anonCert, anonCertKid, anonSig }`
+    - `POST /v1/users/{id}/block` / `DELETE /v1/users/{id}/block` with `{ asAnon: true, anonProfileId, anonCert, anonCertKid, anonSig }`
+    - `POST /v1/principals/{id}/block` / `DELETE /v1/principals/{id}/block` with `{ asAnon: true, anonProfileId, anonCert, anonCertKid, anonSig }`
     - `GET /v1/anon/{id}/posts/liked?asAnon=true&anonProfileId=&anonCert=&anonCertKid=&anonSig=`
     - `GET /v1/anon/{id}/posts/saved?asAnon=true&anonProfileId=&anonCert=&anonCertKid=&anonSig=`
     - `GET /v1/anon/{id}/replies?asAnon=true&anonProfileId=&anonCert=&anonCertKid=&anonSig=`

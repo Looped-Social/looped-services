@@ -27,6 +27,7 @@ public class PostSearchService {
         if (actor.isEmpty() || actor.get().companyId == null) return SearchResult.userNotProvisioned();
         long viewerUserId = actor.get().id;
         boolean hideAnonymousPosts = actor.get().hideAnonymousPosts;
+        long viewerPrincipalId = principals.createForUser(actor.get().id).id;
 
         RankPagination.Cursor rankedCursor = null;
         if (cursor != null && !cursor.isBlank()) {
@@ -50,11 +51,11 @@ public class PostSearchService {
                 cId,
                 limit,
                 viewerUserId,
+                viewerPrincipalId,
                 hideAnonymousPosts
         );
 
-        var principal = principals.createForUser(actor.get().id);
-        postState.applyForPrincipal(principal.id, rows);
+        postState.applyForPrincipal(viewerPrincipalId, rows);
 
         String next = null;
         if (rows.size() == limit) {

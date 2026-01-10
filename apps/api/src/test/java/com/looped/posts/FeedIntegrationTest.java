@@ -22,6 +22,8 @@ import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.notNullValue;
+import static org.hamcrest.Matchers.not;
+import static org.hamcrest.Matchers.hasItem;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -123,5 +125,38 @@ class FeedIntegrationTest extends PostgresTestBase {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items", hasSize(2)))
                 .andExpect(jsonPath("$.items[*].content", containsInAnyOrder("a1", "a2")));
+    }
+
+    @Test
+    void feed_excludes_blocked_principals() throws Exception {
+        long companyId = jdbc.queryForObject("INSERT INTO companies(name, domain) VALUES ('BlockFeed','blockfeed.co') RETURNING id", Long.class);
+        long viewerUserId = jdbc.queryForObject("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?) RETURNING id",
+                Long.class, "uid-viewer", "viewer", companyId);
+        long viewerPrincipalId = jdbc.queryForObject("INSERT INTO principals(kind, user_id) VALUES ('user', ?) RETURNING id", Long.class, viewerUserId);
+
+        long blockedUserId = jdbc.queryForObject("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?) RETURNING id",
+                Long.class, "uid-blocked", "blocked", companyId);
+        long blockedPrincipalId = jdbc.queryForObject("INSERT INTO principals(kind, user_id) VALUES ('user', ?) RETURNING id", Long.class, blockedUserId);
+
+        jdbc.update("INSERT INTO principal_blocks(blocker_principal_id, blocked_principal_id) VALUES (?,?)", viewerPrincipalId, blockedPrincipalId);
+
+        long comm = jdbc.queryForObject("INSERT INTO communities(kind, name) VALUES ('company', 'BlockFeed') RETURNING id", Long.class);
+        Instant base = Instant.now();
+        jdbc.update(
+                "INSERT INTO posts(author_id, author_principal_id, company_id, community_id, content, created_at) VALUES (?,?,?,?,?,?)",
+                viewerUserId, viewerPrincipalId, companyId, comm, "viewer-post", Timestamp.from(base.minusSeconds(60))
+        );
+        jdbc.update(
+                "INSERT INTO posts(author_id, author_principal_id, company_id, community_id, content, created_at) VALUES (?,?,?,?,?,?)",
+                blockedUserId, blockedPrincipalId, companyId, comm, "blocked-post", Timestamp.from(base.minusSeconds(30))
+        );
+
+        String auth = "Bearer " + token("uid-viewer");
+        mockMvc.perform(get("/v1/feed?mode=new&limit=10")
+                        .header("Authorization", auth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items", hasSize(1)))
+                .andExpect(jsonPath("$.items[0].content", equalTo("viewer-post")))
+                .andExpect(jsonPath("$.items[*].content", not(hasItem("blocked-post"))));
     }
 }

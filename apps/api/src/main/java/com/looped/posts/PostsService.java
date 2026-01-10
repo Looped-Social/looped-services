@@ -12,6 +12,7 @@ import com.looped.polls.PollRequests;
 import com.looped.polls.PollsService;
 import com.looped.principals.PrincipalRepository;
 import com.looped.shared.MentionParser;
+import com.looped.users.BlocksRepository;
 import com.looped.users.FollowsRepository;
 import com.looped.users.UserRepository;
 import org.springframework.dao.DataAccessException;
@@ -36,6 +37,7 @@ public class PostsService {
     private final HashtagsRepository hashtags;
     private final HashtagPostsRepository hashtagPosts;
     private final FollowsRepository follows;
+    private final BlocksRepository blocks;
     private final NotificationPublisher notifications;
     private final PostStateService postState;
     private final PollsService pollsService;
@@ -51,6 +53,7 @@ public class PostsService {
                         HashtagsRepository hashtags,
                         HashtagPostsRepository hashtagPosts,
                         FollowsRepository follows,
+                        BlocksRepository blocks,
                         NotificationPublisher notifications,
                         PostStateService postState,
                         PollsService pollsService) {
@@ -65,6 +68,7 @@ public class PostsService {
         this.hashtags = hashtags;
         this.hashtagPosts = hashtagPosts;
         this.follows = follows;
+        this.blocks = blocks;
         this.notifications = notifications;
         this.postState = postState;
         this.pollsService = pollsService;
@@ -190,10 +194,13 @@ public class PostsService {
         if (u.isEmpty()) return GetResult.userNotProvisioned();
         var p = posts.findById(id);
         if (p.isEmpty()) return GetResult.notFound();
+        var principal = principals.createForUser(u.get().id);
+        if (blocks.existsEitherDirection(principal.id, p.get().authorPrincipalId)) {
+            return GetResult.notFound();
+        }
         if (u.get().hideAnonymousPosts && p.get().authorIsAnonymous && (p.get().authorId == null || p.get().authorId != u.get().id)) {
             return GetResult.notFound();
         }
-        var principal = principals.createForUser(u.get().id);
         postState.applyForPrincipal(principal.id, java.util.List.of(p.get()));
         return GetResult.ok(p.get());
     }
