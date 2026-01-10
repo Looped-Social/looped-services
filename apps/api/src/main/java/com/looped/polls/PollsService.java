@@ -64,9 +64,9 @@ public class PollsService {
             if (!unique.add(key)) return Optional.of("duplicate_options");
         }
 
-        int maxSelections = poll.maxSelections() == null ? 1 : poll.maxSelections();
-        if (maxSelections < 1 || maxSelections > 5) return Optional.of("max_selections_out_of_range");
-        if (maxSelections > options.size()) return Optional.of("max_selections_exceeds_options");
+        if (poll.maxSelections() != null && poll.maxSelections() != 1) {
+            return Optional.of("max_selections_must_be_1");
+        }
 
         OffsetDateTime closesAt = poll.closesAt();
         if (closesAt != null) {
@@ -87,8 +87,7 @@ public class PollsService {
         }
         String question = poll.question().trim();
         List<String> options = normalizedOptions(poll.options());
-        int maxSelections = poll.maxSelections() == null ? 1 : poll.maxSelections();
-        long pollId = polls.insertPoll(postId, question, maxSelections, poll.closesAt());
+        long pollId = polls.insertPoll(postId, question, 1, poll.closesAt());
         if (pollId <= 0) throw new DataRetrievalFailureException("poll_insert_failed");
         polls.insertOptions(pollId, options);
         return OptionalLong.of(pollId);

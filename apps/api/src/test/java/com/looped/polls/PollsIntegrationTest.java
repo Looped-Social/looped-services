@@ -62,7 +62,7 @@ class PollsIntegrationTest extends PostgresTestBase {
                   "poll": {
                     "question": "Where should we go?",
                     "options": ["Tacos", "Salad", "Sushi"],
-                    "maxSelections": 2,
+                    "maxSelections": 1,
                     "closesAt": "%s"
                   }
                 }
@@ -90,8 +90,8 @@ class PollsIntegrationTest extends PostgresTestBase {
         long opt3 = optionIds.get(2).longValue();
 
         String voteBody = """
-                { "selectedOptionIds": [%d, %d] }
-                """.formatted(opt1, opt3);
+                { "selectedOptionIds": [%d] }
+                """.formatted(opt1);
         mockMvc.perform(
                         put("/v1/polls/{pollId}/vote", pollId)
                                 .with(jwt().jwt(j -> j.subject(FIREBASE_UID)))
