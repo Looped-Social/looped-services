@@ -1,5 +1,7 @@
 package com.looped.posts;
 
+import com.looped.polls.PollPayloads;
+import com.looped.polls.PollsService;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -16,9 +18,11 @@ import java.util.Map;
 @RequestMapping("/v1/feed")
 public class FeedController {
     private final FeedService feedService;
+    private final PollsService pollsService;
 
-    public FeedController(FeedService feedService) {
+    public FeedController(FeedService feedService, PollsService pollsService) {
         this.feedService = feedService;
+        this.pollsService = pollsService;
     }
 
     @GetMapping
@@ -50,9 +54,15 @@ public class FeedController {
                     "message", "Community not found"
             ));
         }
-        List<Map<String, Object>> items = res.items().stream()
-                .map(PostPayloads::from)
-                .toList();
+        Long viewerPrincipalId = pollsService.viewerPrincipalId(jwt.getSubject());
+        List<Long> postIds = res.items().stream().map(p -> p.id).toList();
+        var pollsByPostId = pollsService.viewsByPostId(viewerPrincipalId, postIds);
+        List<Map<String, Object>> items = res.items().stream().map(row -> {
+            Map<String, Object> payload = PostPayloads.from(row);
+            var poll = pollsByPostId.get(row.id);
+            if (poll != null) payload.put("poll", PollPayloads.from(poll));
+            return payload;
+        }).toList();
         java.util.Map<String, Object> out = new java.util.HashMap<>();
         out.put("items", items);
         if (res.nextCursor() != null) {
@@ -83,9 +93,15 @@ public class FeedController {
                     "message", "Community not found"
             ));
         }
-        List<Map<String, Object>> items = res.items().stream()
-                .map(PostPayloads::trending)
-                .toList();
+        Long viewerPrincipalId = pollsService.viewerPrincipalId(jwt.getSubject());
+        List<Long> postIds = res.items().stream().map(p -> p.id).toList();
+        var pollsByPostId = pollsService.viewsByPostId(viewerPrincipalId, postIds);
+        List<Map<String, Object>> items = res.items().stream().map(row -> {
+            Map<String, Object> payload = PostPayloads.trending(row);
+            var poll = pollsByPostId.get(row.id);
+            if (poll != null) payload.put("poll", PollPayloads.from(poll));
+            return payload;
+        }).toList();
         return ResponseEntity.ok(Map.of("items", items));
     }
 }

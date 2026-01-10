@@ -1,5 +1,7 @@
 package com.looped.posts;
 
+import com.looped.polls.PollPayloads;
+import com.looped.polls.PollsService;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -21,9 +23,11 @@ import java.util.Map;
 @RequestMapping("/v1/posts")
 public class PostCollectionsController {
     private final PostCollectionsService service;
+    private final PollsService pollsService;
 
-    public PostCollectionsController(PostCollectionsService service) {
+    public PostCollectionsController(PostCollectionsService service, PollsService pollsService) {
         this.service = service;
+        this.pollsService = pollsService;
     }
 
     @GetMapping("/liked")
@@ -39,7 +43,7 @@ public class PostCollectionsController {
                     "error", "user_not_provisioned",
                     "message", "Complete onboarding before viewing liked posts"
             ));
-            case OK -> ResponseEntity.ok(toListPayload(res.posts(), res.nextCursor()));
+            case OK -> ResponseEntity.ok(toListPayload(res.posts(), res.nextCursor(), pollsService.viewerPrincipalId(jwt.getSubject())));
             default -> ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
                     "error", "unexpected_status",
                     "message", "Unexpected status for liked posts"
@@ -60,7 +64,7 @@ public class PostCollectionsController {
                     "error", "user_not_provisioned",
                     "message", "Complete onboarding before viewing saved posts"
             ));
-            case OK -> ResponseEntity.ok(toListPayload(res.posts(), res.nextCursor()));
+            case OK -> ResponseEntity.ok(toListPayload(res.posts(), res.nextCursor(), pollsService.viewerPrincipalId(jwt.getSubject())));
             default -> ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
                     "error", "unexpected_status",
                     "message", "Unexpected status for saved posts"
@@ -169,10 +173,15 @@ public class PostCollectionsController {
         }
     }
 
-    private Map<String, Object> toListPayload(List<PostRepository.PostRow> posts, String nextCursor) {
-        List<Map<String, Object>> items = posts.stream()
-                .map(PostPayloads::from)
-                .toList();
+    private Map<String, Object> toListPayload(List<PostRepository.PostRow> posts, String nextCursor, Long viewerPrincipalId) {
+        List<Long> postIds = posts == null ? List.of() : posts.stream().map(p -> p.id).toList();
+        var pollsByPostId = pollsService.viewsByPostId(viewerPrincipalId, postIds);
+        List<Map<String, Object>> items = posts.stream().map(row -> {
+            Map<String, Object> payload = PostPayloads.from(row);
+            var poll = pollsByPostId.get(row.id);
+            if (poll != null) payload.put("poll", PollPayloads.from(poll));
+            return payload;
+        }).toList();
         Map<String, Object> body = new HashMap<>();
         body.put("items", items);
         if (nextCursor != null) {

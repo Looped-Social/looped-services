@@ -1,5 +1,8 @@
 package com.looped.posts;
 
+import com.looped.polls.PollPayloads;
+import com.looped.polls.PollRequests;
+import com.looped.polls.PollsService;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 import org.springframework.http.HttpStatus;
@@ -18,10 +21,12 @@ import java.util.Map;
 public class PostsController {
     private final PostsService postsService;
     private final PostSearchService postSearchService;
+    private final PollsService pollsService;
 
-    public PostsController(PostsService postsService, PostSearchService postSearchService) {
+    public PostsController(PostsService postsService, PostSearchService postSearchService, PollsService pollsService) {
         this.postsService = postsService;
         this.postSearchService = postSearchService;
+        this.pollsService = pollsService;
     }
 
     @GetMapping("/search")
@@ -44,9 +49,15 @@ public class PostsController {
                     "error", "user_not_provisioned"
             ));
             case OK -> {
-                List<Map<String, Object>> items = res.posts().stream()
-                        .map(PostPayloads::search)
-                        .toList();
+                Long viewerPrincipalId = pollsService.viewerPrincipalId(jwt.getSubject());
+                List<Long> postIds = res.posts().stream().map(p -> p.id).toList();
+                var pollsByPostId = pollsService.viewsByPostId(viewerPrincipalId, postIds);
+                List<Map<String, Object>> items = res.posts().stream().map(row -> {
+                    Map<String, Object> payload = PostPayloads.search(row);
+                    var poll = pollsByPostId.get(row.id);
+                    if (poll != null) payload.put("poll", PollPayloads.from(poll));
+                    return payload;
+                }).toList();
                 Map<String, Object> body = new HashMap<>();
                 body.put("items", items);
                 if (res.nextCursor() != null) {
@@ -92,6 +103,7 @@ public class PostsController {
                 body.mediaAssetId(),
                 communityId,
                 isAnon,
+                body.poll(),
                 body.anonProfileId(),
                 body.anonCert(),
                 body.anonCertKid(),
@@ -123,6 +135,10 @@ public class PostsController {
                     "error", "idempotency_required",
                     "message", "Idempotency-Key is required"
             ));
+            case INVALID_POLL -> ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of(
+                    "error", "invalid_poll",
+                    "message", "Invalid poll payload"
+            ));
             case INVALID_ANON_PROOF -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
                     "error", "invalid_anon_proof",
                     "message", "Invalid anonymous proof"
@@ -133,6 +149,9 @@ public class PostsController {
             ));
             case OK -> {
                 var payload = PostPayloads.from(res.post());
+                Long viewerPrincipalId = jwt == null ? null : pollsService.viewerPrincipalId(jwt.getSubject());
+                var poll = pollsService.viewsByPostId(viewerPrincipalId, List.of(res.post().id)).get(res.post().id);
+                if (poll != null) payload.put("poll", PollPayloads.from(poll));
                 yield new ResponseEntity<>(payload, res.created() ? HttpStatus.CREATED : HttpStatus.OK);
             }
             default -> ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
@@ -149,7 +168,13 @@ public class PostsController {
             case USER_NOT_PROVISIONED -> ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "user_not_provisioned"));
             case NOT_FOUND -> ResponseEntity.status(HttpStatus.NOT_FOUND).build();
             case FORBIDDEN -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "forbidden"));
-            case OK -> ResponseEntity.ok(PostPayloads.from(res.post()));
+            case OK -> {
+                var payload = PostPayloads.from(res.post());
+                Long viewerPrincipalId = pollsService.viewerPrincipalId(jwt.getSubject());
+                var poll = pollsService.viewsByPostId(viewerPrincipalId, List.of(res.post().id)).get(res.post().id);
+                if (poll != null) payload.put("poll", PollPayloads.from(poll));
+                yield ResponseEntity.ok(payload);
+            }
             default -> ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
                     "error", "unexpected_status",
                     "message", "Unexpected status for get"
@@ -261,6 +286,7 @@ public class PostsController {
                                Long communityId,
                                Long loopId,
                                Boolean isAnon,
+                               @jakarta.validation.Valid PollRequests.PostPollCreate poll,
                                Long anonProfileId,
                                String anonCert,
                                String anonCertKid,

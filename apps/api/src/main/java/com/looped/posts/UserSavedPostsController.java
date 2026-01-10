@@ -1,5 +1,7 @@
 package com.looped.posts;
 
+import com.looped.polls.PollPayloads;
+import com.looped.polls.PollsService;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -16,9 +18,11 @@ import java.util.Map;
 @RestController
 public class UserSavedPostsController {
     private final PostCollectionsService service;
+    private final PollsService pollsService;
 
-    public UserSavedPostsController(PostCollectionsService service) {
+    public UserSavedPostsController(PostCollectionsService service, PollsService pollsService) {
         this.service = service;
+        this.pollsService = pollsService;
     }
 
     @GetMapping("/v1/users/{id}/posts/saved")
@@ -39,7 +43,15 @@ public class UserSavedPostsController {
                     "error", "not_found"
             ));
             case OK -> {
-                List<Map<String, Object>> items = res.posts().stream().map(PostPayloads::from).toList();
+                Long viewerPrincipalId = pollsService.viewerPrincipalId(jwt.getSubject());
+                List<Long> postIds = res.posts().stream().map(p -> p.id).toList();
+                var pollsByPostId = pollsService.viewsByPostId(viewerPrincipalId, postIds);
+                List<Map<String, Object>> items = res.posts().stream().map(row -> {
+                    Map<String, Object> payload = PostPayloads.from(row);
+                    var poll = pollsByPostId.get(row.id);
+                    if (poll != null) payload.put("poll", PollPayloads.from(poll));
+                    return payload;
+                }).toList();
                 Map<String, Object> body = new HashMap<>();
                 body.put("items", items);
                 if (res.nextCursor() != null) body.put("next_cursor", res.nextCursor());

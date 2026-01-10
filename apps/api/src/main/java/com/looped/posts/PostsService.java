@@ -8,6 +8,8 @@ import com.looped.discovery.HashtagPostsRepository;
 import com.looped.discovery.HashtagsRepository;
 import com.looped.media.MediaRepository;
 import com.looped.notifications.NotificationPublisher;
+import com.looped.polls.PollRequests;
+import com.looped.polls.PollsService;
 import com.looped.principals.PrincipalRepository;
 import com.looped.shared.MentionParser;
 import com.looped.users.FollowsRepository;
@@ -36,6 +38,7 @@ public class PostsService {
     private final FollowsRepository follows;
     private final NotificationPublisher notifications;
     private final PostStateService postState;
+    private final PollsService pollsService;
 
     public PostsService(PostRepository posts,
                         UserRepository users,
@@ -49,7 +52,8 @@ public class PostsService {
                         HashtagPostsRepository hashtagPosts,
                         FollowsRepository follows,
                         NotificationPublisher notifications,
-                        PostStateService postState) {
+                        PostStateService postState,
+                        PollsService pollsService) {
         this.posts = posts;
         this.users = users;
         this.principals = principals;
@@ -63,14 +67,19 @@ public class PostsService {
         this.follows = follows;
         this.notifications = notifications;
         this.postState = postState;
+        this.pollsService = pollsService;
     }
 
+    @Transactional
     public CreateResult create(String firebaseUid, String idempotencyKey, String content, Long mediaAssetId, Long communityId,
-                               boolean isAnon, Long anonProfileId, String anonCert, String anonCertKid,
+                               boolean isAnon, PollRequests.PostPollCreate poll, Long anonProfileId, String anonCert, String anonCertKid,
                                String anonSig, Long anonTimestamp) {
         if (communityId == null) return CreateResult.communityRequired();
         var community = communities.findById(communityId);
         if (community.isEmpty()) return CreateResult.communityNotFound();
+
+        var pollValidation = pollsService.validateCreate(poll);
+        if (pollValidation.isPresent()) return CreateResult.invalidPoll(pollValidation.get());
 
         if (isAnon) {
             if (anonProfileId == null || anonCert == null || anonCertKid == null || anonSig == null || anonTimestamp == null) {
@@ -100,6 +109,9 @@ public class PostsService {
             long effectiveCompanyId = verified.actor().companyId();
             var p = posts.insert(null, verified.actor().principalId(), effectiveCompanyId, communityId, content, mediaAssetId,
                     true, anonProfileId, effectiveCompanyId, certBytes, anonCertKid, sigBytes, null);
+            if (poll != null) {
+                pollsService.createForPost(p.id, poll);
+            }
             indexHashtags(p.id, effectiveCompanyId, content);
             try {
                 notifyPostFromFollowed(p.authorPrincipalId, p.id);
@@ -146,6 +158,9 @@ public class PostsService {
         try {
             var p = posts.insert(userId, principal.id, companyId, communityId, content, mediaAssetId,
                     false, null, null, null, null, null, null);
+            if (poll != null) {
+                pollsService.createForPost(p.id, poll);
+            }
             indexHashtags(p.id, companyId, content);
             if (useIdem) {
                 try {
@@ -287,6 +302,7 @@ public class PostsService {
         USER_NOT_PROVISIONED,
         IDEMPOTENCY_IN_FLIGHT,
         IDEMPOTENCY_REQUIRED,
+        INVALID_POLL,
         INVALID_ANON_PROOF,
         ANON_MEDIA_NOT_ALLOWED,
         FORBIDDEN,
@@ -300,6 +316,7 @@ public class PostsService {
         static CreateResult userNotProvisioned() { return new CreateResult(Status.USER_NOT_PROVISIONED, null, false); }
         static CreateResult inFlight() { return new CreateResult(Status.IDEMPOTENCY_IN_FLIGHT, null, false); }
         static CreateResult idempotencyRequired() { return new CreateResult(Status.IDEMPOTENCY_REQUIRED, null, false); }
+        static CreateResult invalidPoll(String ignored) { return new CreateResult(Status.INVALID_POLL, null, false); }
         static CreateResult invalidAnonProof() { return new CreateResult(Status.INVALID_ANON_PROOF, null, false); }
         static CreateResult anonMediaNotAllowed() { return new CreateResult(Status.ANON_MEDIA_NOT_ALLOWED, null, false); }
         static CreateResult communityRequired() { return new CreateResult(Status.COMMUNITY_REQUIRED, null, false); }

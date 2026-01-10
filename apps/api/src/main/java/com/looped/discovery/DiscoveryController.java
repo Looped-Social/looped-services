@@ -127,6 +127,57 @@ public class DiscoveryController {
         };
     }
 
+    @GetMapping("/specializations/recommended")
+    public ResponseEntity<?> recommendedSpecializations(
+            @AuthenticationPrincipal Jwt jwt,
+            @RequestParam(value = "type", required = false) String type,
+            @RequestParam(value = "specializationType", required = false) String specializationTypeAlt,
+            @RequestParam(value = "specialization_type", required = false) String specializationType,
+            @RequestParam(value = "limit", required = false, defaultValue = "8") int limit
+    ) {
+        int lim = Math.max(1, Math.min(limit, 50));
+        String requested = type != null ? type : (specializationTypeAlt != null ? specializationTypeAlt : specializationType);
+        String normalized = normalizeRecommendedSpecializationType(requested);
+        if (normalized == null) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of(
+                    "error", "invalid_specialization_type",
+                    "message", "type must be major, department, or all"
+            ));
+        }
+
+        if ("all".equals(normalized)) {
+            var majorsRes = service.recommendedCommunities(jwt.getSubject(), "specialization", "major", lim);
+            var departmentsRes = service.recommendedCommunities(jwt.getSubject(), "specialization", "department", lim);
+            var fallback = logos.resolveFallbacks(
+                    java.util.stream.Stream.concat(
+                                    majorsRes.items().stream(),
+                                    departmentsRes.items().stream()
+                            )
+                            .map(row -> new CommunityLogoResolver.CommunityRef(row.id, row.kind, row.imageUrl))
+                            .toList()
+            );
+            List<Map<String, Object>> majors = majorsRes.items().stream()
+                    .map(row -> recommendedPayload(row, fallback))
+                    .toList();
+            List<Map<String, Object>> departments = departmentsRes.items().stream()
+                    .map(row -> recommendedPayload(row, fallback))
+                    .toList();
+            return ResponseEntity.ok(Map.of(
+                    "majors", majors,
+                    "departments", departments
+            ));
+        }
+
+        var res = service.recommendedCommunities(jwt.getSubject(), "specialization", normalized, lim);
+        var fallback = logos.resolveFallbacks(res.items().stream()
+                .map(row -> new CommunityLogoResolver.CommunityRef(row.id, row.kind, row.imageUrl))
+                .toList());
+        List<Map<String, Object>> items = res.items().stream()
+                .map(row -> recommendedPayload(row, fallback))
+                .toList();
+        return ResponseEntity.ok(Map.of("items", items));
+    }
+
     @GetMapping("/loops/search")
     public ResponseEntity<?> searchLoops(
             @AuthenticationPrincipal Jwt jwt,
@@ -268,6 +319,14 @@ public class DiscoveryController {
         if (normalized.equals("major") || normalized.equals("department")) {
             return normalized;
         }
+        return null;
+    }
+
+    private String normalizeRecommendedSpecializationType(String raw) {
+        if (raw == null) return "all";
+        String normalized = raw.trim().toLowerCase(Locale.ROOT);
+        if (normalized.isBlank() || "all".equals(normalized)) return "all";
+        if ("major".equals(normalized) || "department".equals(normalized)) return normalized;
         return null;
     }
 }
