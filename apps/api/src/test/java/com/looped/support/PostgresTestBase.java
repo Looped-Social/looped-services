@@ -33,7 +33,7 @@ public abstract class PostgresTestBase {
              Statement s = c.createStatement()) {
             // Truncate all app tables and reset identities between tests to avoid cross-test interference
             s.execute("TRUNCATE TABLE conversation_messages, conversation_message_requests, channel_messages, notifications, comment_likes, comments, " +
-                    "principal_follows, principal_blocks, principal_saved_posts, post_likes, post_shares, follows, saved_posts, likes, principal_settings, " +
+                    "principal_follows, principal_blocks, principal_saved_posts, post_likes, post_shares, post_reposts, follows, saved_posts, likes, principal_settings, " +
                     "conversation_participants, conversations, channel_members, channels, posts, devices, reports, media_assets, " +
                     "poll_vote_options, poll_votes, poll_options, polls, " +
                     "anon_enrollment_sanctions, anon_backup_blobs, anon_revocations, anon_issuers, anon_handle_counters, anonymous_profiles, " +

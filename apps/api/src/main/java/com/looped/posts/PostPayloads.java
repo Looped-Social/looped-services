@@ -53,8 +53,26 @@ public final class PostPayloads {
         out.put("likes_count", row.likesCount);
         out.put("comments_count", row.commentsCount);
         out.put("share_count", row.shareCount);
+        out.put("repost_count", row.repostCount);
+        out.put("repostCount", row.repostCount);
         out.put("user_liked", row.userLiked);
         out.put("is_saved", row.isSaved);
+        out.put("viewer_has_reposted", row.viewerHasReposted);
+        out.put("viewerHasReposted", row.viewerHasReposted);
+        if (row.repostedByFollowedUsersCount != null) {
+            java.util.List<java.util.Map<String, Object>> users = row.repostedByFollowedUsers == null
+                    ? java.util.List.of()
+                    : row.repostedByFollowedUsers.stream()
+                    .map(u -> java.util.Map.<String, Object>of(
+                            "user_id", u.userId(),
+                            "username", u.username()
+                    ))
+                    .toList();
+            out.put("reposted_by_followed_users", users);
+            out.put("reposted_by_followed_users_count", row.repostedByFollowedUsersCount);
+            out.put("repostedByFollowedUsers", users);
+            out.put("repostedByFollowedUsersCount", row.repostedByFollowedUsersCount);
+        }
         out.put("created_at", row.createdAt);
         return out;
     }

@@ -17,6 +17,7 @@ public class PostCollectionsService {
     private final PostRepository posts;
     private final LikesRepository likes;
     private final SavedPostsRepository savedPosts;
+    private final RepostsRepository reposts;
     private final AnonProofService anonProofs;
     private final PostStateService postState;
 
@@ -25,6 +26,7 @@ public class PostCollectionsService {
                                   PostRepository posts,
                                   LikesRepository likes,
                                   SavedPostsRepository savedPosts,
+                                  RepostsRepository reposts,
                                   AnonProofService anonProofs,
                                   PostStateService postState) {
         this.users = users;
@@ -32,6 +34,7 @@ public class PostCollectionsService {
         this.posts = posts;
         this.likes = likes;
         this.savedPosts = savedPosts;
+        this.reposts = reposts;
         this.anonProofs = anonProofs;
         this.postState = postState;
     }
@@ -72,6 +75,24 @@ public class PostCollectionsService {
         return ListResult.ok(posts, next);
     }
 
+    public ListResult reposted(String firebaseUid, String cursor, int limit) {
+        var actor = provisionedUser(firebaseUid);
+        if (actor.isEmpty()) return ListResult.userNotProvisioned();
+        var principal = principals.createForUser(actor.get().id);
+
+        var cursorParts = decodeCursor(cursor);
+        var rows = reposts.repostedPosts(principal.id, cursorParts.timestamp, cursorParts.postId, limit,
+                actor.get().id, actor.get().hideAnonymousPosts);
+        String next = null;
+        if (rows.size() == limit) {
+            var last = rows.get(rows.size() - 1);
+            next = Pagination.encode(last.repostedAt(), last.repostId());
+        }
+        List<PostRepository.PostRow> posts = rows.stream().map(RepostsRepository.RepostedPostRow::post).toList();
+        postState.applyForPrincipal(principal.id, posts);
+        return ListResult.ok(posts, next);
+    }
+
     public ListResult savedForUser(String firebaseUid, long targetUserId, String cursor, int limit) {
         var actor = provisionedUser(firebaseUid);
         if (actor.isEmpty()) return ListResult.userNotProvisioned();
@@ -90,6 +111,30 @@ public class PostCollectionsService {
             next = Pagination.encode(last.savedAt, last.post.id);
         }
         List<PostRepository.PostRow> posts = rows.stream().map(r -> r.post).toList();
+        var viewerPrincipal = principals.createForUser(actor.get().id);
+        postState.applyForPrincipal(viewerPrincipal.id, posts);
+        return ListResult.ok(posts, next);
+    }
+
+    public ListResult repostedForUser(String firebaseUid, long targetUserId, String cursor, int limit) {
+        var actor = provisionedUser(firebaseUid);
+        if (actor.isEmpty()) return ListResult.userNotProvisioned();
+
+        var target = users.findById(targetUserId);
+        if (target.isEmpty()) return ListResult.notFound();
+        if (!actor.get().companyId.equals(target.get().companyId)) return ListResult.notFound();
+
+        var targetPrincipal = principals.createForUser(targetUserId);
+
+        var cursorParts = decodeCursor(cursor);
+        var rows = reposts.repostedPosts(targetPrincipal.id, cursorParts.timestamp, cursorParts.postId, limit,
+                actor.get().id, actor.get().hideAnonymousPosts);
+        String next = null;
+        if (rows.size() == limit) {
+            var last = rows.get(rows.size() - 1);
+            next = Pagination.encode(last.repostedAt(), last.repostId());
+        }
+        List<PostRepository.PostRow> posts = rows.stream().map(RepostsRepository.RepostedPostRow::post).toList();
         var viewerPrincipal = principals.createForUser(actor.get().id);
         postState.applyForPrincipal(viewerPrincipal.id, posts);
         return ListResult.ok(posts, next);

@@ -72,6 +72,27 @@ public class PostCollectionsController {
         };
     }
 
+    @GetMapping("/reposted")
+    public ResponseEntity<?> reposted(
+            @AuthenticationPrincipal Jwt jwt,
+            @RequestParam(value = "cursor", required = false) String cursor,
+            @RequestParam(value = "limit", required = false, defaultValue = "20") int limit
+    ) {
+        int lim = Math.max(1, Math.min(limit, 100));
+        var res = service.reposted(jwt.getSubject(), cursor, lim);
+        return switch (res.status()) {
+            case USER_NOT_PROVISIONED -> ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
+                    "error", "user_not_provisioned",
+                    "message", "Complete onboarding before viewing reposted posts"
+            ));
+            case OK -> ResponseEntity.ok(toListPayload(res.posts(), res.nextCursor(), pollsService.viewerPrincipalId(jwt.getSubject())));
+            default -> ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
+                    "error", "unexpected_status",
+                    "message", "Unexpected status for reposted posts"
+            ));
+        };
+    }
+
     @PostMapping("/{postId}/save")
     public ResponseEntity<?> save(@AuthenticationPrincipal Jwt jwt, @PathVariable("postId") long postId,
                                   @RequestBody(required = false) SaveRequest body) {

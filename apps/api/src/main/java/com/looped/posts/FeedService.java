@@ -17,14 +17,16 @@ public class FeedService {
     private final PrincipalRepository principals;
     private final CommunitiesRepository communities;
     private final PostStateService postState;
+    private final RepostsRepository reposts;
 
     public FeedService(PostRepository posts, UserRepository users, PrincipalRepository principals,
-                       CommunitiesRepository communities, PostStateService postState) {
+                       CommunitiesRepository communities, PostStateService postState, RepostsRepository reposts) {
         this.posts = posts;
         this.users = users;
         this.principals = principals;
         this.communities = communities;
         this.postState = postState;
+        this.reposts = reposts;
     }
 
     public FeedResult feed(String firebaseUid, String cursor, int limit, Long communityId, String mode) {
@@ -43,6 +45,7 @@ public class FeedService {
                 ? feedNew(cursor, limit, communityId, viewerUserId, hideAnonymousPosts)
                 : feedForYou(cursor, limit, communityId, viewerUserId, hideAnonymousPosts);
         postState.applyForPrincipal(principal.id, result.items());
+        applyRepostBanners(principal.id, result.items());
         return result;
     }
 
@@ -108,6 +111,30 @@ public class FeedService {
         var principal = principals.createForUser(u.get().id);
         postState.applyForPrincipal(principal.id, list);
         return TrendingResult.ok(list);
+    }
+
+    private void applyRepostBanners(long viewerPrincipalId, List<? extends PostRepository.PostRow> items) {
+        if (items == null || items.isEmpty()) return;
+        List<Long> postIds = items.stream().map(p -> p.id).distinct().toList();
+        for (PostRepository.PostRow post : items) {
+            post.repostedByFollowedUsers = java.util.List.of();
+            post.repostedByFollowedUsersCount = 0;
+        }
+        var rows = reposts.followedRepostsForPosts(viewerPrincipalId, postIds);
+        if (rows == null || rows.isEmpty()) return;
+        java.util.Map<Long, java.util.List<PostRepository.RepostBannerUser>> usersByPost = new java.util.HashMap<>();
+        java.util.Map<Long, Integer> countsByPost = new java.util.HashMap<>();
+        for (var row : rows) {
+            countsByPost.put(row.postId(), row.totalCount());
+            usersByPost.computeIfAbsent(row.postId(), ignored -> new java.util.ArrayList<>())
+                    .add(new PostRepository.RepostBannerUser(row.userId(), row.username()));
+        }
+        for (PostRepository.PostRow post : items) {
+            Integer total = countsByPost.get(post.id);
+            if (total == null) continue;
+            post.repostedByFollowedUsersCount = total;
+            post.repostedByFollowedUsers = usersByPost.getOrDefault(post.id, java.util.List.of());
+        }
     }
 
     private long popularityScore(PostRepository.PostRow row, OffsetDateTime asOf) {

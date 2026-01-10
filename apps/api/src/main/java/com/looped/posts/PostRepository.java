@@ -25,7 +25,7 @@ public class PostRepository {
     private static final String BASE_SELECT =
             "SELECT p.id, p.author_id, p.author_principal_id, p.is_anon, p.anon_profile_id, p.anon_company_id, " +
             "p.company_id, p.community_id, c.name AS community_name, c.kind AS community_kind, " +
-            "p.content, p.media_asset_id, p.likes_count, p.comments_count, p.share_count, p.created_at, " +
+            "p.content, p.media_asset_id, p.likes_count, p.comments_count, p.share_count, p.repost_count, p.created_at, " +
             "p.removed_at, p.removed_by, p.removed_reason, " +
             "COALESCE(u.handle, ap.handle) AS author_handle, " +
             "u.display_name AS author_display_name, " +
@@ -75,6 +75,7 @@ public class PostRepository {
             p.likesCount = rs.getInt("likes_count");
             p.commentsCount = rs.getInt("comments_count");
             p.shareCount = rs.getInt("share_count");
+            p.repostCount = rs.getInt("repost_count");
             p.createdAt = rs.getObject("created_at", OffsetDateTime.class);
             p.removedAt = rs.getObject("removed_at", OffsetDateTime.class);
             long removedBy = rs.getLong("removed_by");
@@ -130,6 +131,16 @@ public class PostRepository {
         return list.isEmpty() ? Optional.empty() : Optional.of(list.get(0));
     }
 
+    public java.util.List<PostRow> findByIds(java.util.List<Long> ids) {
+        if (ids == null || ids.isEmpty()) return java.util.List.of();
+        String placeholders = String.join(",", java.util.Collections.nCopies(ids.size(), "?"));
+        return jdbc.query(
+                BASE_SELECT + "WHERE p.id IN (" + placeholders + ") AND p.removed_at IS NULL AND (p.author_id IS NULL OR u.id IS NOT NULL)",
+                MAPPER,
+                ids.toArray()
+        );
+    }
+
     public java.util.List<PostRow> findFeedByCommunity(long communityId, java.time.OffsetDateTime cursorTs, Long cursorId, int limit) {
         if (cursorTs == null || cursorId == null) {
             return jdbc.query(
@@ -182,7 +193,7 @@ public class PostRepository {
                 "FLOOR(EXTRACT(EPOCH FROM (?::timestamptz - p.created_at)) / 3600))";
         String base = "SELECT p.id, p.author_id, p.author_principal_id, p.is_anon, p.anon_profile_id, p.anon_company_id, " +
                 "p.company_id, p.community_id, c.name AS community_name, c.kind AS community_kind, " +
-                "p.content, p.media_asset_id, p.likes_count, p.comments_count, p.share_count, p.created_at, " +
+                "p.content, p.media_asset_id, p.likes_count, p.comments_count, p.share_count, p.repost_count, p.created_at, " +
                 "p.removed_at, p.removed_by, p.removed_reason, " +
                 "COALESCE(u.handle, ap.handle) AS author_handle, u.display_name AS author_display_name, " +
                 "u.first_name AS author_first_name, u.last_name AS author_last_name, " +
@@ -208,7 +219,7 @@ public class PostRepository {
         if (cursorScore == null || cursorTs == null || cursorId == null) {
             return jdbc.query(
                     "SELECT id, author_id, author_principal_id, is_anon, anon_profile_id, anon_company_id, company_id, community_id, " +
-                            "community_name, community_kind, content, media_asset_id, likes_count, comments_count, share_count, created_at, " +
+                            "community_name, community_kind, content, media_asset_id, likes_count, comments_count, share_count, repost_count, created_at, " +
                             "removed_at, removed_by, removed_reason, " +
                             "author_handle, author_display_name, author_first_name, author_last_name, author_profile_image_url, " +
                             "author_display_community_id, author_display_community_name, author_display_community_kind, " +
@@ -222,7 +233,7 @@ public class PostRepository {
         }
         return jdbc.query(
                 "SELECT id, author_id, author_principal_id, is_anon, anon_profile_id, anon_company_id, company_id, community_id, " +
-                        "community_name, community_kind, content, media_asset_id, likes_count, comments_count, share_count, created_at, " +
+                        "community_name, community_kind, content, media_asset_id, likes_count, comments_count, share_count, repost_count, created_at, " +
                         "removed_at, removed_by, removed_reason, " +
                         "author_handle, author_display_name, author_first_name, author_last_name, author_profile_image_url, " +
                         "author_display_community_id, author_display_community_name, author_display_community_kind, " +
@@ -245,7 +256,7 @@ public class PostRepository {
                 "FLOOR(EXTRACT(EPOCH FROM (?::timestamptz - p.created_at)) / 3600))";
         String base = "SELECT p.id, p.author_id, p.author_principal_id, p.is_anon, p.anon_profile_id, p.anon_company_id, " +
                 "p.company_id, p.community_id, c.name AS community_name, c.kind AS community_kind, " +
-                "p.content, p.media_asset_id, p.likes_count, p.comments_count, p.share_count, p.created_at, " +
+                "p.content, p.media_asset_id, p.likes_count, p.comments_count, p.share_count, p.repost_count, p.created_at, " +
                 "p.removed_at, p.removed_by, p.removed_reason, " +
                 "COALESCE(u.handle, ap.handle) AS author_handle, u.display_name AS author_display_name, " +
                 "u.first_name AS author_first_name, u.last_name AS author_last_name, " +
@@ -272,7 +283,7 @@ public class PostRepository {
         if (cursorScore == null || cursorTs == null || cursorId == null) {
             return jdbc.query(
                     "SELECT id, author_id, author_principal_id, is_anon, anon_profile_id, anon_company_id, company_id, community_id, " +
-                            "community_name, community_kind, content, media_asset_id, likes_count, comments_count, share_count, created_at, " +
+                            "community_name, community_kind, content, media_asset_id, likes_count, comments_count, share_count, repost_count, created_at, " +
                             "removed_at, removed_by, removed_reason, " +
                             "author_handle, author_display_name, author_first_name, author_last_name, author_profile_image_url, " +
                             "author_display_community_id, author_display_community_name, author_display_community_kind, " +
@@ -288,7 +299,7 @@ public class PostRepository {
         }
         return jdbc.query(
                 "SELECT id, author_id, author_principal_id, is_anon, anon_profile_id, anon_company_id, company_id, community_id, " +
-                        "community_name, community_kind, content, media_asset_id, likes_count, comments_count, share_count, created_at, " +
+                        "community_name, community_kind, content, media_asset_id, likes_count, comments_count, share_count, repost_count, created_at, " +
                         "removed_at, removed_by, removed_reason, " +
                         "author_handle, author_display_name, author_first_name, author_last_name, author_profile_image_url, " +
                         "author_display_community_id, author_display_community_name, author_display_community_kind, " +
@@ -375,7 +386,7 @@ public class PostRepository {
         String scoreExpr = "((p.likes_count * 2 + p.comments_count + p.share_count) * 1000 - " +
                 "FLOOR(EXTRACT(EPOCH FROM (?::timestamptz - p.created_at)) / 3600))";
         String base = "SELECT p.id, p.author_id, p.author_principal_id, p.is_anon, p.anon_profile_id, p.anon_company_id, " +
-                "p.company_id, p.community_id, p.content, p.media_asset_id, p.likes_count, p.comments_count, p.share_count, p.created_at, " +
+                "p.company_id, p.community_id, p.content, p.media_asset_id, p.likes_count, p.comments_count, p.share_count, p.repost_count, p.created_at, " +
                 "COALESCE(u.handle, ap.handle) AS author_handle, u.display_name AS author_display_name, " +
                 "u.first_name AS author_first_name, u.last_name AS author_last_name, " +
                 "u.profile_image_url AS author_profile_image_url, " +
@@ -437,7 +448,7 @@ public class PostRepository {
                         ") " +
                         "SELECT p.id, p.author_id, p.author_principal_id, p.is_anon, p.anon_profile_id, p.anon_company_id, " +
                         "p.company_id, p.community_id, c.name AS community_name, c.kind AS community_kind, " +
-                        "p.content, p.media_asset_id, p.likes_count, p.comments_count, p.share_count, p.created_at, " +
+                        "p.content, p.media_asset_id, p.likes_count, p.comments_count, p.share_count, p.repost_count, p.created_at, " +
                         "p.removed_at, p.removed_by, p.removed_reason, " +
                         "COALESCE(u.handle, ap.handle) AS author_handle, " +
                         "u.display_name AS author_display_name, " +
@@ -538,6 +549,7 @@ public class PostRepository {
         public int likesCount;
         public int commentsCount;
         public int shareCount;
+        public int repostCount;
         public OffsetDateTime createdAt;
         public OffsetDateTime removedAt;
         public Long removedBy;
@@ -558,7 +570,12 @@ public class PostRepository {
         public boolean authorIsAnonymous;
         public boolean userLiked;
         public boolean isSaved;
+        public boolean viewerHasReposted;
+        public java.util.List<RepostBannerUser> repostedByFollowedUsers;
+        public Integer repostedByFollowedUsersCount;
     }
+
+    public record RepostBannerUser(long userId, String username) {}
 
     public static class ScoredPostRow extends PostRow {
         public long score;
@@ -593,6 +610,7 @@ public class PostRepository {
             p.likesCount = rs.getInt("likes_count");
             p.commentsCount = rs.getInt("comments_count");
             p.shareCount = rs.getInt("share_count");
+            p.repostCount = rs.getInt("repost_count");
             p.createdAt = rs.getObject("created_at", OffsetDateTime.class);
             p.removedAt = rs.getObject("removed_at", OffsetDateTime.class);
             long removedBy = rs.getLong("removed_by");
@@ -641,6 +659,7 @@ public class PostRepository {
             p.likesCount = rs.getInt("likes_count");
             p.commentsCount = rs.getInt("comments_count");
             p.shareCount = rs.getInt("share_count");
+            p.repostCount = rs.getInt("repost_count");
             p.createdAt = rs.getObject("created_at", OffsetDateTime.class);
             p.authorHandle = rs.getString("author_handle");
             p.authorDisplayName = rs.getString("author_display_name");

@@ -67,6 +67,17 @@ public class CommentsRepository {
         return list.isEmpty() ? Optional.empty() : Optional.of(list.get(0));
     }
 
+    public List<CommentRow> findByIds(List<Long> ids) {
+        if (ids == null || ids.isEmpty()) return List.of();
+        String placeholders = String.join(",", java.util.Collections.nCopies(ids.size(), "?"));
+        return jdbc.query(
+                "SELECT id, post_id, user_id, author_principal_id, company_id, content, parent_id, likes_count, reply_count, created_at, deleted_at " +
+                        "FROM comments WHERE id IN (" + placeholders + ")",
+                MAPPER,
+                ids.toArray()
+        );
+    }
+
     public CommentRow insert(long postId, Long userId, long authorPrincipalId, long companyId, String content, Long parentId) {
         Long id = jdbc.query(
                 "INSERT INTO comments(post_id, user_id, author_principal_id, company_id, content, parent_id) VALUES (?,?,?,?,?,?) RETURNING id",

@@ -30,6 +30,7 @@ public class UsersService {
     private final PrincipalRepository principals;
     private final PostStateService postState;
     private final CommentsRepository comments;
+    private final UserContentRepository content;
     private final CompanyRepository companies;
     private final CommunitiesRepository communities;
     private final CommunityVerificationsRepository communityVerifications;
@@ -46,6 +47,7 @@ public class UsersService {
                         PrincipalRepository principals,
                         PostStateService postState,
                         CommentsRepository comments,
+                        UserContentRepository content,
                         CompanyRepository companies,
                         CommunitiesRepository communities,
                         CommunityVerificationsRepository communityVerifications,
@@ -61,6 +63,7 @@ public class UsersService {
         this.principals = principals;
         this.postState = postState;
         this.comments = comments;
+        this.content = content;
         this.companies = companies;
         this.communities = communities;
         this.communityVerifications = communityVerifications;
@@ -111,6 +114,78 @@ public class UsersService {
             next = Pagination.encode(last.createdAt, last.id);
         }
         return PostsResult.ok(rows, next);
+    }
+
+    public ContentResult content(String firebaseUid, long targetUserId, String cursor, int limit) {
+        var actor = requireProvisionedUser(firebaseUid);
+        if (actor.isEmpty()) return ContentResult.userNotProvisioned();
+
+        var target = users.findById(targetUserId);
+        if (target.isEmpty()) return ContentResult.notFound();
+        if (!actor.get().companyId.equals(target.get().companyId)) return ContentResult.forbidden();
+
+        OffsetDateTime cTs = null;
+        Long cSortId = null;
+        if (cursor != null && !cursor.isBlank()) {
+            try {
+                var decoded = Pagination.decode(cursor);
+                cTs = decoded.timestamp();
+                cSortId = decoded.id();
+            } catch (IllegalArgumentException ignored) {}
+        }
+
+        var refs = content.list(targetUserId, actor.get().id, actor.get().hideAnonymousPosts, cTs, cSortId, limit);
+        if (refs.isEmpty()) return ContentResult.ok(java.util.List.of(), null);
+
+        java.util.List<Long> postIds = refs.stream()
+                .filter(r -> "post".equals(r.type()))
+                .map(UserContentRepository.ContentRefRow::entityId)
+                .toList();
+        java.util.List<Long> replyIds = refs.stream()
+                .filter(r -> "reply".equals(r.type()))
+                .map(UserContentRepository.ContentRefRow::entityId)
+                .toList();
+
+        java.util.Map<Long, PostRepository.PostRow> postsById = new java.util.HashMap<>();
+        if (!postIds.isEmpty()) {
+            var postRows = posts.findByIds(postIds);
+            var viewerPrincipal = principals.createForUser(actor.get().id);
+            postState.applyForPrincipal(viewerPrincipal.id, postRows);
+            for (var p : postRows) postsById.put(p.id, p);
+        }
+
+        java.util.Map<Long, CommentsRepository.CommentRow> repliesById = new java.util.HashMap<>();
+        if (!replyIds.isEmpty()) {
+            for (var row : comments.findByIds(replyIds)) repliesById.put(row.id, row);
+        }
+
+        java.util.List<java.util.Map<String, Object>> items = new java.util.ArrayList<>();
+        for (var ref : refs) {
+            if ("post".equals(ref.type())) {
+                var p = postsById.get(ref.entityId());
+                if (p == null) continue;
+                items.add(java.util.Map.of(
+                        "type", "post",
+                        "created_at", ref.createdAt(),
+                        "post", com.looped.posts.PostPayloads.from(p)
+                ));
+            } else if ("reply".equals(ref.type())) {
+                var c = repliesById.get(ref.entityId());
+                if (c == null) continue;
+                items.add(java.util.Map.of(
+                        "type", "reply",
+                        "created_at", ref.createdAt(),
+                        "reply", UserPayloads.comment(c)
+                ));
+            }
+        }
+
+        String next = null;
+        if (refs.size() == limit) {
+            var last = refs.get(refs.size() - 1);
+            next = Pagination.encode(last.createdAt(), last.sortId());
+        }
+        return ContentResult.ok(items, next);
     }
 
     public UpdateProfileResult updateProfile(String firebaseUid, String displayName, String bio, boolean isAnonymous,
@@ -555,6 +630,13 @@ public class UsersService {
         static CommentsResult userNotProvisioned() { return new CommentsResult(Status.USER_NOT_PROVISIONED, List.of(), null); }
         static CommentsResult notFound() { return new CommentsResult(Status.NOT_FOUND, List.of(), null); }
         static CommentsResult forbidden() { return new CommentsResult(Status.FORBIDDEN, List.of(), null); }
+    }
+
+    public record ContentResult(Status status, List<java.util.Map<String, Object>> items, String nextCursor) {
+        static ContentResult ok(List<java.util.Map<String, Object>> items, String next) { return new ContentResult(Status.OK, items, next); }
+        static ContentResult userNotProvisioned() { return new ContentResult(Status.USER_NOT_PROVISIONED, List.of(), null); }
+        static ContentResult notFound() { return new ContentResult(Status.NOT_FOUND, List.of(), null); }
+        static ContentResult forbidden() { return new ContentResult(Status.FORBIDDEN, List.of(), null); }
     }
 
     public record UserProfile(long id, String handle, String firstName, String lastName, LocalDate dateOfBirth,

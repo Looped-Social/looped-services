@@ -77,7 +77,7 @@ public class SavedPostsRepository {
     private static final String BASE_QUERY = "SELECT " +
             "p.id AS post_id, p.author_id, p.author_principal_id, p.is_anon, p.anon_profile_id, p.anon_company_id, " +
             "p.company_id, p.community_id, c.name AS community_name, c.kind AS community_kind, " +
-            "p.content, p.media_asset_id, p.likes_count, p.comments_count, p.share_count, " +
+            "p.content, p.media_asset_id, p.likes_count, p.comments_count, p.share_count, p.repost_count, " +
             "p.created_at AS post_created_at, " +
             "COALESCE(u.handle, ap.handle) AS author_handle, " +
             "u.display_name AS author_display_name, " +
@@ -128,6 +128,7 @@ public class SavedPostsRepository {
             post.likesCount = rs.getInt("likes_count");
             post.commentsCount = rs.getInt("comments_count");
             post.shareCount = rs.getInt("share_count");
+            post.repostCount = rs.getInt("repost_count");
             post.createdAt = rs.getObject("post_created_at", OffsetDateTime.class);
             post.authorHandle = rs.getString("author_handle");
             post.authorDisplayName = rs.getString("author_display_name");
