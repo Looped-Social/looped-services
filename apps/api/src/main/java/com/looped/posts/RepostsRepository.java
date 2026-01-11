@@ -164,7 +164,7 @@ public class RepostsRepository {
                     ? new Object[]{reposterPrincipalId, viewerUserId, limit}
                     : new Object[]{reposterPrincipalId, limit};
         } else {
-            sqlBase += "AND (r.created_at < ? OR (r.created_at = ? AND r.id < ?)) ORDER BY r.created_at DESC, r.id DESC LIMIT ?";
+            sqlBase += " AND (r.created_at < ? OR (r.created_at = ? AND r.id < ?)) ORDER BY r.created_at DESC, r.id DESC LIMIT ?";
             params = hideAnonymousPosts
                     ? new Object[]{reposterPrincipalId, viewerUserId, cursorTs, cursorTs, cursorId, limit}
                     : new Object[]{reposterPrincipalId, cursorTs, cursorTs, cursorId, limit};
@@ -216,9 +216,8 @@ public class RepostsRepository {
                     rs.getObject("repost_created_at", OffsetDateTime.class),
                     post
             );
-        });
+        }, params);
     }
 
     public record RepostedPostRow(long repostId, OffsetDateTime repostedAt, PostRepository.PostRow post) {}
 }
-
