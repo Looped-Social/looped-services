@@ -104,6 +104,24 @@ class ExtendedEndpointsIntegrationTest extends PostgresTestBase {
     }
 
     @Test
+    void conversations_list_filters_out_invalid_conversations_missing_other_participant() throws Exception {
+        long companyId = jdbc.queryForObject("INSERT INTO companies(name, domain) VALUES ('MsgCo','msg.co') RETURNING id", Long.class);
+        long userId = jdbc.queryForObject("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?) RETURNING id",
+                Long.class, "uid-msg-user", "msguser", companyId);
+
+        long conversationId = jdbc.queryForObject("INSERT INTO conversations(company_id) VALUES (?) RETURNING id", Long.class, companyId);
+        jdbc.update("INSERT INTO conversation_participants(conversation_id, user_id, last_read_at) VALUES (?,?, now())",
+                conversationId, userId);
+
+        String auth = "Bearer " + token("uid-msg-user");
+
+        mockMvc.perform(get("/v1/conversations")
+                        .header("Authorization", auth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items", hasSize(0)));
+    }
+
+    @Test
     void conversation_flow_and_messages() throws Exception {
         long companyId = jdbc.queryForObject("INSERT INTO companies(name, domain) VALUES ('ChatCo','chat.co') RETURNING id", Long.class);
         long actorId = jdbc.queryForObject("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?) RETURNING id",
@@ -143,6 +161,22 @@ class ExtendedEndpointsIntegrationTest extends PostgresTestBase {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items[0].last_message", equalTo("hello")))
                 .andExpect(jsonPath("$.items[0].other_user_profile.handle", equalTo("bravo")));
+    }
+
+    @Test
+    void cannot_start_conversation_with_self() throws Exception {
+        long companyId = jdbc.queryForObject("INSERT INTO companies(name, domain) VALUES ('SelfCo','self.co') RETURNING id", Long.class);
+        long userId = jdbc.queryForObject("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?) RETURNING id",
+                Long.class, "uid-self", "self", companyId);
+
+        String auth = "Bearer " + token("uid-self");
+
+        mockMvc.perform(post("/v1/conversations")
+                        .header("Authorization", auth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"participantUserId\":" + userId + "}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error", equalTo("invalid_participant")));
     }
 
     @Test

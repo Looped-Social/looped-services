@@ -56,6 +56,9 @@ public class ConversationsController {
         if (res.status() == ConversationService.Status.ANONYMOUS_NOT_ALLOWED) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "anonymous_not_allowed"));
         }
+        if (res.status() == ConversationService.Status.INVALID_PARTICIPANT) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of("error", "invalid_participant"));
+        }
         if (res.status() == ConversationService.Status.NOT_FOUND) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "not_found"));
         }

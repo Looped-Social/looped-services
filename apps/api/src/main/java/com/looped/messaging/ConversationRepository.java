@@ -86,13 +86,16 @@ public class ConversationRepository {
                 "COALESCE((SELECT created_at FROM conversation_messages cm WHERE cm.conversation_id = c.id ORDER BY cm.created_at DESC, cm.id DESC LIMIT 1), c.created_at) AS activity_at, " +
                 "(SELECT content FROM conversation_messages cm WHERE cm.conversation_id = c.id ORDER BY cm.created_at DESC, cm.id DESC LIMIT 1) AS last_message, " +
                 "(SELECT created_at FROM conversation_messages cm WHERE cm.conversation_id = c.id ORDER BY cm.created_at DESC, cm.id DESC LIMIT 1) AS last_message_at, " +
-                "(SELECT user_id FROM conversation_participants cp2 WHERE cp2.conversation_id = c.id AND cp2.user_id <> ? LIMIT 1) AS other_user_id, " +
+                "uo.id AS other_user_id, uo.handle AS other_user_handle, uo.display_name AS other_user_display_name, " +
+                "uo.bio AS other_user_bio, uo.company_id AS other_user_company_id, uo.profile_image_url AS other_user_profile_image_url, " +
                 "(SELECT COUNT(*) FROM conversation_messages cm WHERE cm.conversation_id = c.id AND cm.created_at > COALESCE(cp.last_read_at, to_timestamp(0))) AS unread_count " +
                 "FROM conversations c " +
-                "JOIN conversation_participants cp ON cp.conversation_id = c.id " +
+                "JOIN conversation_participants cp ON cp.conversation_id = c.id AND cp.user_id = ? " +
+                "JOIN conversation_participants cp2 ON cp2.conversation_id = c.id AND cp2.user_id <> ? " +
+                "JOIN users uo ON uo.id = cp2.user_id AND uo.deleted_at IS NULL " +
                 "LEFT JOIN conversation_message_requests cmr " +
                 "ON cmr.conversation_id = c.id AND cmr.recipient_id = ? AND cmr.status IN ('pending', 'rejected') " +
-                "WHERE cp.user_id = ? AND cmr.id IS NULL ";
+                "WHERE cmr.id IS NULL ";
         if (cursorTs == null || cursorId == null) {
             base += "ORDER BY activity_at DESC, c.id DESC LIMIT " + limit;
             return jdbc.query(base, (rs, rowNum) -> mapConversationSummary(rs), userId, userId, userId);
@@ -108,10 +111,14 @@ public class ConversationRepository {
                 "COALESCE((SELECT created_at FROM conversation_messages cm WHERE cm.conversation_id = c.id ORDER BY cm.created_at DESC, cm.id DESC LIMIT 1), c.created_at) AS activity_at, " +
                 "(SELECT content FROM conversation_messages cm WHERE cm.conversation_id = c.id ORDER BY cm.created_at DESC, cm.id DESC LIMIT 1) AS last_message, " +
                 "(SELECT created_at FROM conversation_messages cm WHERE cm.conversation_id = c.id ORDER BY cm.created_at DESC, cm.id DESC LIMIT 1) AS last_message_at, " +
-                "(SELECT user_id FROM conversation_participants cp2 WHERE cp2.conversation_id = c.id AND cp2.user_id <> ? LIMIT 1) AS other_user_id, " +
+                "uo.id AS other_user_id, uo.handle AS other_user_handle, uo.display_name AS other_user_display_name, " +
+                "uo.bio AS other_user_bio, uo.company_id AS other_user_company_id, uo.profile_image_url AS other_user_profile_image_url, " +
                 "(SELECT COUNT(*) FROM conversation_messages cm WHERE cm.conversation_id = c.id AND cm.created_at > COALESCE(cp.last_read_at, to_timestamp(0))) AS unread_count " +
-                "FROM conversations c JOIN conversation_participants cp ON cp.conversation_id = c.id " +
-                "WHERE cp.user_id = ? AND c.id = ?";
+                "FROM conversations c " +
+                "JOIN conversation_participants cp ON cp.conversation_id = c.id AND cp.user_id = ? " +
+                "JOIN conversation_participants cp2 ON cp2.conversation_id = c.id AND cp2.user_id <> ? " +
+                "JOIN users uo ON uo.id = cp2.user_id AND uo.deleted_at IS NULL " +
+                "WHERE c.id = ?";
         List<ConversationSummary> list = jdbc.query(sql, (rs, rowNum) -> mapConversationSummary(rs), userId, userId, conversationId);
         return list.isEmpty() ? Optional.empty() : Optional.of(list.get(0));
     }
@@ -123,6 +130,12 @@ public class ConversationRepository {
         summary.activityAt = rs.getObject("activity_at", OffsetDateTime.class);
         long other = rs.getLong("other_user_id");
         summary.otherUserId = rs.wasNull() ? null : other;
+        summary.otherUserHandle = rs.getString("other_user_handle");
+        summary.otherUserDisplayName = rs.getString("other_user_display_name");
+        summary.otherUserBio = rs.getString("other_user_bio");
+        long otherCompanyId = rs.getLong("other_user_company_id");
+        summary.otherUserCompanyId = rs.wasNull() ? null : otherCompanyId;
+        summary.otherUserProfileImageUrl = rs.getString("other_user_profile_image_url");
         summary.lastMessage = rs.getString("last_message");
         summary.lastMessageAt = rs.getObject("last_message_at", OffsetDateTime.class);
         summary.unreadCount = rs.getInt("unread_count");
@@ -178,6 +191,11 @@ public class ConversationRepository {
         public long companyId;
         public OffsetDateTime activityAt;
         public Long otherUserId;
+        public String otherUserHandle;
+        public String otherUserDisplayName;
+        public String otherUserBio;
+        public Long otherUserCompanyId;
+        public String otherUserProfileImageUrl;
         public String lastMessage;
         public OffsetDateTime lastMessageAt;
         public int unreadCount;

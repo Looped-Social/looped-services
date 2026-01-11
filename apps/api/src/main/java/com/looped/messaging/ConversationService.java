@@ -64,9 +64,15 @@ public class ConversationService {
             Map<String, Object> out = new HashMap<>();
             out.put("id", row.id);
             out.put("other_user_id", row.otherUserId);
-            if (row.otherUserId != null) {
-                users.findById(row.otherUserId).ifPresent(u -> out.put("other_user_profile", UserPayloads.directory(u)));
-            }
+            Map<String, Object> profile = new HashMap<>();
+            profile.put("id", row.otherUserId);
+            profile.put("handle", row.otherUserHandle);
+            profile.put("username", row.otherUserHandle);
+            profile.put("display_name", row.otherUserDisplayName);
+            profile.put("bio", row.otherUserBio);
+            profile.put("company_id", row.otherUserCompanyId);
+            profile.put("profile_image_url", row.otherUserProfileImageUrl);
+            out.put("other_user_profile", profile);
             out.put("last_message", row.lastMessage);
             out.put("last_message_timestamp", row.lastMessageAt);
             out.put("unread_count", row.unreadCount);
@@ -79,6 +85,7 @@ public class ConversationService {
         var actor = requireProvisionedUser(firebaseUid);
         if (actor.isEmpty()) return StartResult.userNotProvisioned();
         if (actor.get().isAnonymous) return StartResult.anonymousNotAllowed();
+        if (participantUserId == actor.get().id) return StartResult.invalidParticipant();
         var participant = users.findById(participantUserId);
         if (participant.isEmpty()) return StartResult.notFound();
 
@@ -106,7 +113,7 @@ public class ConversationService {
         Map<String, Object> payload = new HashMap<>();
         payload.put("id", summary.id);
         payload.put("other_user_id", summary.otherUserId);
-        users.findById(participantUserId).ifPresent(u -> payload.put("other_user_profile", UserPayloads.directory(u)));
+        payload.put("other_user_profile", UserPayloads.directory(participant.get()));
         payload.put("last_message", summary.lastMessage);
         payload.put("last_message_timestamp", summary.lastMessageAt);
         payload.put("unread_count", summary.unreadCount);
@@ -176,7 +183,7 @@ public class ConversationService {
         return user;
     }
 
-    public enum Status { OK, USER_NOT_PROVISIONED, NOT_FOUND, FORBIDDEN, ANONYMOUS_NOT_ALLOWED, MESSAGE_REQUEST_PENDING, MESSAGE_REQUEST_REJECTED }
+    public enum Status { OK, USER_NOT_PROVISIONED, NOT_FOUND, FORBIDDEN, ANONYMOUS_NOT_ALLOWED, MESSAGE_REQUEST_PENDING, MESSAGE_REQUEST_REJECTED, INVALID_PARTICIPANT }
 
     public record ConversationListResult(Status status, List<Map<String, Object>> items, String nextCursor) {
         static ConversationListResult ok(List<Map<String, Object>> items, String next) { return new ConversationListResult(Status.OK, items, next); }
@@ -190,6 +197,7 @@ public class ConversationService {
         static StartResult forbidden() { return new StartResult(Status.FORBIDDEN, null); }
         static StartResult notFound() { return new StartResult(Status.NOT_FOUND, null); }
         static StartResult anonymousNotAllowed() { return new StartResult(Status.ANONYMOUS_NOT_ALLOWED, null); }
+        static StartResult invalidParticipant() { return new StartResult(Status.INVALID_PARTICIPANT, null); }
     }
 
     public record MessagesResult(Status status, List<ConversationRepository.MessageRow> messages, String nextCursor) {
