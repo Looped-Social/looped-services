@@ -14,7 +14,8 @@ public class UserRepository {
     private final JdbcTemplate jdbcTemplate;
     private static final String BASE_COLUMNS = "id, firebase_uid, handle, email, company_id, first_name, last_name, " +
             "date_of_birth, display_name, bio, is_anonymous, show_follower_count, message_permission, profile_image_url, " +
-            "hide_anonymous_posts, display_community_id, display_specialization_id, created_at, deleted_at, deleted_by";
+            "hide_anonymous_posts, display_community_id, display_specialization_id, onboarding_step, onboarding_completed_at, " +
+            "created_at, deleted_at, deleted_by";
 
     public UserRepository(JdbcTemplate jdbcTemplate) {
         this.jdbcTemplate = jdbcTemplate;
@@ -44,6 +45,8 @@ public class UserRepository {
             row.displayCommunityId = rs.wasNull() ? null : displayCommunity;
             long displaySpecialization = rs.getLong("display_specialization_id");
             row.displaySpecializationId = rs.wasNull() ? null : displaySpecialization;
+            row.onboardingStep = rs.getString("onboarding_step");
+            row.onboardingCompletedAt = rs.getObject("onboarding_completed_at", OffsetDateTime.class);
             row.createdAt = rs.getObject("created_at", OffsetDateTime.class);
             row.deletedAt = rs.getObject("deleted_at", OffsetDateTime.class);
             long deletedBy = rs.getLong("deleted_by");
@@ -190,6 +193,20 @@ public class UserRepository {
         jdbcTemplate.update(
                 "UPDATE users SET handle = ?, first_name = ?, last_name = ?, date_of_birth = ? WHERE id = ?",
                 handle, firstName, lastName, dateOfBirth, userId
+        );
+    }
+
+    public void updateOnboardingStep(long userId, String step) {
+        jdbcTemplate.update(
+                "UPDATE users SET onboarding_step = ? WHERE id = ?",
+                step, userId
+        );
+    }
+
+    public void markOnboardingComplete(long userId) {
+        jdbcTemplate.update(
+                "UPDATE users SET onboarding_step = 'verification_notifications', onboarding_completed_at = COALESCE(onboarding_completed_at, now()) WHERE id = ?",
+                userId
         );
     }
 
@@ -556,6 +573,8 @@ public class UserRepository {
         public boolean hideAnonymousPosts;
         public Long displayCommunityId;
         public Long displaySpecializationId;
+        public String onboardingStep;
+        public OffsetDateTime onboardingCompletedAt;
         public OffsetDateTime createdAt;
         public OffsetDateTime deletedAt;
         public Long deletedBy;

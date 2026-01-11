@@ -58,6 +58,8 @@ class MeIntegrationTest extends PostgresTestBase {
         mockMvc.perform(get("/v1/me").header("Authorization", "Bearer " + t))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.provisioned").value(false))
+                .andExpect(jsonPath("$.onboarding_complete").value(false))
+                .andExpect(jsonPath("$.onboarding_step").value("profile_setup"))
                 .andExpect(jsonPath("$.sub").value("uid-unprovisioned"));
     }
 
@@ -74,6 +76,8 @@ class MeIntegrationTest extends PostgresTestBase {
         mockMvc.perform(get("/v1/me").header("Authorization", "Bearer " + t))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.provisioned").value(true))
+                .andExpect(jsonPath("$.onboarding_complete").value(false))
+                .andExpect(jsonPath("$.onboarding_step").value("verification"))
                 .andExpect(jsonPath("$.user.handle").value("alice"));
     }
 

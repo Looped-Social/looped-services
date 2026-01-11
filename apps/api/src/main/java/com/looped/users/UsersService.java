@@ -325,10 +325,22 @@ public class UsersService {
     }
 
     public AvailabilityResult usernameAvailability(String username) {
+        return usernameAvailability(null, username);
+    }
+
+    public AvailabilityResult usernameAvailability(String firebaseUid, String username) {
         String normalizedHandle = normalizeHandle(username);
         if (normalizedHandle == null) return AvailabilityResult.invalid();
+
+        if (firebaseUid != null && !firebaseUid.isBlank()) {
+            var me = users.findByFirebaseUid(firebaseUid);
+            if (me.isPresent() && me.get().handle != null
+                    && normalizedHandle.equals(me.get().handle.toLowerCase(Locale.ROOT))) {
+                return AvailabilityResult.ownedByMe(normalizedHandle);
+            }
+        }
         boolean available = users.isHandleAvailable(normalizedHandle, handleReuseCutoff());
-        return AvailabilityResult.ok(normalizedHandle, available);
+        return AvailabilityResult.ok(normalizedHandle, available, false);
     }
 
     public SearchResult search(String firebaseUid, String query, String cursor, int limit) {
@@ -416,6 +428,52 @@ public class UsersService {
         if (user.isEmpty()) return Optional.empty();
         var verification = verifications.findByUserId(user.get().id).orElse(null);
         return Optional.of(buildProfile(user.get(), verification));
+    }
+
+    private static final String ONBOARDING_STEP_PROFILE_SETUP = "profile_setup";
+    private static final String ONBOARDING_STEP_SELECT_COMPANY = "select_company";
+    private static final String ONBOARDING_STEP_VERIFICATION = "verification";
+    private static final String ONBOARDING_STEP_VERIFICATION_NOTIFICATIONS = "verification_notifications";
+
+    public OnboardingState onboardingState(String firebaseUid) {
+        var userOpt = users.findByFirebaseUid(firebaseUid);
+        if (userOpt.isEmpty()) {
+            return new OnboardingState(false, ONBOARDING_STEP_PROFILE_SETUP);
+        }
+        var user = userOpt.get();
+        if (user.companyId == null) {
+            return new OnboardingState(false, ONBOARDING_STEP_SELECT_COMPANY);
+        }
+        if (user.onboardingCompletedAt != null) {
+            return new OnboardingState(true, ONBOARDING_STEP_VERIFICATION_NOTIFICATIONS);
+        }
+        String step = user.onboardingStep;
+        if (step == null || step.isBlank()) step = ONBOARDING_STEP_VERIFICATION;
+        return new OnboardingState(false, step);
+    }
+
+    public UpdateOnboardingResult updateOnboardingStep(String firebaseUid, String step) {
+        var actor = requireProvisionedUser(firebaseUid);
+        if (actor.isEmpty()) return UpdateOnboardingResult.userNotProvisioned();
+
+        if (actor.get().onboardingCompletedAt != null) {
+            return UpdateOnboardingResult.ok(new OnboardingState(true, ONBOARDING_STEP_VERIFICATION_NOTIFICATIONS));
+        }
+
+        String normalized = step == null ? null : step.trim().toLowerCase(Locale.ROOT);
+        if (normalized == null || normalized.isBlank()) return UpdateOnboardingResult.invalidStep();
+
+        return switch (normalized) {
+            case ONBOARDING_STEP_VERIFICATION -> {
+                users.updateOnboardingStep(actor.get().id, ONBOARDING_STEP_VERIFICATION);
+                yield UpdateOnboardingResult.ok(new OnboardingState(false, ONBOARDING_STEP_VERIFICATION));
+            }
+            case ONBOARDING_STEP_VERIFICATION_NOTIFICATIONS -> {
+                users.markOnboardingComplete(actor.get().id);
+                yield UpdateOnboardingResult.ok(new OnboardingState(true, ONBOARDING_STEP_VERIFICATION_NOTIFICATIONS));
+            }
+            default -> UpdateOnboardingResult.invalidStep();
+        };
     }
 
     public void syncEmail(String firebaseUid, String email) {
@@ -615,9 +673,26 @@ public class UsersService {
         static OnboardResult badRequest(String error) { return new OnboardResult(OnboardStatus.BAD_REQUEST, null, error); }
     }
 
-    public record AvailabilityResult(boolean valid, String username, boolean available) {
-        static AvailabilityResult ok(String username, boolean available) { return new AvailabilityResult(true, username, available); }
-        static AvailabilityResult invalid() { return new AvailabilityResult(false, null, false); }
+    public record AvailabilityResult(boolean valid, String username, boolean available, boolean ownedByMe) {
+        static AvailabilityResult ok(String username, boolean available, boolean ownedByMe) {
+            return new AvailabilityResult(true, username, available, ownedByMe);
+        }
+
+        static AvailabilityResult ownedByMe(String username) {
+            return new AvailabilityResult(true, username, true, true);
+        }
+
+        static AvailabilityResult invalid() { return new AvailabilityResult(false, null, false, false); }
+    }
+
+    public record OnboardingState(boolean onboardingComplete, String onboardingStep) {}
+
+    public enum UpdateOnboardingStatus { OK, USER_NOT_PROVISIONED, INVALID_STEP }
+
+    public record UpdateOnboardingResult(UpdateOnboardingStatus status, OnboardingState state) {
+        static UpdateOnboardingResult ok(OnboardingState state) { return new UpdateOnboardingResult(UpdateOnboardingStatus.OK, state); }
+        static UpdateOnboardingResult userNotProvisioned() { return new UpdateOnboardingResult(UpdateOnboardingStatus.USER_NOT_PROVISIONED, null); }
+        static UpdateOnboardingResult invalidStep() { return new UpdateOnboardingResult(UpdateOnboardingStatus.INVALID_STEP, null); }
     }
 
     public record SearchResult(Status status, List<UserRepository.UserRow> users, String nextCursor) {

@@ -44,14 +44,18 @@ public class UsersController {
     }
 
     @GetMapping("/username/availability")
-    public ResponseEntity<?> usernameAvailability(@RequestParam("username") String username) {
-        var res = service.usernameAvailability(username);
+    public ResponseEntity<?> usernameAvailability(
+            @AuthenticationPrincipal Jwt jwt,
+            @RequestParam("username") String username
+    ) {
+        var res = service.usernameAvailability(jwt.getSubject(), username);
         if (!res.valid()) {
             return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of("error", "invalid_username"));
         }
         return ResponseEntity.ok(Map.of(
                 "username", res.username(),
-                "available", res.available()
+                "available", res.available(),
+                "owned_by_me", res.ownedByMe()
         ));
     }
 
@@ -155,6 +159,26 @@ public class UsersController {
             ));
             case OK -> ResponseEntity.ok(UserPayloads.fromProfile(res.profile(), true, true));
             default -> ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        };
+    }
+
+    @PutMapping("/me/onboarding")
+    public ResponseEntity<?> updateOnboarding(
+            @AuthenticationPrincipal Jwt jwt,
+            @Validated @RequestBody UpdateOnboardingRequest body
+    ) {
+        var res = service.updateOnboardingStep(jwt.getSubject(), body.step());
+        return switch (res.status()) {
+            case USER_NOT_PROVISIONED -> ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
+                    "error", "user_not_provisioned"
+            ));
+            case INVALID_STEP -> ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of(
+                    "error", "invalid_onboarding_step"
+            ));
+            case OK -> ResponseEntity.ok(Map.of(
+                    "onboarding_complete", res.state().onboardingComplete(),
+                    "onboarding_step", res.state().onboardingStep()
+            ));
         };
     }
 
@@ -481,6 +505,8 @@ public class UsersController {
             @NotBlank @Size(max = 50) String lastName,
             @NotNull LocalDate dateOfBirth
     ) {}
+
+    public record UpdateOnboardingRequest(@NotBlank String step) {}
 
     public record OnboardRequest(
             @NotBlank @Size(min = 3, max = 30) String username,

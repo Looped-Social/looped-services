@@ -25,6 +25,7 @@ import static org.hamcrest.Matchers.notNullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -262,5 +263,42 @@ class UsersIntegrationTest extends PostgresTestBase {
                 Integer.class
         );
         org.junit.jupiter.api.Assertions.assertEquals(1, tombstones.intValue());
+    }
+
+    @Test
+    void username_availability_reports_owned_by_me() throws Exception {
+        long companyId = jdbc.queryForObject("INSERT INTO companies(name, domain) VALUES ('OwnCo','own.co') RETURNING id", Long.class);
+        jdbc.update("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?)", "uid-own", "mara", companyId);
+
+        String auth = "Bearer " + token("uid-own");
+        mockMvc.perform(get("/v1/users/username/availability?username=mara")
+                        .header("Authorization", auth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.available", equalTo(true)))
+                .andExpect(jsonPath("$.owned_by_me", equalTo(true)));
+    }
+
+    @Test
+    void update_onboarding_marks_complete() throws Exception {
+        long companyId = jdbc.queryForObject("INSERT INTO companies(name, domain) VALUES ('OnbCo','onb.co') RETURNING id", Long.class);
+        long userId = jdbc.queryForObject(
+                "INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?) RETURNING id",
+                Long.class, "uid-onb", "onboarded", companyId
+        );
+
+        String auth = "Bearer " + token("uid-onb");
+        mockMvc.perform(put("/v1/users/me/onboarding")
+                        .header("Authorization", auth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"step\":\"verification_notifications\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.onboarding_complete", equalTo(true)))
+                .andExpect(jsonPath("$.onboarding_step", equalTo("verification_notifications")));
+
+        Timestamp completedAt = jdbc.queryForObject(
+                "SELECT onboarding_completed_at FROM users WHERE id = ?",
+                Timestamp.class, userId
+        );
+        org.junit.jupiter.api.Assertions.assertNotNull(completedAt);
     }
 }

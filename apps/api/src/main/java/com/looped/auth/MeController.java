@@ -29,11 +29,15 @@ public class MeController {
         if (loginStatus == UsersService.LoginStatus.PURGED) {
             resp.put("provisioned", false);
             resp.put("account_deleted", true);
+            resp.put("onboarding_complete", false);
+            resp.put("onboarding_step", "profile_setup");
             return resp;
         }
         if (loginStatus == UsersService.LoginStatus.PURGE_FAILED) {
             resp.put("provisioned", false);
             resp.put("account_delete_pending", true);
+            resp.put("onboarding_complete", false);
+            resp.put("onboarding_step", "profile_setup");
             return resp;
         }
         Object email = jwt.getClaims().get("email");
@@ -41,6 +45,10 @@ public class MeController {
             resp.put("email", email);
             users.syncEmail(jwt.getSubject(), email.toString());
         }
+
+        var onboarding = users.onboardingState(jwt.getSubject());
+        resp.put("onboarding_complete", onboarding.onboardingComplete());
+        resp.put("onboarding_step", onboarding.onboardingStep());
 
         var profile = users.currentProfile(jwt.getSubject());
         if (profile.isEmpty()) {
