@@ -2,6 +2,7 @@ package com.looped.posts;
 
 import com.looped.polls.PollPayloads;
 import com.looped.polls.PollsService;
+import org.springframework.dao.DataAccessException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -17,6 +18,8 @@ import java.util.Map;
 
 @RestController
 public class UserRepostsController {
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(UserRepostsController.class);
+
     private final PostCollectionsService service;
     private final PollsService pollsService;
 
@@ -32,8 +35,23 @@ public class UserRepostsController {
             @RequestParam(value = "cursor", required = false) String cursor,
             @RequestParam(value = "limit", required = false, defaultValue = "20") int limit
     ) {
+        if (jwt == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of(
+                    "error", "unauthorized",
+                    "message", "Authorization is required"
+            ));
+        }
         int lim = Math.max(1, Math.min(limit, 100));
-        var res = service.repostedForUser(jwt.getSubject(), id, cursor, lim);
+        final PostCollectionsService.ListResult res;
+        try {
+            res = service.repostedForUser(jwt.getSubject(), id, cursor, lim);
+        } catch (DataAccessException e) {
+            log.warn("user_reposts_query_failed", e);
+            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(Map.of(
+                    "error", "reposts_unavailable",
+                    "message", "Reposts are temporarily unavailable"
+            ));
+        }
         return switch (res.status()) {
             case USER_NOT_PROVISIONED -> ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
                     "error", "user_not_provisioned",
@@ -61,4 +79,3 @@ public class UserRepostsController {
         };
     }
 }
-
