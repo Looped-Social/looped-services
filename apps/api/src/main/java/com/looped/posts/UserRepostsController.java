@@ -46,11 +46,17 @@ public class UserRepostsController {
         try {
             res = service.repostedForUser(jwt.getSubject(), id, cursor, lim);
         } catch (DataAccessException e) {
-            log.warn("user_reposts_query_failed", e);
-            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(Map.of(
-                    "error", "reposts_unavailable",
-                    "message", "Reposts are temporarily unavailable"
-            ));
+            String cause = e.getMostSpecificCause() == null ? e.getMessage() : e.getMostSpecificCause().getMessage();
+            log.warn("user_reposts_query_failed cause={}", cause, e);
+            String requestId = org.slf4j.MDC.get("request_id");
+            Map<String, Object> body = new HashMap<>();
+            body.put("error", "reposts_unavailable");
+            body.put("message", "Reposts are temporarily unavailable");
+            if (requestId != null && !requestId.isBlank()) {
+                body.put("request_id", requestId);
+                body.put("requestId", requestId);
+            }
+            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(body);
         }
         return switch (res.status()) {
             case USER_NOT_PROVISIONED -> ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
