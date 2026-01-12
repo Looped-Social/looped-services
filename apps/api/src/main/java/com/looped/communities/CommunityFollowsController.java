@@ -20,9 +20,12 @@ import java.util.Map;
 @RequestMapping("/v1")
 public class CommunityFollowsController {
     private final CommunityFollowsService service;
+    private final CommunityVerificationsRepository verifications;
 
-    public CommunityFollowsController(CommunityFollowsService service) {
+    public CommunityFollowsController(CommunityFollowsService service,
+                                      CommunityVerificationsRepository verifications) {
         this.service = service;
+        this.verifications = verifications;
     }
 
     @GetMapping("/me/followed/communities")
@@ -43,7 +46,12 @@ public class CommunityFollowsController {
         if (res.status() != CommunityFollowsService.Status.OK) {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
-        List<Map<String, Object>> items = res.follows().stream().map(this::payload).toList();
+        var memberCounts = verifications.countActiveVerifiedMembersByCommunityIds(
+                res.follows().stream().map(r -> r.communityId).toList()
+        );
+        List<Map<String, Object>> items = res.follows().stream()
+                .map(row -> payload(row, memberCounts))
+                .toList();
         Map<String, Object> body = new HashMap<>();
         body.put("items", items);
         if (res.nextCursor() != null) {
@@ -96,13 +104,13 @@ public class CommunityFollowsController {
         };
     }
 
-    private Map<String, Object> payload(CommunityFollowsRepository.FollowRow row) {
+    private Map<String, Object> payload(CommunityFollowsRepository.FollowRow row, java.util.Map<Long, Integer> memberCounts) {
         Map<String, Object> map = new HashMap<>();
         map.put("id", row.communityId);
         map.put("name", row.name);
         map.put("kind", row.kind);
         if (row.specializationType != null) map.put("specialization_type", row.specializationType);
-        map.put("member_count", row.memberCount);
+        map.put("member_count", memberCounts.getOrDefault(row.communityId, 0));
         map.put("is_pinned", row.isPinned);
         map.put("can_post", row.canPost);
         if ("specialization".equalsIgnoreCase(row.kind)) {

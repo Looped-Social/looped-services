@@ -4,7 +4,11 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
 import java.time.OffsetDateTime;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 @Repository
 public class CommunityVerificationsRepository {
@@ -27,6 +31,37 @@ public class CommunityVerificationsRepository {
         );
         if (rows == null) return false;
         return rows.verified && (rows.expiresAt == null || rows.expiresAt.isAfter(OffsetDateTime.now()));
+    }
+
+    public int countActiveVerifiedMembers(long communityId) {
+        Integer count = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM community_verifications " +
+                        "WHERE community_id = ? AND verified = true AND (expires_at IS NULL OR expires_at > now())",
+                Integer.class,
+                communityId
+        );
+        return count == null ? 0 : count;
+    }
+
+    public Map<Long, Integer> countActiveVerifiedMembersByCommunityIds(Collection<Long> communityIds) {
+        if (communityIds == null || communityIds.isEmpty()) return Map.of();
+        String placeholders = String.join(",", java.util.Collections.nCopies(communityIds.size(), "?"));
+        List<Object> args = new ArrayList<>();
+        args.addAll(communityIds);
+        return jdbc.query(
+                "SELECT community_id, COUNT(*) AS cnt FROM community_verifications " +
+                        "WHERE community_id IN (" + placeholders + ") " +
+                        "AND verified = true AND (expires_at IS NULL OR expires_at > now()) " +
+                        "GROUP BY community_id",
+                rs -> {
+                    Map<Long, Integer> out = new HashMap<>();
+                    while (rs.next()) {
+                        out.put(rs.getLong("community_id"), rs.getInt("cnt"));
+                    }
+                    return out;
+                },
+                args.toArray()
+        );
     }
 
     public java.util.Optional<UserVerificationRow> findForUserAndCommunity(long userId, long communityId) {

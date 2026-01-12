@@ -23,13 +23,16 @@ public class SpecializationsController {
     private final CommunityFollowsService communityFollows;
     private final SpecializationMembershipService memberships;
     private final CommunitiesRepository communities;
+    private final CommunityVerificationsRepository verifications;
 
     public SpecializationsController(CommunityFollowsService communityFollows,
                                      SpecializationMembershipService memberships,
-                                     CommunitiesRepository communities) {
+                                     CommunitiesRepository communities,
+                                     CommunityVerificationsRepository verifications) {
         this.communityFollows = communityFollows;
         this.memberships = memberships;
         this.communities = communities;
+        this.verifications = verifications;
     }
 
     @PostMapping("/specializations/{id}/follow")
@@ -147,19 +150,22 @@ public class SpecializationsController {
         if (res.status() != SpecializationMembershipService.Status.OK) {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
-        List<Map<String, Object>> items = res.items().stream().map(this::payload).toList();
+        var memberCounts = verifications.countActiveVerifiedMembersByCommunityIds(
+                res.items().stream().map(SpecializationJoinsRepository.JoinRow::specializationId).toList()
+        );
+        List<Map<String, Object>> items = res.items().stream().map(row -> payload(row, memberCounts)).toList();
         Map<String, Object> body = new HashMap<>();
         body.put("items", items);
         if (res.nextCursor() != null) body.put("next_cursor", res.nextCursor());
         return ResponseEntity.ok(body);
     }
 
-    private Map<String, Object> payload(SpecializationJoinsRepository.JoinRow row) {
+    private Map<String, Object> payload(SpecializationJoinsRepository.JoinRow row, java.util.Map<Long, Integer> memberCounts) {
         Map<String, Object> out = new HashMap<>();
         out.put("id", row.specializationId());
         out.put("kind", row.kind());
         out.put("name", row.name());
-        out.put("member_count", row.memberCount());
+        out.put("member_count", memberCounts.getOrDefault(row.specializationId(), 0));
         if (row.specializationType() != null) out.put("specialization_type", row.specializationType());
         out.put("joined_at", row.createdAt());
         return out;

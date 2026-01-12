@@ -63,10 +63,35 @@ class CommunityDetailsIntegrationTest extends PostgresTestBase {
                 Long.class
         );
         jdbc.update(
-                "UPDATE communities SET member_count = ?, image_url = ?, short_name = ? WHERE id = ?",
-                42, "https://cdn.example.com/unc.png", "UNC", communityId
+                "UPDATE communities SET image_url = ?, short_name = ? WHERE id = ?",
+                "https://cdn.example.com/unc.png", "UNC", communityId
         );
         jdbc.update("INSERT INTO community_follows(user_id, community_id) VALUES (?,?)", userId, communityId);
+
+        long otherUserA = jdbc.queryForObject(
+                "INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?) RETURNING id",
+                Long.class, "uid-community-detail-a", "membera", companyId
+        );
+        long otherUserB = jdbc.queryForObject(
+                "INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?) RETURNING id",
+                Long.class, "uid-community-detail-b", "memberb", companyId
+        );
+        long otherUserExpired = jdbc.queryForObject(
+                "INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?) RETURNING id",
+                Long.class, "uid-community-detail-expired", "memberexpired", companyId
+        );
+        jdbc.update(
+                "INSERT INTO community_verifications(user_id, community_id, method, verified, expires_at) VALUES (?,?,?,?, NULL)",
+                otherUserA, communityId, "manual", true
+        );
+        jdbc.update(
+                "INSERT INTO community_verifications(user_id, community_id, method, verified, expires_at) VALUES (?,?,?,?, NULL)",
+                otherUserB, communityId, "manual", true
+        );
+        jdbc.update(
+                "INSERT INTO community_verifications(user_id, community_id, method, verified, expires_at) VALUES (?,?,?,?, now() - interval '1 day')",
+                otherUserExpired, communityId, "manual", true
+        );
 
         String auth = "Bearer " + token("uid-community-detail");
 
@@ -79,7 +104,7 @@ class CommunityDetailsIntegrationTest extends PostgresTestBase {
                 .andExpect(jsonPath("$.short_name").value("UNC"))
                 .andExpect(jsonPath("$.description").value("Public university"))
                 .andExpect(jsonPath("$.image_url").value("https://cdn.example.com/unc.png"))
-                .andExpect(jsonPath("$.member_count").value(42))
+                .andExpect(jsonPath("$.member_count").value(2))
                 .andExpect(jsonPath("$.is_following").value(true));
     }
 }

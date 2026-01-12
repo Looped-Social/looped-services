@@ -58,9 +58,28 @@ class CommunityRecommendedIntegrationTest extends PostgresTestBase {
                 Long.class);
         jdbc.update("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?)",
                 "uid-rec-1", "rhea", companyId);
-        jdbc.update("INSERT INTO communities(kind, specialization_type, name, member_count) VALUES ('specialization','major','Data Science', 10)");
+        long majorId = jdbc.queryForObject(
+                "INSERT INTO communities(kind, specialization_type, name, member_count) VALUES ('specialization','major','Data Science', 10) RETURNING id",
+                Long.class
+        );
         jdbc.update("INSERT INTO communities(kind, specialization_type, name, member_count) VALUES ('specialization','department','Engineering', 20)");
         jdbc.update("INSERT INTO communities(kind, name, member_count) VALUES ('company','Acme', 30)");
+        long otherUserA = jdbc.queryForObject(
+                "INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?) RETURNING id",
+                Long.class, "uid-rec-a", "reca", companyId
+        );
+        long otherUserB = jdbc.queryForObject(
+                "INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?) RETURNING id",
+                Long.class, "uid-rec-b", "recb", companyId
+        );
+        jdbc.update(
+                "INSERT INTO community_verifications(user_id, community_id, method, verified, expires_at) VALUES (?,?,?,?, NULL)",
+                otherUserA, majorId, "manual", true
+        );
+        jdbc.update(
+                "INSERT INTO community_verifications(user_id, community_id, method, verified, expires_at) VALUES (?,?,?,?, NULL)",
+                otherUserB, majorId, "manual", true
+        );
 
         String auth = "Bearer " + token("uid-rec-1");
         mockMvc.perform(get("/v1/communities/recommended")
@@ -70,7 +89,8 @@ class CommunityRecommendedIntegrationTest extends PostgresTestBase {
                 .andExpect(jsonPath("$.items", hasSize(1)))
                 .andExpect(jsonPath("$.items[0].kind", equalTo("specialization")))
                 .andExpect(jsonPath("$.items[0].specialization_type", equalTo("major")))
-                .andExpect(jsonPath("$.items[0].name", equalTo("Data Science")));
+                .andExpect(jsonPath("$.items[0].name", equalTo("Data Science")))
+                .andExpect(jsonPath("$.items[0].member_count", equalTo(2)));
     }
 
     @Test

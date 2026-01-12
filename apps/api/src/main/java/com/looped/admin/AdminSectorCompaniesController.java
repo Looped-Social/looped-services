@@ -3,6 +3,7 @@ package com.looped.admin;
 import com.looped.communities.CommunitiesRepository;
 import com.looped.communities.CommunityLogoResolver;
 import com.looped.communities.CommunitySectorLinksRepository;
+import com.looped.communities.CommunityVerificationsRepository;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
 import org.springframework.http.HttpStatus;
@@ -31,17 +32,20 @@ public class AdminSectorCompaniesController {
     private final CommunitySectorLinksRepository links;
     private final CommunityLogoResolver logos;
     private final AdminAuditRepository audit;
+    private final CommunityVerificationsRepository verifications;
 
     public AdminSectorCompaniesController(AdminAuthService auth,
                                           CommunitiesRepository communities,
                                           CommunitySectorLinksRepository links,
                                           CommunityLogoResolver logos,
-                                          AdminAuditRepository audit) {
+                                          AdminAuditRepository audit,
+                                          CommunityVerificationsRepository verifications) {
         this.auth = auth;
         this.communities = communities;
         this.links = links;
         this.logos = logos;
         this.audit = audit;
+        this.verifications = verifications;
     }
 
     @GetMapping("/{id}/companies")
@@ -60,7 +64,10 @@ public class AdminSectorCompaniesController {
         var fallback = logos.resolveFallbacks(rows.stream()
                 .map(row -> new CommunityLogoResolver.CommunityRef(row.id, row.kind, row.imageUrl))
                 .toList());
-        List<Map<String, Object>> items = rows.stream().map(row -> payload(row, fallback)).toList();
+        var memberCounts = verifications.countActiveVerifiedMembersByCommunityIds(rows.stream().map(r -> r.id).toList());
+        List<Map<String, Object>> items = rows.stream()
+                .map(row -> payload(row, fallback, memberCounts.getOrDefault(row.id, 0)))
+                .toList();
         return ResponseEntity.ok(Map.of("items", items));
     }
 
@@ -110,13 +117,13 @@ public class AdminSectorCompaniesController {
         return ResponseEntity.noContent().build();
     }
 
-    private Map<String, Object> payload(CommunitiesRepository.CommunityRow row, Map<Long, String> fallbacks) {
+    private Map<String, Object> payload(CommunitiesRepository.CommunityRow row, Map<Long, String> fallbacks, int memberCount) {
         Map<String, Object> map = new HashMap<>();
         map.put("id", row.id);
         map.put("kind", row.kind);
         map.put("name", row.name);
         if (row.description != null) map.put("description", row.description);
-        map.put("member_count", row.memberCount);
+        map.put("member_count", memberCount);
         String resolved = row.imageUrl;
         if ((resolved == null || resolved.isBlank()) && fallbacks != null) {
             resolved = fallbacks.get(row.id);

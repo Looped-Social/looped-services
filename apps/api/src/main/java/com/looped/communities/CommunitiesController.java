@@ -20,15 +20,18 @@ public class CommunitiesController {
     private final CommunitiesRepository communities;
     private final CommunityFollowsRepository follows;
     private final SpecializationJoinsRepository specializationJoins;
+    private final CommunityVerificationsRepository verifications;
 
     public CommunitiesController(UserRepository users,
                                  CommunitiesRepository communities,
                                  CommunityFollowsRepository follows,
-                                 SpecializationJoinsRepository specializationJoins) {
+                                 SpecializationJoinsRepository specializationJoins,
+                                 CommunityVerificationsRepository verifications) {
         this.users = users;
         this.communities = communities;
         this.follows = follows;
         this.specializationJoins = specializationJoins;
+        this.verifications = verifications;
     }
 
     @GetMapping("/{id}")
@@ -54,7 +57,7 @@ public class CommunitiesController {
         if (community.shortName != null) out.put("short_name", community.shortName);
         if (community.description != null) out.put("description", community.description);
         if (community.imageUrl != null) out.put("image_url", community.imageUrl);
-        out.put("member_count", community.memberCount);
+        out.put("member_count", verifications.countActiveVerifiedMembers(community.id));
         if (community.specializationType != null) out.put("specialization_type", community.specializationType);
         out.put("is_following", follows.exists(actor.get().id, id));
         if ("specialization".equalsIgnoreCase(community.kind)) {

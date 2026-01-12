@@ -1,6 +1,7 @@
 package com.looped.admin;
 
 import com.looped.communities.CommunitiesRepository;
+import com.looped.communities.CommunityVerificationsRepository;
 import com.looped.shared.Pagination;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
@@ -30,13 +31,16 @@ public class AdminSectorsController {
     private final AdminAuthService auth;
     private final CommunitiesRepository communities;
     private final AdminAuditRepository audit;
+    private final CommunityVerificationsRepository verifications;
 
     public AdminSectorsController(AdminAuthService auth,
                                   CommunitiesRepository communities,
-                                  AdminAuditRepository audit) {
+                                  AdminAuditRepository audit,
+                                  CommunityVerificationsRepository verifications) {
         this.auth = auth;
         this.communities = communities;
         this.audit = audit;
+        this.verifications = verifications;
     }
 
     @GetMapping
@@ -70,7 +74,10 @@ public class AdminSectorsController {
             var last = rows.get(rows.size() - 1);
             next = Pagination.encode(last.createdAt, last.id);
         }
-        List<Map<String, Object>> items = rows.stream().map(this::payload).toList();
+        var memberCounts = verifications.countActiveVerifiedMembersByCommunityIds(rows.stream().map(r -> r.id).toList());
+        List<Map<String, Object>> items = rows.stream()
+                .map(row -> payload(row, memberCounts.getOrDefault(row.id, 0)))
+                .toList();
         Map<String, Object> body = new HashMap<>();
         body.put("items", items);
         if (next != null) body.put("next_cursor", next);
@@ -123,13 +130,13 @@ public class AdminSectorsController {
         return ResponseEntity.ok(Map.of("status", "deleted"));
     }
 
-    private Map<String, Object> payload(CommunitiesRepository.CommunityRow row) {
+    private Map<String, Object> payload(CommunitiesRepository.CommunityRow row, int memberCount) {
         Map<String, Object> map = new HashMap<>();
         map.put("id", row.id);
         map.put("kind", row.kind);
         map.put("name", row.name);
         if (row.description != null) map.put("description", row.description);
-        map.put("member_count", row.memberCount);
+        map.put("member_count", memberCount);
         if (row.imageUrl != null) map.put("image_url", row.imageUrl);
         map.put("created_at", row.createdAt);
         if (row.verificationTtlDays != null) map.put("verification_ttl_days", row.verificationTtlDays);

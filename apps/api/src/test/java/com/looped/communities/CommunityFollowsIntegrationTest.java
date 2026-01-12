@@ -79,7 +79,7 @@ class CommunityFollowsIntegrationTest extends PostgresTestBase {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items", hasSize(2)))
                 .andExpect(jsonPath("$.items[*].name", containsInAnyOrder("Acme", "Finance")))
-                .andExpect(jsonPath("$.items[*].member_count", containsInAnyOrder(0, 0)))
+                .andExpect(jsonPath("$.items[*].member_count", containsInAnyOrder(1, 0)))
                 .andExpect(jsonPath("$.items[*].can_post", containsInAnyOrder(true, false)));
     }
 

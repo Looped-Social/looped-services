@@ -3,6 +3,7 @@ package com.looped.discovery;
 import com.looped.communities.CommunitiesRepository;
 import com.looped.communities.CommunityFollowsRepository;
 import com.looped.communities.CommunityLogoResolver;
+import com.looped.communities.CommunityVerificationsRepository;
 import com.looped.communities.SpecializationJoinsRepository;
 import com.looped.posts.PostPayloads;
 import com.looped.users.UserRepository;
@@ -31,17 +32,20 @@ public class DiscoveryController {
     private final UserRepository users;
     private final CommunityFollowsRepository follows;
     private final SpecializationJoinsRepository specializationJoins;
+    private final CommunityVerificationsRepository verifications;
 
     public DiscoveryController(DiscoveryService service,
                                CommunityLogoResolver logos,
                                UserRepository users,
                                CommunityFollowsRepository follows,
-                               SpecializationJoinsRepository specializationJoins) {
+                               SpecializationJoinsRepository specializationJoins,
+                               CommunityVerificationsRepository verifications) {
         this.service = service;
         this.logos = logos;
         this.users = users;
         this.follows = follows;
         this.specializationJoins = specializationJoins;
+        this.verifications = verifications;
     }
 
     @GetMapping("/communities/search")
@@ -87,10 +91,14 @@ public class DiscoveryController {
                         : follows.followedIds(userId, res.items().stream().map(r -> r.id).toList());
                 java.util.Set<Long> joinedIds = userId == null ? java.util.Set.of()
                         : specializationJoins.joinedIds(userId, res.items().stream().map(r -> r.id).toList());
+                var memberCounts = verifications.countActiveVerifiedMembersByCommunityIds(
+                        res.items().stream().map(r -> r.id).toList()
+                );
                 List<Map<String, Object>> items = res.items().stream()
                         .map(row -> communityPayload(row, fallback,
                                 followedIds.contains(row.id),
-                                joinedIds.contains(row.id)))
+                                joinedIds.contains(row.id),
+                                memberCounts.getOrDefault(row.id, 0)))
                         .toList();
                 Map<String, Object> body = new HashMap<>();
                 body.put("items", items);
@@ -139,8 +147,11 @@ public class DiscoveryController {
                 var fallback = logos.resolveFallbacks(res.items().stream()
                         .map(row -> new CommunityLogoResolver.CommunityRef(row.id, row.kind, row.imageUrl))
                         .toList());
+                var memberCounts = verifications.countActiveVerifiedMembersByCommunityIds(
+                        res.items().stream().map(r -> r.id).toList()
+                );
                 List<Map<String, Object>> items = res.items().stream()
-                        .map(row -> recommendedPayload(row, fallback))
+                        .map(row -> recommendedPayload(row, fallback, memberCounts.getOrDefault(row.id, 0)))
                         .toList();
                 yield ResponseEntity.ok(Map.of("items", items));
             }
@@ -176,11 +187,19 @@ public class DiscoveryController {
                             .map(row -> new CommunityLogoResolver.CommunityRef(row.id, row.kind, row.imageUrl))
                             .toList()
             );
+            var memberCounts = verifications.countActiveVerifiedMembersByCommunityIds(
+                    java.util.stream.Stream.concat(
+                                    majorsRes.items().stream(),
+                                    departmentsRes.items().stream()
+                            )
+                            .map(row -> row.id)
+                            .toList()
+            );
             List<Map<String, Object>> majors = majorsRes.items().stream()
-                    .map(row -> recommendedPayload(row, fallback))
+                    .map(row -> recommendedPayload(row, fallback, memberCounts.getOrDefault(row.id, 0)))
                     .toList();
             List<Map<String, Object>> departments = departmentsRes.items().stream()
-                    .map(row -> recommendedPayload(row, fallback))
+                    .map(row -> recommendedPayload(row, fallback, memberCounts.getOrDefault(row.id, 0)))
                     .toList();
             return ResponseEntity.ok(Map.of(
                     "majors", majors,
@@ -192,8 +211,11 @@ public class DiscoveryController {
         var fallback = logos.resolveFallbacks(res.items().stream()
                 .map(row -> new CommunityLogoResolver.CommunityRef(row.id, row.kind, row.imageUrl))
                 .toList());
+        var memberCounts = verifications.countActiveVerifiedMembersByCommunityIds(
+                res.items().stream().map(r -> r.id).toList()
+        );
         List<Map<String, Object>> items = res.items().stream()
-                .map(row -> recommendedPayload(row, fallback))
+                .map(row -> recommendedPayload(row, fallback, memberCounts.getOrDefault(row.id, 0)))
                 .toList();
         return ResponseEntity.ok(Map.of("items", items));
     }
@@ -270,13 +292,14 @@ public class DiscoveryController {
     private Map<String, Object> communityPayload(CommunitiesRepository.CommunityRow row,
                                                  Map<Long, String> fallbacks,
                                                  boolean isFollowing,
-                                                 boolean isJoined) {
+                                                 boolean isJoined,
+                                                 int memberCount) {
         Map<String, Object> map = new HashMap<>();
         map.put("id", row.id);
         map.put("kind", row.kind);
         map.put("name", row.name);
         map.put("description", row.description);
-        map.put("member_count", row.memberCount);
+        map.put("member_count", memberCount);
         map.put("is_following", isFollowing);
         if ("specialization".equalsIgnoreCase(row.kind)) {
             map.put("is_joined", isJoined);
@@ -299,13 +322,13 @@ public class DiscoveryController {
         return map;
     }
 
-    private Map<String, Object> recommendedPayload(CommunitiesRepository.RecommendedRow row, Map<Long, String> fallbacks) {
+    private Map<String, Object> recommendedPayload(CommunitiesRepository.RecommendedRow row, Map<Long, String> fallbacks, int memberCount) {
         Map<String, Object> map = new HashMap<>();
         map.put("id", row.id);
         map.put("kind", row.kind);
         map.put("name", row.name);
         map.put("description", row.description);
-        map.put("member_count", row.memberCount);
+        map.put("member_count", memberCount);
         map.put("is_following", row.isFollowing);
         map.put("is_joined", row.isJoined);
         if (row.specializationType != null) map.put("specialization_type", row.specializationType);

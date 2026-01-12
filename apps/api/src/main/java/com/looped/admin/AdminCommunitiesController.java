@@ -1,6 +1,7 @@
 package com.looped.admin;
 
 import com.looped.communities.CommunitiesRepository;
+import com.looped.communities.CommunityVerificationsRepository;
 import com.looped.communities.CommunityDomainsRepository;
 import com.looped.communities.CommunityLogoResolver;
 import com.looped.shared.Pagination;
@@ -36,17 +37,20 @@ public class AdminCommunitiesController {
     private final CommunityDomainsRepository domains;
     private final CommunityLogoResolver logos;
     private final AdminAuditRepository audit;
+    private final CommunityVerificationsRepository verifications;
 
     public AdminCommunitiesController(AdminAuthService auth,
                                       CommunitiesRepository communities,
                                       CommunityDomainsRepository domains,
                                       CommunityLogoResolver logos,
-                                      AdminAuditRepository audit) {
+                                      AdminAuditRepository audit,
+                                      CommunityVerificationsRepository verifications) {
         this.auth = auth;
         this.communities = communities;
         this.domains = domains;
         this.logos = logos;
         this.audit = audit;
+        this.verifications = verifications;
     }
 
     @GetMapping
@@ -99,8 +103,9 @@ public class AdminCommunitiesController {
                 .map(row -> new CommunityLogoResolver.CommunityRef(row.id, row.kind, row.imageUrl))
                 .toList());
         var domainFallbacks = domains.firstDomainsForCommunities(rows.stream().map(row -> row.id).toList());
+        var memberCounts = verifications.countActiveVerifiedMembersByCommunityIds(rows.stream().map(r -> r.id).toList());
         List<Map<String, Object>> items = rows.stream()
-                .map(row -> payload(row, fallback, domainFallbacks))
+                .map(row -> payload(row, fallback, domainFallbacks, memberCounts.getOrDefault(row.id, 0)))
                 .toList();
         Map<String, Object> body = new HashMap<>();
         body.put("items", items);
@@ -121,7 +126,8 @@ public class AdminCommunitiesController {
         }
         var firstDomain = domains.firstDomain(id).orElse(null);
         Map<Long, String> domainFallbacks = firstDomain == null ? null : Map.of(id, firstDomain);
-        return ResponseEntity.ok(payload(row.get(), null, domainFallbacks));
+        int memberCount = verifications.countActiveVerifiedMembers(id);
+        return ResponseEntity.ok(payload(row.get(), null, domainFallbacks, memberCount));
     }
 
     @PostMapping
@@ -221,7 +227,8 @@ public class AdminCommunitiesController {
 
     private Map<String, Object> payload(CommunitiesRepository.CommunityRow row,
                                         Map<Long, String> fallbacks,
-                                        Map<Long, String> domainFallbacks) {
+                                        Map<Long, String> domainFallbacks,
+                                        int memberCount) {
         Map<String, Object> map = new HashMap<>();
         map.put("id", row.id);
         map.put("kind", row.kind);
@@ -235,7 +242,7 @@ public class AdminCommunitiesController {
             map.put("short_name", resolvedShortName);
         }
         if (row.description != null) map.put("description", row.description);
-        map.put("member_count", row.memberCount);
+        map.put("member_count", memberCount);
         if (row.specializationType != null) map.put("specialization_type", row.specializationType);
         String resolved = row.imageUrl;
         if ((resolved == null || resolved.isBlank()) && fallbacks != null) {
