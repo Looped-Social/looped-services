@@ -5,6 +5,7 @@ import com.looped.comments.CommentsRepository;
 import com.looped.companies.CompanyRepository;
 import com.looped.communities.CommunitiesRepository;
 import com.looped.communities.CommunityVerificationsRepository;
+import com.looped.communities.SpecializationJoinsRepository;
 import com.looped.media.MediaRepository;
 import com.looped.posts.PostRepository;
 import com.looped.posts.PostStateService;
@@ -34,6 +35,7 @@ public class UsersService {
     private final CompanyRepository companies;
     private final CommunitiesRepository communities;
     private final CommunityVerificationsRepository communityVerifications;
+    private final SpecializationJoinsRepository specializationJoins;
     private final MediaRepository media;
     private final FirebaseAdminService firebaseAdmin;
     private final int deactivatedRetentionDays;
@@ -51,6 +53,7 @@ public class UsersService {
                         CompanyRepository companies,
                         CommunitiesRepository communities,
                         CommunityVerificationsRepository communityVerifications,
+                        SpecializationJoinsRepository specializationJoins,
                         MediaRepository media,
                         FirebaseAdminService firebaseAdmin,
                         @Value("${retention.deactivated-days:90}") int deactivatedRetentionDays,
@@ -67,6 +70,7 @@ public class UsersService {
         this.companies = companies;
         this.communities = communities;
         this.communityVerifications = communityVerifications;
+        this.specializationJoins = specializationJoins;
         this.media = media;
         this.firebaseAdmin = firebaseAdmin;
         this.deactivatedRetentionDays = Math.max(1, deactivatedRetentionDays);
@@ -254,6 +258,9 @@ public class UsersService {
             String specializationType = normalizeSpecializationType(row.specializationType);
             if (specializationType == null) {
                 return UpdateDisplaySpecializationResult.invalidSpecialization();
+            }
+            if (!specializationJoins.exists(actor.get().id, specializationId)) {
+                return UpdateDisplaySpecializationResult.specializationNotJoined();
             }
         }
 
@@ -737,7 +744,9 @@ public class UsersService {
         static UpdateDisplayCommunityResult communityNotVerified() { return new UpdateDisplayCommunityResult(UpdateDisplayCommunityStatus.COMMUNITY_NOT_VERIFIED, null); }
     }
 
-    public enum UpdateDisplaySpecializationStatus { OK, USER_NOT_PROVISIONED, SPECIALIZATION_NOT_FOUND, INVALID_SPECIALIZATION }
+    public enum UpdateDisplaySpecializationStatus {
+        OK, USER_NOT_PROVISIONED, SPECIALIZATION_NOT_FOUND, INVALID_SPECIALIZATION, SPECIALIZATION_NOT_JOINED
+    }
 
     public record UpdateDisplaySpecializationResult(UpdateDisplaySpecializationStatus status, UserProfile profile) {
         static UpdateDisplaySpecializationResult ok(UserProfile profile) {
@@ -751,6 +760,9 @@ public class UsersService {
         }
         static UpdateDisplaySpecializationResult invalidSpecialization() {
             return new UpdateDisplaySpecializationResult(UpdateDisplaySpecializationStatus.INVALID_SPECIALIZATION, null);
+        }
+        static UpdateDisplaySpecializationResult specializationNotJoined() {
+            return new UpdateDisplaySpecializationResult(UpdateDisplaySpecializationStatus.SPECIALIZATION_NOT_JOINED, null);
         }
     }
 

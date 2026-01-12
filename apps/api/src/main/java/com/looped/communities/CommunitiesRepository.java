@@ -350,11 +350,14 @@ public class CommunitiesRepository {
     public List<RecommendedRow> recommended(Long userId, String kind, String specializationType, int limit) {
         StringBuilder sql = new StringBuilder(
                 "SELECT c.id, c.kind, c.name, c.description, c.member_count, c.image_url, c.specialization_type, c.verification_ttl_days, " +
-                        "CASE WHEN cf.user_id IS NULL THEN false ELSE true END AS is_following " +
+                        "CASE WHEN cf.user_id IS NULL THEN false ELSE true END AS is_following, " +
+                        "CASE WHEN sj.user_id IS NULL THEN false ELSE true END AS is_joined " +
                         "FROM communities c " +
-                        "LEFT JOIN community_follows cf ON cf.community_id = c.id AND cf.user_id = COALESCE(?, -1::bigint) "
+                        "LEFT JOIN community_follows cf ON cf.community_id = c.id AND cf.user_id = COALESCE(?, -1::bigint) " +
+                        "LEFT JOIN specialization_joins sj ON sj.specialization_id = c.id AND sj.user_id = COALESCE(?, -1::bigint) "
         );
         List<Object> params = new ArrayList<>();
+        params.add(userId);
         params.add(userId);
         boolean hasWhere = false;
         if (kind != null && !kind.isBlank()) {
@@ -383,6 +386,7 @@ public class CommunitiesRepository {
                     int ttlDays = rs.getInt("verification_ttl_days");
                     row.verificationTtlDays = rs.wasNull() ? null : ttlDays;
                     row.isFollowing = rs.getBoolean("is_following");
+                    row.isJoined = rs.getBoolean("is_joined");
                     return row;
                 },
                 params.toArray()
@@ -439,6 +443,7 @@ public class CommunitiesRepository {
         public String imageUrl;
         public String specializationType;
         public boolean isFollowing;
+        public boolean isJoined;
         public Integer verificationTtlDays;
     }
 

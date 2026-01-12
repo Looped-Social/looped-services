@@ -19,6 +19,7 @@ import java.time.Instant;
 import java.util.List;
 
 import static org.hamcrest.Matchers.equalTo;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -65,6 +66,11 @@ class DisplaySpecializationIntegrationTest extends PostgresTestBase {
 
         String auth = "Bearer " + token("uid-display-spec");
 
+        mockMvc.perform(post("/v1/specializations/" + specializationId + "/join")
+                        .header("Authorization", auth))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.joined").value(true));
+
         mockMvc.perform(put("/v1/users/me/display-specialization")
                         .header("Authorization", auth)
                         .contentType(MediaType.APPLICATION_JSON)
@@ -72,6 +78,25 @@ class DisplaySpecializationIntegrationTest extends PostgresTestBase {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.display_specialization.id").value((int) specializationId))
                 .andExpect(jsonPath("$.display_specialization.specialization_type").value("major"));
+    }
+
+    @Test
+    void set_display_specialization_requires_join() throws Exception {
+        long companyId = jdbc.queryForObject("INSERT INTO companies(name, domain) VALUES ('SpecJoin','spec.join') RETURNING id", Long.class);
+        jdbc.update("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?)", "uid-display-spec-join", "displayspecjoin", companyId);
+        long specializationId = jdbc.queryForObject(
+                "INSERT INTO communities(kind, specialization_type, name) VALUES ('specialization', 'department', 'Engineering') RETURNING id",
+                Long.class
+        );
+
+        String auth = "Bearer " + token("uid-display-spec-join");
+
+        mockMvc.perform(put("/v1/users/me/display-specialization")
+                        .header("Authorization", auth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"specializationId\":" + specializationId + "}"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error").value(equalTo("specialization_not_joined")));
     }
 
     @Test

@@ -14,21 +14,22 @@ public class SpecializationLimitsRepository {
         this.jdbc = jdbc;
     }
 
-    public Optional<OffsetDateTime> findLastChange(long userId, String specializationType) {
+    public Optional<OffsetDateTime> findLastChange(long userId, String specializationType, String scope) {
         var rows = jdbc.query(
-                "SELECT last_changed_at FROM user_specialization_limits WHERE user_id = ? AND specialization_type = ?",
+                "SELECT last_changed_at FROM user_specialization_limits " +
+                        "WHERE user_id = ? AND specialization_type = ? AND scope = ?",
                 (rs, rowNum) -> rs.getObject("last_changed_at", OffsetDateTime.class),
-                userId, specializationType
+                userId, specializationType, scope
         );
         return rows.isEmpty() ? Optional.empty() : Optional.ofNullable(rows.get(0));
     }
 
-    public void upsertLastChange(long userId, String specializationType, OffsetDateTime at) {
+    public void upsertLastChange(long userId, String specializationType, String scope, OffsetDateTime at) {
         jdbc.update(
-                "INSERT INTO user_specialization_limits(user_id, specialization_type, last_changed_at) " +
-                        "VALUES (?,?,?) ON CONFLICT (user_id, specialization_type) " +
+                "INSERT INTO user_specialization_limits(user_id, specialization_type, scope, last_changed_at) " +
+                        "VALUES (?,?,?,?) ON CONFLICT (user_id, specialization_type, scope) " +
                         "DO UPDATE SET last_changed_at = EXCLUDED.last_changed_at",
-                userId, specializationType, at
+                userId, specializationType, scope, at
         );
     }
 }

@@ -116,7 +116,7 @@ class CommunityFollowsIntegrationTest extends PostgresTestBase {
     }
 
     @Test
-    void follow_specialization_enforces_cooldown() throws Exception {
+    void follow_specialization_does_not_enforce_join_rules() throws Exception {
         long companyId = jdbc.queryForObject(
                 "INSERT INTO companies(name, domain) VALUES ('Delta', 'delta.com') RETURNING id",
                 Long.class);
@@ -128,6 +128,9 @@ class CommunityFollowsIntegrationTest extends PostgresTestBase {
         long majorTwo = jdbc.queryForObject(
                 "INSERT INTO communities(kind, specialization_type, name) VALUES ('specialization','major','Statistics') RETURNING id",
                 Long.class);
+        long majorThree = jdbc.queryForObject(
+                "INSERT INTO communities(kind, specialization_type, name) VALUES ('specialization','major','Mathematics') RETURNING id",
+                Long.class);
 
         String auth = "Bearer " + token("uid-specialization-1");
 
@@ -138,13 +141,17 @@ class CommunityFollowsIntegrationTest extends PostgresTestBase {
 
         mockMvc.perform(post("/v1/communities/" + majorTwo + "/follow")
                         .header("Authorization", auth))
-                .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.error", equalTo("specialization_cooldown")))
-                .andExpect(jsonPath("$.specialization_type", equalTo("major")));
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.following").value(true));
+
+        mockMvc.perform(post("/v1/communities/" + majorThree + "/follow")
+                        .header("Authorization", auth))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.following").value(true));
     }
 
     @Test
-    void follow_specialization_enforces_limit() throws Exception {
+    void join_specialization_enforces_limit_and_cooldown() throws Exception {
         long companyId = jdbc.queryForObject(
                 "INSERT INTO companies(name, domain) VALUES ('Echo', 'echo.com') RETURNING id",
                 Long.class);
@@ -159,16 +166,35 @@ class CommunityFollowsIntegrationTest extends PostgresTestBase {
         long majorThree = jdbc.queryForObject(
                 "INSERT INTO communities(kind, specialization_type, name) VALUES ('specialization','major','Accounting') RETURNING id",
                 Long.class);
-        long userId = jdbc.queryForObject("SELECT id FROM users WHERE firebase_uid=?", Long.class, "uid-specialization-2");
-        jdbc.update("INSERT INTO community_follows(user_id, community_id) VALUES (?,?)", userId, majorOne);
-        jdbc.update("INSERT INTO community_follows(user_id, community_id) VALUES (?,?)", userId, majorTwo);
 
         String auth = "Bearer " + token("uid-specialization-2");
-        mockMvc.perform(post("/v1/communities/" + majorThree + "/follow")
+
+        mockMvc.perform(post("/v1/specializations/" + majorOne + "/join")
+                        .header("Authorization", auth))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.joined").value(true));
+
+        mockMvc.perform(post("/v1/specializations/" + majorTwo + "/join")
+                        .header("Authorization", auth))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.joined").value(true));
+
+        mockMvc.perform(post("/v1/specializations/" + majorThree + "/join")
                         .header("Authorization", auth))
                 .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.error", equalTo("specialization_limit")))
+                .andExpect(jsonPath("$.error", equalTo("specialization_join_limit")))
                 .andExpect(jsonPath("$.specialization_type", equalTo("major")))
                 .andExpect(jsonPath("$.limit", equalTo(2)));
+
+        mockMvc.perform(delete("/v1/specializations/" + majorOne + "/join")
+                        .header("Authorization", auth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.joined").value(false));
+
+        mockMvc.perform(post("/v1/specializations/" + majorThree + "/join")
+                        .header("Authorization", auth))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error", equalTo("specialization_join_cooldown")))
+                .andExpect(jsonPath("$.specialization_type", equalTo("major")));
     }
 }

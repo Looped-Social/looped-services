@@ -19,13 +19,16 @@ public class CommunitiesController {
     private final UserRepository users;
     private final CommunitiesRepository communities;
     private final CommunityFollowsRepository follows;
+    private final SpecializationJoinsRepository specializationJoins;
 
     public CommunitiesController(UserRepository users,
                                  CommunitiesRepository communities,
-                                 CommunityFollowsRepository follows) {
+                                 CommunityFollowsRepository follows,
+                                 SpecializationJoinsRepository specializationJoins) {
         this.users = users;
         this.communities = communities;
         this.follows = follows;
+        this.specializationJoins = specializationJoins;
     }
 
     @GetMapping("/{id}")
@@ -54,6 +57,12 @@ public class CommunitiesController {
         out.put("member_count", community.memberCount);
         if (community.specializationType != null) out.put("specialization_type", community.specializationType);
         out.put("is_following", follows.exists(actor.get().id, id));
+        if ("specialization".equalsIgnoreCase(community.kind)) {
+            String t = community.specializationType == null ? "" : community.specializationType.trim().toLowerCase(java.util.Locale.ROOT);
+            if (t.equals("major") || t.equals("department")) {
+                out.put("is_joined", specializationJoins.exists(actor.get().id, id));
+            }
+        }
         return ResponseEntity.ok(out);
     }
 }

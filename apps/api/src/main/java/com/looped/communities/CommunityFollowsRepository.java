@@ -7,7 +7,9 @@ import org.springframework.stereotype.Repository;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.OffsetDateTime;
+import java.util.Collection;
 import java.util.List;
+import java.util.Set;
 
 @Repository
 public class CommunityFollowsRepository {
@@ -31,6 +33,7 @@ public class CommunityFollowsRepository {
             int order = rs.getInt("sort_order");
             row.sortOrder = rs.wasNull() ? null : order;
             row.canPost = rs.getBoolean("can_post");
+            row.isJoined = rs.getBoolean("is_joined");
             row.followedAt = rs.getObject("followed_at", OffsetDateTime.class);
             row.lastActivity = rs.getObject("last_activity", OffsetDateTime.class);
             return row;
@@ -45,11 +48,14 @@ public class CommunityFollowsRepository {
                        CASE
                            WHEN c.kind = 'specialization' THEN true
                            ELSE (COALESCE(cv.verified, false) AND (cv.expires_at IS NULL OR cv.expires_at > now()))
-                       END AS can_post
+                       END AS can_post,
+                       CASE WHEN sj.user_id IS NULL THEN false ELSE true END AS is_joined
                 FROM community_follows cf
                 JOIN communities c ON c.id = cf.community_id
                 LEFT JOIN community_verifications cv
                     ON cv.user_id = cf.user_id AND cv.community_id = cf.community_id
+                LEFT JOIN specialization_joins sj
+                    ON sj.user_id = cf.user_id AND sj.specialization_id = cf.community_id
                 WHERE cf.user_id = ?
                 """;
         if (cursorTs == null || cursorId == null) {
@@ -72,6 +78,7 @@ public class CommunityFollowsRepository {
                                WHEN c.kind = 'specialization' THEN true
                                ELSE (COALESCE(cv.verified, false) AND (cv.expires_at IS NULL OR cv.expires_at > now()))
                            END AS can_post,
+                           CASE WHEN sj.user_id IS NULL THEN false ELSE true END AS is_joined,
                            CASE WHEN cf.is_pinned THEN 0 ELSE 1 END AS pinned_rank,
                            CASE WHEN cf.sort_order IS NULL THEN 1 ELSE 0 END AS sort_rank,
                            COALESCE(cf.sort_order, 2147483647) AS sort_order_value
@@ -79,6 +86,8 @@ public class CommunityFollowsRepository {
                     JOIN communities c ON c.id = cf.community_id
                     LEFT JOIN community_verifications cv
                         ON cv.user_id = cf.user_id AND cv.community_id = cf.community_id
+                    LEFT JOIN specialization_joins sj
+                        ON sj.user_id = cf.user_id AND sj.specialization_id = cf.community_id
                     LEFT JOIN LATERAL (
                         SELECT p.created_at AS last_post_at
                         FROM posts p
@@ -134,6 +143,20 @@ public class CommunityFollowsRepository {
         return count != null && count > 0;
     }
 
+    public Set<Long> followedIds(long userId, Collection<Long> communityIds) {
+        if (communityIds == null || communityIds.isEmpty()) return Set.of();
+        String placeholders = String.join(",", java.util.Collections.nCopies(communityIds.size(), "?"));
+        java.util.List<Object> args = new java.util.ArrayList<>();
+        args.add(userId);
+        args.addAll(communityIds);
+        List<Long> rows = jdbc.query(
+                "SELECT community_id FROM community_follows WHERE user_id = ? AND community_id IN (" + placeholders + ")",
+                (rs, rowNum) -> rs.getLong("community_id"),
+                args.toArray()
+        );
+        return Set.copyOf(rows);
+    }
+
     public int countSpecializations(long userId, String specializationType) {
         Integer count = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM community_follows cf " +
@@ -164,6 +187,7 @@ public class CommunityFollowsRepository {
         public boolean isPinned;
         public Integer sortOrder;
         public boolean canPost;
+        public boolean isJoined;
         public OffsetDateTime followedAt;
         public OffsetDateTime lastActivity;
     }

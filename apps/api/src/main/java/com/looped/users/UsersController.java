@@ -135,6 +135,10 @@ public class UsersController {
                     "error", "invalid_specialization",
                     "message", "Specialization must be a major or department"
             ));
+            case SPECIALIZATION_NOT_JOINED -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
+                    "error", "specialization_not_joined",
+                    "message", "You must join this specialization to display it"
+            ));
             case OK -> ResponseEntity.ok(UserPayloads.fromProfile(res.profile(), true, true));
             default -> ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         };

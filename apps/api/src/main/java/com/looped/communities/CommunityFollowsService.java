@@ -11,22 +11,16 @@ import java.util.Optional;
 
 @Service
 public class CommunityFollowsService {
-    private static final int SPECIALIZATION_MAX_PER_TYPE = 2;
-    private static final int SPECIALIZATION_COOLDOWN_MONTHS = 6;
-
     private final UserRepository users;
     private final CommunityFollowsRepository follows;
     private final CommunitiesRepository communities;
-    private final SpecializationLimitsRepository specializationLimits;
 
     public CommunityFollowsService(UserRepository users,
                                    CommunityFollowsRepository follows,
-                                   CommunitiesRepository communities,
-                                   SpecializationLimitsRepository specializationLimits) {
+                                   CommunitiesRepository communities) {
         this.users = users;
         this.follows = follows;
         this.communities = communities;
-        this.specializationLimits = specializationLimits;
     }
 
     public ListResult followed(String firebaseUid, String cursor, int limit, String order) {
@@ -61,7 +55,7 @@ public class CommunityFollowsService {
     }
 
     private Optional<UserRepository.UserRow> provisionedUser(String firebaseUid) {
-        return users.findByFirebaseUid(firebaseUid);
+        return users.findByFirebaseUid(firebaseUid).filter(u -> u.companyId != null);
     }
 
     private CursorParts decodeCursor(String cursor) {
@@ -78,7 +72,7 @@ public class CommunityFollowsService {
 
     private record CursorParts(OffsetDateTime timestamp, Long followId) {}
 
-    public enum Status { OK, USER_NOT_PROVISIONED, NOT_FOUND, LIMIT_REACHED, COOLDOWN, INVALID_SPECIALIZATION }
+    public enum Status { OK, USER_NOT_PROVISIONED, NOT_FOUND }
     public enum Order {
         RECENT, RELEVANT;
 
@@ -105,27 +99,7 @@ public class CommunityFollowsService {
         if (follows.exists(actor.get().id, communityId)) {
             return FollowResult.ok(true, false);
         }
-        var community = communityOpt.get();
-        String specializationType = null;
-        if (isSpecialization(community.kind)) {
-            specializationType = normalizeSpecializationType(community.specializationType);
-            if (specializationType == null) return FollowResult.invalidSpecialization();
-            int count = follows.countSpecializations(actor.get().id, specializationType);
-            if (count >= SPECIALIZATION_MAX_PER_TYPE) {
-                return FollowResult.limitReached(specializationType, SPECIALIZATION_MAX_PER_TYPE);
-            }
-            var lastChange = specializationLimits.findLastChange(actor.get().id, specializationType).orElse(null);
-            if (lastChange != null) {
-                OffsetDateTime cooldownEndsAt = lastChange.plusMonths(SPECIALIZATION_COOLDOWN_MONTHS);
-                if (cooldownEndsAt.isAfter(OffsetDateTime.now())) {
-                    return FollowResult.cooldown(specializationType, cooldownEndsAt);
-                }
-            }
-        }
         boolean created = follows.insertIfAbsent(actor.get().id, communityId);
-        if (created && specializationType != null) {
-            specializationLimits.upsertLastChange(actor.get().id, specializationType, OffsetDateTime.now());
-        }
         return FollowResult.ok(true, created);
     }
 
@@ -137,19 +111,6 @@ public class CommunityFollowsService {
         return FollowResult.ok(false, deleted);
     }
 
-    private boolean isSpecialization(String kind) {
-        if (kind == null) return false;
-        return "specialization".equalsIgnoreCase(kind);
-    }
-
-    private String normalizeSpecializationType(String raw) {
-        if (raw == null) return null;
-        String normalized = raw.trim().toLowerCase(Locale.ROOT);
-        if (normalized.isBlank()) return null;
-        if (!normalized.equals("major") && !normalized.equals("department")) return null;
-        return normalized;
-    }
-
     public record FollowResult(Status status, boolean following, boolean changed,
                                String specializationType, OffsetDateTime cooldownEndsAt, Integer limit) {
         static FollowResult ok(boolean following, boolean changed) {
@@ -157,14 +118,5 @@ public class CommunityFollowsService {
         }
         static FollowResult userNotProvisioned() { return new FollowResult(Status.USER_NOT_PROVISIONED, false, false, null, null, null); }
         static FollowResult notFound() { return new FollowResult(Status.NOT_FOUND, false, false, null, null, null); }
-        static FollowResult limitReached(String specializationType, int limit) {
-            return new FollowResult(Status.LIMIT_REACHED, false, false, specializationType, null, limit);
-        }
-        static FollowResult cooldown(String specializationType, OffsetDateTime cooldownEndsAt) {
-            return new FollowResult(Status.COOLDOWN, false, false, specializationType, cooldownEndsAt, null);
-        }
-        static FollowResult invalidSpecialization() {
-            return new FollowResult(Status.INVALID_SPECIALIZATION, false, false, null, null, null);
-        }
     }
 }
