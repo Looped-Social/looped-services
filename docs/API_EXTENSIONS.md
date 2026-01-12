@@ -152,6 +152,25 @@
   - `GET /v1/users/{id}/comments?cursor=&limit=` → `{ items: [{ id, post_id, content, created_at, parent_id? }], next_cursor }`
 - **Community permissions**
   - `GET /v1/communities/{id}/permissions` → `{ can_post: true|false, requires_verification: true|false }`
+- **Community Photo ID verification (per-community)**
+  - Use when a community requires manual Photo ID review; pending/approved is tracked **per community**.
+  - `GET /v1/communities/{communityId}/verification/photo-id/status`
+    - Response: `{ "method": "photo_id|email|video|thirdparty", "status": "none|pending_review|rejected|approved", "verified_at?": "<ISO-8601>", "expires_at?": "<ISO-8601>" }`
+  - `POST /v1/communities/{communityId}/verification/photo-id/start`
+    - Response: `{ "status": "pending_upload", "method": "photo_id", "upload_session_id": "<uuid>", "required": ["selfie","id_front"], "optional": ["id_back"], "constraints": { "allowed_content_types": ["image/jpeg","image/png"], "max_bytes": <int> } }`
+  - `POST /v1/communities/{communityId}/verification/photo-id/presign`
+    - Request: `{ "uploadSessionId": "<uuid>", "kind": "selfie|id_front|id_back", "contentType": "image/jpeg|image/png", "sizeBytes": <int> }`
+    - Response: `{ "kind": "selfie|id_front|id_back", "key": "verification/photo-id/{userId}/{uploadSessionId}/{kind}.jpg|.png", "uploadUrl": "<presigned-url>", "headers": { "Content-Type": "image/jpeg|image/png" } }`
+  - `POST /v1/communities/{communityId}/verification/photo-id/submit`
+    - Request: `{ "uploadSessionId": "<uuid>", "documents": { "selfieKey": "<s3Key>", "idFrontKey": "<s3Key>", "idBackKey?": "<s3Key>" } }`
+    - Response: `{ "verification_request_id": <int>, "status": "pending_review" }`
+  - Errors:
+    - `409 { "error": "user_not_provisioned" }`
+    - `404 { "error": "community_not_found" }`
+    - `409 { "error": "already_pending" }`
+    - `409 { "error": "already_verified", "current_method": "email|video|thirdparty|photo_id" }`
+    - `403 { "error": "invalid_session" }`
+    - `400 { "error": "verification_not_supported" }` (specializations)
 - **Community details**
   - `GET /v1/communities/{id}` → `{ id, kind, name, short_name?, description?, image_url?, member_count, specialization_type?, is_following }`
 - **Profile display community**

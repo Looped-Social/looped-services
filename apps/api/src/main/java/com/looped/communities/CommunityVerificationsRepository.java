@@ -29,6 +29,25 @@ public class CommunityVerificationsRepository {
         return rows.verified && (rows.expiresAt == null || rows.expiresAt.isAfter(OffsetDateTime.now()));
     }
 
+    public java.util.Optional<UserVerificationRow> findForUserAndCommunity(long userId, long communityId) {
+        var list = jdbc.query(
+                "SELECT community_id, method, verified, verified_at, expires_at " +
+                        "FROM community_verifications WHERE user_id=? AND community_id=? " +
+                        "LIMIT 1",
+                (rs, rowNum) -> {
+                    UserVerificationRow row = new UserVerificationRow();
+                    row.communityId = rs.getLong("community_id");
+                    row.method = rs.getString("method");
+                    row.verified = rs.getBoolean("verified");
+                    row.verifiedAt = rs.getObject("verified_at", OffsetDateTime.class);
+                    row.expiresAt = rs.getObject("expires_at", OffsetDateTime.class);
+                    return row;
+                },
+                userId, communityId
+        );
+        return list.isEmpty() ? java.util.Optional.empty() : java.util.Optional.of(list.get(0));
+    }
+
     public void markVerified(long userId, long communityId, String method, OffsetDateTime expiresAt) {
         jdbc.update(
                 "INSERT INTO community_verifications(user_id, community_id, method, verified, verified_at, expires_at) " +

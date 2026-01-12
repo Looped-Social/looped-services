@@ -1,5 +1,7 @@
 package com.looped.verification;
 
+import com.looped.communities.CommunitiesRepository;
+import com.looped.communities.CommunityVerificationsRepository;
 import com.looped.users.UserRepository;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
@@ -11,12 +13,14 @@ import java.util.UUID;
 
 @Service
 public class PhotoIdVerificationService {
-    public enum Status { OK, USER_NOT_PROVISIONED, BAD_REQUEST, FORBIDDEN, CONFLICT }
+    public enum Status { OK, USER_NOT_PROVISIONED, COMMUNITY_NOT_FOUND, BAD_REQUEST, FORBIDDEN, CONFLICT }
 
     public enum Kind { selfie, id_front, id_back }
 
     private final UserRepository users;
     private final VerificationRepository verifications;
+    private final CommunitiesRepository communities;
+    private final CommunityVerificationsRepository communityVerifications;
     private final VerificationRequestsRepository requests;
     private final StringRedisTemplate redis;
     private final PhotoIdVerificationProperties props;
@@ -25,6 +29,8 @@ public class PhotoIdVerificationService {
     public PhotoIdVerificationService(
             UserRepository users,
             VerificationRepository verifications,
+            CommunitiesRepository communities,
+            CommunityVerificationsRepository communityVerifications,
             VerificationRequestsRepository requests,
             StringRedisTemplate redis,
             PhotoIdVerificationProperties props,
@@ -32,6 +38,8 @@ public class PhotoIdVerificationService {
     ) {
         this.users = users;
         this.verifications = verifications;
+        this.communities = communities;
+        this.communityVerifications = communityVerifications;
         this.requests = requests;
         this.redis = redis;
         this.props = props;
@@ -39,29 +47,59 @@ public class PhotoIdVerificationService {
     }
 
     public StartResult start(String firebaseUid) {
+        return start(firebaseUid, null);
+    }
+
+    public StartResult start(String firebaseUid, Long communityId) {
         var u = users.findByFirebaseUid(firebaseUid);
         if (u.isEmpty()) return StartResult.userNotProvisioned();
         long userId = u.get().id;
 
-        var v = verifications.findByUserId(userId);
-        if (v.isPresent() && v.get().verified) {
-            return StartResult.alreadyVerified(v.get().method);
+        if (communityId != null) {
+            if (u.get().companyId == null) return StartResult.userNotProvisioned();
+            var community = communities.findById(communityId);
+            if (community.isEmpty()) return StartResult.communityNotFound();
+            if ("specialization".equalsIgnoreCase(community.get().kind)) {
+                return StartResult.badRequest("verification_not_supported");
+            }
+            var current = communityVerifications.findForUserAndCommunity(userId, communityId).orElse(null);
+            if (current != null && current.verified && (current.expiresAt == null || current.expiresAt.isAfter(java.time.OffsetDateTime.now()))) {
+                return StartResult.alreadyVerified(current.method);
+            }
+        } else {
+            var v = verifications.findByUserId(userId);
+            if (v.isPresent() && v.get().verified) {
+                return StartResult.alreadyVerified(v.get().method);
+            }
         }
-        if (requests.existsPendingForUserAndMethod(userId, "photo_id")) {
+        if (requests.existsPendingForUserAndMethodAndCommunityId(userId, "photo_id", communityId)) {
             return StartResult.conflict("already_pending");
         }
 
         String sessionId = UUID.randomUUID().toString();
-        redis.opsForValue().set(keyActiveSession(userId), sessionId, props.getSessionTtl());
+        redis.opsForValue().set(keyActiveSession(userId, communityId), sessionId, props.getSessionTtl());
         return StartResult.ok(sessionId, props.getMaxImageBytes());
     }
 
     public PresignResult presign(String firebaseUid, String sessionId, String kindRaw, String contentType, long sizeBytes) {
+        return presign(firebaseUid, null, sessionId, kindRaw, contentType, sizeBytes);
+    }
+
+    public PresignResult presign(String firebaseUid, Long communityId, String sessionId, String kindRaw, String contentType, long sizeBytes) {
         var u = users.findByFirebaseUid(firebaseUid);
         if (u.isEmpty()) return PresignResult.userNotProvisioned();
         long userId = u.get().id;
 
-        if (!isActiveSession(userId, sessionId)) return PresignResult.forbidden("invalid_session");
+        if (communityId != null) {
+            if (u.get().companyId == null) return PresignResult.userNotProvisioned();
+            var community = communities.findById(communityId);
+            if (community.isEmpty()) return PresignResult.communityNotFound();
+            if ("specialization".equalsIgnoreCase(community.get().kind)) {
+                return PresignResult.badRequest("verification_not_supported");
+            }
+        }
+
+        if (!isActiveSession(userId, communityId, sessionId)) return PresignResult.forbidden("invalid_session");
         Kind kind = parseKind(kindRaw);
         if (kind == null) return PresignResult.badRequest("invalid_kind");
 
@@ -76,12 +114,25 @@ public class PhotoIdVerificationService {
     }
 
     public SubmitResult submit(String firebaseUid, String email, String sessionId, String selfieKey, String idFrontKey, String idBackKey) {
+        return submit(firebaseUid, null, email, sessionId, selfieKey, idFrontKey, idBackKey);
+    }
+
+    public SubmitResult submit(String firebaseUid, Long communityId, String email, String sessionId, String selfieKey, String idFrontKey, String idBackKey) {
         var u = users.findByFirebaseUid(firebaseUid);
         if (u.isEmpty()) return SubmitResult.userNotProvisioned();
         long userId = u.get().id;
 
-        if (!isActiveSession(userId, sessionId)) return SubmitResult.forbidden("invalid_session");
-        if (requests.existsPendingForUserAndMethod(userId, "photo_id")) {
+        if (communityId != null) {
+            if (u.get().companyId == null) return SubmitResult.userNotProvisioned();
+            var community = communities.findById(communityId);
+            if (community.isEmpty()) return SubmitResult.communityNotFound();
+            if ("specialization".equalsIgnoreCase(community.get().kind)) {
+                return SubmitResult.badRequest("verification_not_supported");
+            }
+        }
+
+        if (!isActiveSession(userId, communityId, sessionId)) return SubmitResult.forbidden("invalid_session");
+        if (requests.existsPendingForUserAndMethodAndCommunityId(userId, "photo_id", communityId)) {
             return SubmitResult.conflict("already_pending");
         }
         if (selfieKey == null || selfieKey.isBlank()) return SubmitResult.badRequest("selfie_key_required");
@@ -93,24 +144,41 @@ public class PhotoIdVerificationService {
             return SubmitResult.badRequest("id_back_key_invalid");
         }
 
-        redis.delete(keyActiveSession(userId));
+        redis.delete(keyActiveSession(userId, communityId));
 
-        long requestId = requests.insertPhotoId(userId, email, "pending", selfieKey, idFrontKey, emptyToNull(idBackKey));
+        long requestId = requests.insertPhotoId(userId, communityId, email, "pending", selfieKey, idFrontKey, emptyToNull(idBackKey));
         return SubmitResult.ok(requestId);
     }
 
     public StatusResult status(String firebaseUid) {
+        return status(firebaseUid, null);
+    }
+
+    public StatusResult status(String firebaseUid, Long communityId) {
         var u = users.findByFirebaseUid(firebaseUid);
         if (u.isEmpty()) return StatusResult.userNotProvisioned();
         long userId = u.get().id;
 
-        var v = verifications.findByUserId(userId).orElse(null);
-        if (v != null && v.verified) {
-            return StatusResult.ok("approved", v.method, v.verifiedAt);
+        if (communityId != null) {
+            if (u.get().companyId == null) return StatusResult.userNotProvisioned();
+            var community = communities.findById(communityId);
+            if (community.isEmpty()) return StatusResult.communityNotFound();
+            if ("specialization".equalsIgnoreCase(community.get().kind)) {
+                return StatusResult.badRequest("verification_not_supported");
+            }
+            var current = communityVerifications.findForUserAndCommunity(userId, communityId).orElse(null);
+            if (current != null && current.verified && (current.expiresAt == null || current.expiresAt.isAfter(java.time.OffsetDateTime.now()))) {
+                return StatusResult.ok("approved", current.method, current.verifiedAt, current.expiresAt);
+            }
+        } else {
+            var v = verifications.findByUserId(userId).orElse(null);
+            if (v != null && v.verified) {
+                return StatusResult.ok("approved", v.method, v.verifiedAt, null);
+            }
         }
-        var latest = requests.findLatestForUserAndMethod(userId, "photo_id").orElse(null);
+        var latest = requests.findLatestForUserAndMethodAndCommunityId(userId, "photo_id", communityId).orElse(null);
         if (latest == null) {
-            return StatusResult.ok("none", "photo_id", null);
+            return StatusResult.ok("none", "photo_id", null, null);
         }
         String normalized = latest.status != null ? latest.status.toLowerCase(Locale.ROOT) : "pending";
         String status = switch (normalized) {
@@ -118,17 +186,20 @@ public class PhotoIdVerificationService {
             case "rejected" -> "rejected";
             default -> "pending_review";
         };
-        return StatusResult.ok(status, "photo_id", null);
+        return StatusResult.ok(status, "photo_id", null, null);
     }
 
-    private boolean isActiveSession(long userId, String sessionId) {
+    private boolean isActiveSession(long userId, Long communityId, String sessionId) {
         if (sessionId == null || sessionId.isBlank()) return false;
-        String active = redis.opsForValue().get(keyActiveSession(userId));
+        String active = redis.opsForValue().get(keyActiveSession(userId, communityId));
         return active != null && active.equals(sessionId);
     }
 
-    private String keyActiveSession(long userId) {
-        return "verify:photo_id:session:" + userId;
+    private String keyActiveSession(long userId, Long communityId) {
+        if (communityId == null) {
+            return "verify:photo_id:session:" + userId;
+        }
+        return "verify:photo_id:session:" + userId + ":" + communityId;
     }
 
     private Kind parseKind(String raw) {
@@ -173,8 +244,10 @@ public class PhotoIdVerificationService {
     public record StartResult(Status status, String uploadSessionId, Long maxBytes, String error, String currentMethod) {
         static StartResult ok(String sessionId, long maxBytes) { return new StartResult(Status.OK, sessionId, maxBytes, null, null); }
         static StartResult userNotProvisioned() { return new StartResult(Status.USER_NOT_PROVISIONED, null, null, null, null); }
+        static StartResult communityNotFound() { return new StartResult(Status.COMMUNITY_NOT_FOUND, null, null, "community_not_found", null); }
         static StartResult conflict(String err) { return new StartResult(Status.CONFLICT, null, null, err, null); }
         static StartResult alreadyVerified(String method) { return new StartResult(Status.CONFLICT, null, null, "already_verified", method); }
+        static StartResult badRequest(String err) { return new StartResult(Status.BAD_REQUEST, null, null, err, null); }
     }
 
     public record PresignResult(Status status, String kind, String key, String uploadUrl, java.util.Map<String, String> headers, String error) {
@@ -182,6 +255,7 @@ public class PhotoIdVerificationService {
             return new PresignResult(Status.OK, kind, key, uploadUrl, headers, null);
         }
         static PresignResult userNotProvisioned() { return new PresignResult(Status.USER_NOT_PROVISIONED, null, null, null, null, null); }
+        static PresignResult communityNotFound() { return new PresignResult(Status.COMMUNITY_NOT_FOUND, null, null, null, null, "community_not_found"); }
         static PresignResult forbidden(String err) { return new PresignResult(Status.FORBIDDEN, null, null, null, null, err); }
         static PresignResult badRequest(String err) { return new PresignResult(Status.BAD_REQUEST, null, null, null, null, err); }
     }
@@ -189,15 +263,18 @@ public class PhotoIdVerificationService {
     public record SubmitResult(Status status, Long verificationRequestId, String error) {
         static SubmitResult ok(long id) { return new SubmitResult(Status.OK, id, null); }
         static SubmitResult userNotProvisioned() { return new SubmitResult(Status.USER_NOT_PROVISIONED, null, null); }
+        static SubmitResult communityNotFound() { return new SubmitResult(Status.COMMUNITY_NOT_FOUND, null, "community_not_found"); }
         static SubmitResult forbidden(String err) { return new SubmitResult(Status.FORBIDDEN, null, err); }
         static SubmitResult badRequest(String err) { return new SubmitResult(Status.BAD_REQUEST, null, err); }
         static SubmitResult conflict(String err) { return new SubmitResult(Status.CONFLICT, null, err); }
     }
 
-    public record StatusResult(Status status, String state, String method, java.time.OffsetDateTime verifiedAt) {
-        static StatusResult ok(String state, String method, java.time.OffsetDateTime verifiedAt) {
-            return new StatusResult(Status.OK, state, method, verifiedAt);
+    public record StatusResult(Status status, String state, String method, java.time.OffsetDateTime verifiedAt, java.time.OffsetDateTime expiresAt, String error) {
+        static StatusResult ok(String state, String method, java.time.OffsetDateTime verifiedAt, java.time.OffsetDateTime expiresAt) {
+            return new StatusResult(Status.OK, state, method, verifiedAt, expiresAt, null);
         }
-        static StatusResult userNotProvisioned() { return new StatusResult(Status.USER_NOT_PROVISIONED, null, null, null); }
+        static StatusResult userNotProvisioned() { return new StatusResult(Status.USER_NOT_PROVISIONED, null, null, null, null, null); }
+        static StatusResult communityNotFound() { return new StatusResult(Status.COMMUNITY_NOT_FOUND, null, null, null, null, "community_not_found"); }
+        static StatusResult badRequest(String err) { return new StatusResult(Status.BAD_REQUEST, null, null, null, null, err); }
     }
 }

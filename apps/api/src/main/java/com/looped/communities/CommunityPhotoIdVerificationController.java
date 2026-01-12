@@ -1,6 +1,7 @@
-package com.looped.verification;
+package com.looped.communities;
 
 import com.fasterxml.jackson.annotation.JsonAlias;
+import com.looped.verification.PhotoIdVerificationService;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import org.springframework.http.HttpStatus;
@@ -9,6 +10,7 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -18,17 +20,17 @@ import java.util.HashMap;
 import java.util.Map;
 
 @RestController
-@RequestMapping("/v1/verification/photo-id")
-public class PhotoIdVerificationController {
+@RequestMapping("/v1/communities/{communityId}/verification/photo-id")
+public class CommunityPhotoIdVerificationController {
     private final PhotoIdVerificationService service;
 
-    public PhotoIdVerificationController(PhotoIdVerificationService service) {
+    public CommunityPhotoIdVerificationController(PhotoIdVerificationService service) {
         this.service = service;
     }
 
     @PostMapping("/start")
-    public ResponseEntity<?> start(@AuthenticationPrincipal Jwt jwt) {
-        var res = service.start(jwt.getSubject());
+    public ResponseEntity<?> start(@AuthenticationPrincipal Jwt jwt, @PathVariable("communityId") long communityId) {
+        var res = service.start(jwt.getSubject(), communityId);
         if (res.status() == PhotoIdVerificationService.Status.USER_NOT_PROVISIONED) {
             return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "user_not_provisioned"));
         }
@@ -58,8 +60,10 @@ public class PhotoIdVerificationController {
     }
 
     @PostMapping("/presign")
-    public ResponseEntity<?> presign(@AuthenticationPrincipal Jwt jwt, @Validated @RequestBody PresignRequest body) {
-        var res = service.presign(jwt.getSubject(), body.uploadSessionId(), body.kind(), body.contentType(), body.sizeBytes());
+    public ResponseEntity<?> presign(@AuthenticationPrincipal Jwt jwt,
+                                     @PathVariable("communityId") long communityId,
+                                     @Validated @RequestBody PresignRequest body) {
+        var res = service.presign(jwt.getSubject(), communityId, body.uploadSessionId(), body.kind(), body.contentType(), body.sizeBytes());
         if (res.status() == PhotoIdVerificationService.Status.USER_NOT_PROVISIONED) {
             return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "user_not_provisioned"));
         }
@@ -81,11 +85,14 @@ public class PhotoIdVerificationController {
     }
 
     @PostMapping("/submit")
-    public ResponseEntity<?> submit(@AuthenticationPrincipal Jwt jwt, @Validated @RequestBody SubmitRequest body) {
+    public ResponseEntity<?> submit(@AuthenticationPrincipal Jwt jwt,
+                                    @PathVariable("communityId") long communityId,
+                                    @Validated @RequestBody SubmitRequest body) {
         String email = jwt.getClaimAsString("email");
         var docs = body.documents();
         var res = service.submit(
                 jwt.getSubject(),
+                communityId,
                 email,
                 body.uploadSessionId(),
                 docs.selfieKey(),
@@ -114,8 +121,8 @@ public class PhotoIdVerificationController {
     }
 
     @GetMapping("/status")
-    public ResponseEntity<?> status(@AuthenticationPrincipal Jwt jwt) {
-        var res = service.status(jwt.getSubject());
+    public ResponseEntity<?> status(@AuthenticationPrincipal Jwt jwt, @PathVariable("communityId") long communityId) {
+        var res = service.status(jwt.getSubject(), communityId);
         if (res.status() == PhotoIdVerificationService.Status.USER_NOT_PROVISIONED) {
             return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "user_not_provisioned"));
         }

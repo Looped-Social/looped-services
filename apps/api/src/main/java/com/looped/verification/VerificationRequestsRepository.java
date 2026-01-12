@@ -154,35 +154,48 @@ public class VerificationRequestsRepository {
     }
 
     public Optional<Row> findLatestForUserAndMethod(long userId, String method) {
-        var list = jdbc.query(
-                "SELECT vr.*, u.handle AS user_handle, u.display_name AS user_display_name, c.domain AS company_domain, cm.name AS community_name, cm.kind AS community_kind " +
-                        "FROM verification_requests vr " +
-                        "JOIN users u ON u.id = vr.user_id " +
-                        "JOIN companies c ON c.id = u.company_id " +
-                        "LEFT JOIN communities cm ON cm.id = vr.community_id " +
-                        "WHERE vr.user_id = ? AND vr.method = ? " +
-                        "ORDER BY vr.submitted_at DESC, vr.id DESC " +
-                        "LIMIT 1",
-                MAPPER, userId, method
-        );
+        return findLatestForUserAndMethodAndCommunityId(userId, method, null);
+    }
+
+    public Optional<Row> findLatestForUserAndMethodAndCommunityId(long userId, String method, Long communityId) {
+        String communityClause = (communityId == null) ? "vr.community_id IS NULL" : "vr.community_id = ?";
+        String sql = "SELECT vr.*, u.handle AS user_handle, u.display_name AS user_display_name, c.domain AS company_domain, cm.name AS community_name, cm.kind AS community_kind " +
+                "FROM verification_requests vr " +
+                "JOIN users u ON u.id = vr.user_id " +
+                "JOIN companies c ON c.id = u.company_id " +
+                "LEFT JOIN communities cm ON cm.id = vr.community_id " +
+                "WHERE vr.user_id = ? AND vr.method = ? AND " + communityClause + " " +
+                "ORDER BY vr.submitted_at DESC, vr.id DESC " +
+                "LIMIT 1";
+        var list = (communityId == null)
+                ? jdbc.query(sql, MAPPER, userId, method)
+                : jdbc.query(sql, MAPPER, userId, method, communityId);
         return list.isEmpty() ? Optional.empty() : Optional.of(list.get(0));
     }
 
     public boolean existsPendingForUserAndMethod(long userId, String method) {
-        Integer n = jdbc.query(
-                "SELECT 1 FROM verification_requests WHERE user_id = ? AND method = ? AND status = 'pending' LIMIT 1",
-                rs -> rs.next() ? 1 : null,
-                userId, method
-        );
+        return existsPendingForUserAndMethodAndCommunityId(userId, method, null);
+    }
+
+    public boolean existsPendingForUserAndMethodAndCommunityId(long userId, String method, Long communityId) {
+        String communityClause = (communityId == null) ? "community_id IS NULL" : "community_id = ?";
+        String sql = "SELECT 1 FROM verification_requests WHERE user_id = ? AND method = ? AND " + communityClause + " AND status = 'pending' LIMIT 1";
+        Integer n = (communityId == null)
+                ? jdbc.query(sql, rs -> rs.next() ? 1 : null, userId, method)
+                : jdbc.query(sql, rs -> rs.next() ? 1 : null, userId, method, communityId);
         return n != null;
     }
 
     public long insertPhotoId(long userId, String email, String status, String selfieKey, String idFrontKey, String idBackKey) {
+        return insertPhotoId(userId, null, email, status, selfieKey, idFrontKey, idBackKey);
+    }
+
+    public long insertPhotoId(long userId, Long communityId, String email, String status, String selfieKey, String idFrontKey, String idBackKey) {
         Long id = jdbc.query(
-                "INSERT INTO verification_requests(user_id, email, method, status, selfie_key, id_front_key, id_back_key) " +
-                        "VALUES (?, ?, 'photo_id', ?, ?, ?, ?) RETURNING id",
+                "INSERT INTO verification_requests(user_id, community_id, email, method, status, selfie_key, id_front_key, id_back_key) " +
+                        "VALUES (?, ?, ?, 'photo_id', ?, ?, ?, ?) RETURNING id",
                 rs -> rs.next() ? rs.getLong(1) : null,
-                userId, normalizeEmail(email), status, selfieKey, idFrontKey, idBackKey
+                userId, communityId, normalizeEmail(email), status, selfieKey, idFrontKey, idBackKey
         );
         if (id == null) {
             throw new IllegalStateException("Failed to insert verification request");
