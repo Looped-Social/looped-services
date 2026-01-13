@@ -3,6 +3,7 @@ package com.looped.posts;
 import com.looped.anon.AnonProofService;
 import com.looped.notifications.NotificationPublisher;
 import com.looped.principals.PrincipalRepository;
+import com.looped.users.UserCommunityBanRepository;
 import com.looped.users.UserRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -15,19 +16,22 @@ public class LikesService {
     private final PrincipalRepository principals;
     private final AnonProofService anonProofs;
     private final NotificationPublisher notifications;
+    private final UserCommunityBanRepository communityBans;
 
     public LikesService(LikesRepository likes,
                         PostRepository posts,
                         UserRepository users,
                         PrincipalRepository principals,
                         AnonProofService anonProofs,
-                        NotificationPublisher notifications) {
+                        NotificationPublisher notifications,
+                        UserCommunityBanRepository communityBans) {
         this.likes = likes;
         this.posts = posts;
         this.users = users;
         this.principals = principals;
         this.anonProofs = anonProofs;
         this.notifications = notifications;
+        this.communityBans = communityBans;
     }
 
     @Transactional
@@ -44,6 +48,9 @@ public class LikesService {
             if (firebaseUid == null) return Result.userNotProvisioned();
             var u = users.findByFirebaseUid(firebaseUid);
             if (u.isEmpty()) return Result.userNotProvisioned();
+            if (p.get().communityId != null && communityBans.isBanned(u.get().id, p.get().communityId)) {
+                return Result.communityBanned();
+            }
             var principal = principals.createForUser(u.get().id);
             actorPrincipalId = principal.id;
         }
@@ -73,6 +80,9 @@ public class LikesService {
             if (firebaseUid == null) return UnlikeResult.userNotProvisioned();
             var u = users.findByFirebaseUid(firebaseUid);
             if (u.isEmpty()) return UnlikeResult.userNotProvisioned();
+            if (p.get().communityId != null && communityBans.isBanned(u.get().id, p.get().communityId)) {
+                return UnlikeResult.communityBanned();
+            }
             var principal = principals.createForUser(u.get().id);
             actorPrincipalId = principal.id;
         }
@@ -85,12 +95,13 @@ public class LikesService {
         return UnlikeResult.ok(deleted, current.likesCount);
     }
 
-    public enum Status { OK, USER_NOT_PROVISIONED, NOT_FOUND, INVALID_SIGNATURE }
+    public enum Status { OK, USER_NOT_PROVISIONED, NOT_FOUND, INVALID_SIGNATURE, COMMUNITY_BANNED }
     public record Result(Status status, boolean created, int likesCount) {
         static Result ok(boolean created, int count) { return new Result(Status.OK, created, count); }
         static Result userNotProvisioned() { return new Result(Status.USER_NOT_PROVISIONED, false, 0); }
         static Result notFound() { return new Result(Status.NOT_FOUND, false, 0); }
         static Result invalidSignature() { return new Result(Status.INVALID_SIGNATURE, false, 0); }
+        static Result communityBanned() { return new Result(Status.COMMUNITY_BANNED, false, 0); }
     }
 
     public record UnlikeResult(Status status, boolean deleted, int likesCount) {
@@ -98,5 +109,6 @@ public class LikesService {
         static UnlikeResult userNotProvisioned() { return new UnlikeResult(Status.USER_NOT_PROVISIONED, false, 0); }
         static UnlikeResult notFound() { return new UnlikeResult(Status.NOT_FOUND, false, 0); }
         static UnlikeResult invalidSignature() { return new UnlikeResult(Status.INVALID_SIGNATURE, false, 0); }
+        static UnlikeResult communityBanned() { return new UnlikeResult(Status.COMMUNITY_BANNED, false, 0); }
     }
 }

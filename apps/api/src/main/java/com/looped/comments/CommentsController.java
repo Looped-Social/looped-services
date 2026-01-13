@@ -64,6 +64,10 @@ public class CommentsController {
             case POST_NOT_FOUND -> ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of(
                     "error", "not_found"
             ));
+            case COMMUNITY_BANNED -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
+                    "error", "community_banned",
+                    "message", "You are banned from this community"
+            ));
             case INVALID_ANON_PROOF -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
                     "error", "invalid_anon_proof",
                     "message", "Invalid anonymous proof"
@@ -125,6 +129,10 @@ public class CommentsController {
             case COMMUNITY_NOT_FOUND -> ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of(
                     "error", "community_not_found",
                     "message", "Community not found"
+            ));
+            case COMMUNITY_BANNED -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
+                    "error", "community_banned",
+                    "message", "You are banned from this community"
             ));
             case NOT_VERIFIED -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
                     "error", "community_not_verified",
@@ -226,6 +234,10 @@ public class CommentsController {
             case COMMENT_NOT_FOUND -> ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of(
                     "error", "not_found"
             ));
+            case COMMUNITY_BANNED -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
+                    "error", "community_banned",
+                    "message", "You are banned from this community"
+            ));
             case FORBIDDEN -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
                     "error", "forbidden",
                     "message", "Only the comment author may delete"
@@ -281,6 +293,10 @@ public class CommentsController {
             ));
             case COMMENT_NOT_FOUND -> ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of(
                     "error", "not_found"
+            ));
+            case COMMUNITY_BANNED -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
+                    "error", "community_banned",
+                    "message", "You are banned from this community"
             ));
             case INVALID_ANON_PROOF -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
                     "error", "invalid_anon_proof",
@@ -378,6 +394,10 @@ public class CommentsController {
             ));
             case COMMENT_NOT_FOUND -> ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of(
                     "error", "not_found"
+            ));
+            case COMMUNITY_BANNED -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
+                    "error", "community_banned",
+                    "message", "You are banned from this community"
             ));
             case INVALID_ANON_PROOF -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
                     "error", "invalid_anon_proof",

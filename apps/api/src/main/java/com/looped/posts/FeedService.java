@@ -4,6 +4,7 @@ import com.looped.communities.CommunitiesRepository;
 import com.looped.principals.PrincipalRepository;
 import com.looped.shared.Pagination;
 import com.looped.shared.RankPagination;
+import com.looped.users.UserCommunityBanRepository;
 import com.looped.users.UserRepository;
 import org.springframework.stereotype.Service;
 
@@ -18,15 +19,18 @@ public class FeedService {
     private final CommunitiesRepository communities;
     private final PostStateService postState;
     private final RepostsRepository reposts;
+    private final UserCommunityBanRepository communityBans;
 
     public FeedService(PostRepository posts, UserRepository users, PrincipalRepository principals,
-                       CommunitiesRepository communities, PostStateService postState, RepostsRepository reposts) {
+                       CommunitiesRepository communities, PostStateService postState, RepostsRepository reposts,
+                       UserCommunityBanRepository communityBans) {
         this.posts = posts;
         this.users = users;
         this.principals = principals;
         this.communities = communities;
         this.postState = postState;
         this.reposts = reposts;
+        this.communityBans = communityBans;
     }
 
     public FeedResult feed(String firebaseUid, String cursor, int limit, Long communityId, String mode) {
@@ -41,6 +45,9 @@ public class FeedService {
         var principal = principals.createForUser(u.get().id);
         long viewerUserId = u.get().id;
         long viewerPrincipalId = principal.id;
+        if (communityId != null && communityBans.isBanned(viewerUserId, communityId)) {
+            return FeedResult.communityBanned();
+        }
         boolean hideAnonymousPosts = u.get().hideAnonymousPosts;
         FeedResult result = resolved == Mode.NEW
                 ? feedNew(cursor, limit, communityId, viewerUserId, viewerPrincipalId, hideAnonymousPosts)
@@ -106,6 +113,9 @@ public class FeedService {
             var community = communities.findById(communityId);
             if (community.isEmpty()) return TrendingResult.communityNotFound();
         }
+        if (communityId != null && communityBans.isBanned(u.get().id, communityId)) {
+            return TrendingResult.communityBanned();
+        }
         OffsetDateTime asOf = OffsetDateTime.now();
         OffsetDateTime since = asOf.minusDays(3);
         var principal = principals.createForUser(u.get().id);
@@ -144,7 +154,7 @@ public class FeedService {
         return base - ageHours;
     }
 
-    public enum Status { OK, USER_NOT_PROVISIONED, COMMUNITY_NOT_FOUND }
+    public enum Status { OK, USER_NOT_PROVISIONED, COMMUNITY_NOT_FOUND, COMMUNITY_BANNED }
     public enum Mode {
         FOR_YOU, NEW;
 
@@ -159,11 +169,13 @@ public class FeedService {
         static FeedResult ok(List<PostRepository.PostRow> items, String next) { return new FeedResult(Status.OK, items, next); }
         static FeedResult userNotProvisioned() { return new FeedResult(Status.USER_NOT_PROVISIONED, List.of(), null); }
         static FeedResult communityNotFound() { return new FeedResult(Status.COMMUNITY_NOT_FOUND, List.of(), null); }
+        static FeedResult communityBanned() { return new FeedResult(Status.COMMUNITY_BANNED, List.of(), null); }
     }
 
     public record TrendingResult(Status status, List<PostRepository.TrendingRow> items) {
         static TrendingResult ok(List<PostRepository.TrendingRow> items) { return new TrendingResult(Status.OK, items); }
         static TrendingResult userNotProvisioned() { return new TrendingResult(Status.USER_NOT_PROVISIONED, List.of()); }
         static TrendingResult communityNotFound() { return new TrendingResult(Status.COMMUNITY_NOT_FOUND, List.of()); }
+        static TrendingResult communityBanned() { return new TrendingResult(Status.COMMUNITY_BANNED, List.of()); }
     }
 }

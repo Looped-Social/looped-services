@@ -1,6 +1,7 @@
 package com.looped.communities;
 
 import com.looped.users.UserRepository;
+import com.looped.users.UserCommunityBanRepository;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -22,19 +23,22 @@ public class CommunitiesController {
     private final SpecializationJoinsRepository specializationJoins;
     private final SpecializationMembershipService specializationMemberships;
     private final CommunityVerificationsRepository verifications;
+    private final UserCommunityBanRepository communityBans;
 
     public CommunitiesController(UserRepository users,
                                  CommunitiesRepository communities,
                                  CommunityFollowsRepository follows,
                                  SpecializationJoinsRepository specializationJoins,
                                  SpecializationMembershipService specializationMemberships,
-                                 CommunityVerificationsRepository verifications) {
+                                 CommunityVerificationsRepository verifications,
+                                 UserCommunityBanRepository communityBans) {
         this.users = users;
         this.communities = communities;
         this.follows = follows;
         this.specializationJoins = specializationJoins;
         this.specializationMemberships = specializationMemberships;
         this.verifications = verifications;
+        this.communityBans = communityBans;
     }
 
     @GetMapping("/{id}")
@@ -50,6 +54,11 @@ public class CommunitiesController {
         if (communityOpt.isEmpty()) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of(
                     "error", "community_not_found"
+            ));
+        }
+        if (communityBans.isBanned(actor.get().id, id)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
+                    "error", "community_banned"
             ));
         }
         var community = communityOpt.get();

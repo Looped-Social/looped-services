@@ -54,6 +54,12 @@ public class FeedController {
                     "message", "Community not found"
             ));
         }
+        if (res.status() == FeedService.Status.COMMUNITY_BANNED) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
+                    "error", "community_banned",
+                    "message", "You are banned from this community"
+            ));
+        }
         Long viewerPrincipalId = pollsService.viewerPrincipalId(jwt.getSubject());
         List<Long> postIds = res.items().stream().map(p -> p.id).toList();
         var pollsByPostId = pollsService.viewsByPostId(viewerPrincipalId, postIds);
@@ -91,6 +97,12 @@ public class FeedController {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of(
                     "error", "community_not_found",
                     "message", "Community not found"
+            ));
+        }
+        if (res.status() == FeedService.Status.COMMUNITY_BANNED) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
+                    "error", "community_banned",
+                    "message", "You are banned from this community"
             ));
         }
         Long viewerPrincipalId = pollsService.viewerPrincipalId(jwt.getSubject());

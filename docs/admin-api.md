@@ -256,6 +256,98 @@ Response (200)
 }
 ```
 
+### GET /v1/admin/users/{id}/community-bans
+List a user's community bans. Requires `ban_user`.
+
+Query params:
+- `active` (default `true`): when `true`, only returns non-revoked, non-expired bans
+
+Response (200)
+```json
+{
+  "items": [
+    {
+      "id": 10,
+      "scope": "community",
+      "community_id": 42,
+      "community_name": "UNC Chapel Hill",
+      "reason": "harassment",
+      "created_at": "2025-01-01T00:00:00Z",
+      "expires_at": null,
+      "created_by": 1,
+      "revoked_at": null,
+      "revoked_by": null
+    },
+    {
+      "id": 11,
+      "scope": "all_communities",
+      "community_id": null,
+      "community_name": null,
+      "reason": "spam",
+      "created_at": "2025-01-01T00:00:00Z",
+      "expires_at": "2025-02-01T00:00:00Z",
+      "created_by": 1,
+      "revoked_at": null,
+      "revoked_by": null
+    }
+  ]
+}
+```
+
+Errors:
+- `404 { "error": "user_not_found" }`
+
+### POST /v1/admin/users/{id}/community-bans
+Ban a user from one or more communities (or from all communities) while still allowing non-community parts of the app. Requires `ban_user`.
+
+Request (ban selected communities)
+```json
+{
+  "communityIds": [42, 99],
+  "reason": "harassment",
+  "duration_seconds": 86400
+}
+```
+
+Request (ban from all communities)
+```json
+{
+  "allCommunities": true,
+  "reason": "spam"
+}
+```
+
+Response (201)
+```json
+{
+  "status": "banned",
+  "user_id": 123,
+  "ban_ids": [10, 11]
+}
+```
+
+Errors:
+- `404 { "error": "user_not_found" }`
+- `404 { "error": "community_not_found", "community_id": 42 }`
+- `422 { "error": "invalid_expires_at" }`
+- `400 { "error": "community_ids_required" }` (when `allCommunities` is false and `communityIds` is empty)
+
+### POST /v1/admin/users/{id}/community-bans/{banId}/revoke
+Revoke a community ban. Requires `ban_user`.
+
+Response (200)
+```json
+{
+  "status": "revoked",
+  "user_id": 123,
+  "ban_id": 10
+}
+```
+
+Errors:
+- `404 { "error": "user_not_found" }`
+- `404 { "error": "ban_not_found" }`
+
 ### POST /v1/admin/users/{id}/community-verifications/{communityId}/revoke
 Revoke a user's verification for a specific community (immediately removes verified permissions). Requires `verify_users`.
 

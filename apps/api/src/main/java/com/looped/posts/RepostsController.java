@@ -42,6 +42,10 @@ public class RepostsController {
             case FORBIDDEN -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
                     "error", "forbidden"
             ));
+            case COMMUNITY_BANNED -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
+                    "error", "community_banned",
+                    "message", "You are banned from this community"
+            ));
             case SELF_REPOST_NOT_ALLOWED -> ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of(
                     "error", "self_repost_not_allowed",
                     "message", "You cannot repost your own post"
@@ -77,6 +81,10 @@ public class RepostsController {
             case FORBIDDEN -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
                     "error", "forbidden"
             ));
+            case COMMUNITY_BANNED -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
+                    "error", "community_banned",
+                    "message", "You are banned from this community"
+            ));
             case OK -> ResponseEntity.ok(Map.of(
                     "post_id", postId,
                     "repost_count", res.repostCount(),
@@ -91,4 +99,3 @@ public class RepostsController {
         };
     }
 }
-

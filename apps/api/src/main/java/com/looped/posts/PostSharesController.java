@@ -38,6 +38,10 @@ public class PostSharesController {
                     "error", "not_found",
                     "message", "Post not found"
             ));
+            case COMMUNITY_BANNED -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
+                    "error", "community_banned",
+                    "message", "You are banned from this community"
+            ));
             case OK -> new ResponseEntity<>(Map.of(
                     "post_id", postId,
                     "share_count", res.shareCount()

@@ -100,8 +100,8 @@ public class AdminVerificationsController {
             map.put("status", r.status);
             map.put("submitted_at", r.submittedAt);
             map.put("company_domain", r.companyDomain);
-            if (r.communityId != null) map.put("community_id", r.communityId);
-            if (r.communityName != null) map.put("community_name", r.communityName);
+            map.put("community_id", r.communityId);
+            map.put("community_name", r.communityName);
             if (r.communityKind != null) map.put("community_kind", r.communityKind);
             if (r.mediaKey != null) map.put("media_key", r.mediaKey);
             if (r.selfieKey != null) map.put("selfie_key", r.selfieKey);
@@ -145,7 +145,7 @@ public class AdminVerificationsController {
         if (req.get().reviewedBy != null) body.put("reviewed_by", req.get().reviewedBy);
         if (req.get().rejectReason != null) body.put("reject_reason", req.get().rejectReason);
         if (req.get().mediaKey != null) body.put("media_key", req.get().mediaKey);
-        if (req.get().selfieKey != null || req.get().idFrontKey != null || req.get().idBackKey != null) {
+        if (req.get().mediaDeletedAt == null && (req.get().selfieKey != null || req.get().idFrontKey != null || req.get().idBackKey != null)) {
             List<Map<String, Object>> docs = new ArrayList<>();
             addDoc(docs, "selfie", req.get().selfieKey);
             addDoc(docs, "id_front", req.get().idFrontKey);
@@ -155,8 +155,8 @@ public class AdminVerificationsController {
         if (req.get().deleteAfterAt != null) body.put("delete_after_at", req.get().deleteAfterAt);
         if (req.get().mediaDeletedAt != null) body.put("media_deleted_at", req.get().mediaDeletedAt);
         if (req.get().companyDomain != null) body.put("company_domain", req.get().companyDomain);
-        if (req.get().communityId != null) body.put("community_id", req.get().communityId);
-        if (req.get().communityName != null) body.put("community_name", req.get().communityName);
+        body.put("community_id", req.get().communityId);
+        body.put("community_name", req.get().communityName);
         if (req.get().communityKind != null) body.put("community_kind", req.get().communityKind);
         if (req.get().metadata != null) body.put("metadata", req.get().metadata);
         return ResponseEntity.ok(body);
@@ -242,6 +242,51 @@ public class AdminVerificationsController {
         out.put("status", "rejected");
         if (deleteAfterAt != null) out.put("delete_after_at", deleteAfterAt);
         return ResponseEntity.ok(out);
+    }
+
+    @PostMapping("/verifications/{id}/delete-media")
+    public ResponseEntity<?> deleteMedia(@AuthenticationPrincipal Jwt jwt, @PathVariable("id") long id) {
+        String email = jwt.getClaimAsString("email");
+        var authRes = auth.requirePermission(jwt.getSubject(), email, AdminPermissions.VERIFY_USERS);
+        if (authRes.status() != AdminAuthService.Status.OK) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "forbidden"));
+        }
+        var req = requests.findById(id);
+        if (req.isEmpty()) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "not_found"));
+        }
+        if (!"photo_id".equalsIgnoreCase(req.get().method)) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of("error", "unsupported_method"));
+        }
+        if (req.get().mediaDeletedAt != null) {
+            return ResponseEntity.ok(Map.of(
+                    "media_deleted", false,
+                    "already_deleted", true,
+                    "media_deleted_at", req.get().mediaDeletedAt
+            ));
+        }
+        if (!privateMedia.isConfigured()) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "verification_bucket_not_configured"));
+        }
+        boolean hasMedia = (req.get().selfieKey != null && !req.get().selfieKey.isBlank())
+                || (req.get().idFrontKey != null && !req.get().idFrontKey.isBlank())
+                || (req.get().idBackKey != null && !req.get().idBackKey.isBlank());
+        if (!hasMedia) {
+            return ResponseEntity.ok(Map.of("media_deleted", false, "no_media", true));
+        }
+        boolean ok = true;
+        if (req.get().selfieKey != null && !req.get().selfieKey.isBlank()) ok &= privateMedia.deleteObjectQuietly(req.get().selfieKey);
+        if (req.get().idFrontKey != null && !req.get().idFrontKey.isBlank()) ok &= privateMedia.deleteObjectQuietly(req.get().idFrontKey);
+        if (req.get().idBackKey != null && !req.get().idBackKey.isBlank()) ok &= privateMedia.deleteObjectQuietly(req.get().idBackKey);
+        if (!ok) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of("error", "delete_failed"));
+        }
+        requests.markMediaDeleted(req.get().id);
+        audit.log(authRes.admin().id, "verification.delete_media", "verification_request", id, null);
+        return ResponseEntity.ok(Map.of(
+                "media_deleted", true,
+                "media_deleted_at", OffsetDateTime.now()
+        ));
     }
 
     private boolean deleteVerificationMediaIfPresent(VerificationRequestsRepository.Row req) {

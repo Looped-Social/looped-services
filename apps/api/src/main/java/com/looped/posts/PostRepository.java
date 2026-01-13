@@ -30,6 +30,14 @@ public class PostRepository {
                 ") ";
     }
 
+    private static String communityBansFilter() {
+        return "AND NOT EXISTS (" +
+                "SELECT 1 FROM user_community_bans ub " +
+                "WHERE ub.user_id = ? AND ub.revoked_at IS NULL AND (ub.expires_at IS NULL OR ub.expires_at > now()) " +
+                "AND (ub.scope = 'all_communities' OR (ub.scope = 'community' AND ub.community_id = p.community_id))" +
+                ") ";
+    }
+
     private static final String BASE_SELECT =
             "SELECT p.id, p.author_id, p.author_principal_id, p.is_anon, p.anon_profile_id, p.anon_company_id, " +
             "p.company_id, p.community_id, c.name AS community_name, c.kind AS community_kind, " +
@@ -180,6 +188,8 @@ public class PostRepository {
         base += blocksFilter();
         args.add(viewerPrincipalId);
         args.add(viewerPrincipalId);
+        base += communityBansFilter();
+        args.add(viewerUserId);
         if (cursorTs == null || cursorId == null) {
             if (communityId != null) {
                 args.add(limit);
@@ -228,6 +238,7 @@ public class PostRepository {
             base += " " + hideAnonymousFilter(true);
         }
         base += " " + blocksFilter();
+        base += " " + communityBansFilter();
         if (cursorScore == null || cursorTs == null || cursorId == null) {
             return jdbc.query(
                     "SELECT id, author_id, author_principal_id, is_anon, anon_profile_id, anon_company_id, company_id, community_id, " +
@@ -238,11 +249,11 @@ public class PostRepository {
                             "author_display_community_specialization_type, " +
                             "author_display_specialization_id, author_display_specialization_name, author_display_specialization_kind, " +
                             "author_display_specialization_type, author_is_anonymous " +
-                            "FROM (" + base + ") s ORDER BY score DESC, created_at DESC, id DESC LIMIT ?",
+                    "FROM (" + base + ") s ORDER BY score DESC, created_at DESC, id DESC LIMIT ?",
                     MAPPER,
                     hideAnonymousPosts
-                            ? new Object[]{asOf, since, viewerUserId, viewerPrincipalId, viewerPrincipalId, limit}
-                            : new Object[]{asOf, since, viewerPrincipalId, viewerPrincipalId, limit}
+                            ? new Object[]{asOf, since, viewerUserId, viewerPrincipalId, viewerPrincipalId, viewerUserId, limit}
+                            : new Object[]{asOf, since, viewerPrincipalId, viewerPrincipalId, viewerUserId, limit}
             );
         }
         return jdbc.query(
@@ -258,8 +269,8 @@ public class PostRepository {
                         "ORDER BY score DESC, created_at DESC, id DESC LIMIT ?",
                 MAPPER,
                 hideAnonymousPosts
-                        ? new Object[]{asOf, since, viewerUserId, viewerPrincipalId, viewerPrincipalId, cursorScore, cursorScore, cursorTs, cursorTs, cursorId, limit}
-                        : new Object[]{asOf, since, viewerPrincipalId, viewerPrincipalId, cursorScore, cursorScore, cursorTs, cursorTs, cursorId, limit}
+                        ? new Object[]{asOf, since, viewerUserId, viewerPrincipalId, viewerPrincipalId, viewerUserId, cursorScore, cursorScore, cursorTs, cursorTs, cursorId, limit}
+                        : new Object[]{asOf, since, viewerPrincipalId, viewerPrincipalId, viewerUserId, cursorScore, cursorScore, cursorTs, cursorTs, cursorId, limit}
         );
     }
 
@@ -295,6 +306,7 @@ public class PostRepository {
             base += " " + hideAnonymousFilter(true);
         }
         base += " " + blocksFilter();
+        base += " " + communityBansFilter();
         if (cursorScore == null || cursorTs == null || cursorId == null) {
             return jdbc.query(
                     "SELECT id, author_id, author_principal_id, is_anon, anon_profile_id, anon_company_id, company_id, community_id, " +
@@ -305,11 +317,11 @@ public class PostRepository {
                             "author_display_community_specialization_type, " +
                             "author_display_specialization_id, author_display_specialization_name, author_display_specialization_kind, " +
                             "author_display_specialization_type, author_is_anonymous " +
-                            "FROM (" + base + ") s ORDER BY score DESC, created_at DESC, id DESC LIMIT ?",
+                    "FROM (" + base + ") s ORDER BY score DESC, created_at DESC, id DESC LIMIT ?",
                     MAPPER,
                     hideAnonymousPosts
-                            ? new Object[]{asOf, since, communityId, viewerUserId, viewerPrincipalId, viewerPrincipalId, limit}
-                            : new Object[]{asOf, since, communityId, viewerPrincipalId, viewerPrincipalId, limit}
+                            ? new Object[]{asOf, since, communityId, viewerUserId, viewerPrincipalId, viewerPrincipalId, viewerUserId, limit}
+                            : new Object[]{asOf, since, communityId, viewerPrincipalId, viewerPrincipalId, viewerUserId, limit}
             );
         }
         return jdbc.query(
@@ -325,8 +337,8 @@ public class PostRepository {
                         "ORDER BY score DESC, created_at DESC, id DESC LIMIT ?",
                 MAPPER,
                 hideAnonymousPosts
-                        ? new Object[]{asOf, since, communityId, viewerUserId, viewerPrincipalId, viewerPrincipalId, cursorScore, cursorScore, cursorTs, cursorTs, cursorId, limit}
-                        : new Object[]{asOf, since, communityId, viewerPrincipalId, viewerPrincipalId, cursorScore, cursorScore, cursorTs, cursorTs, cursorId, limit}
+                        ? new Object[]{asOf, since, communityId, viewerUserId, viewerPrincipalId, viewerPrincipalId, viewerUserId, cursorScore, cursorScore, cursorTs, cursorTs, cursorId, limit}
+                        : new Object[]{asOf, since, communityId, viewerPrincipalId, viewerPrincipalId, viewerUserId, cursorScore, cursorScore, cursorTs, cursorTs, cursorId, limit}
         );
     }
 
@@ -428,17 +440,18 @@ public class PostRepository {
             base += hideAnonymousFilter(true);
         }
         base += blocksFilter();
+        base += communityBansFilter();
         base += "ORDER BY score DESC, p.created_at DESC, p.id DESC LIMIT ?";
 
         Object[] params;
         if (communityId != null) {
             params = hideAnonymousPosts
-                    ? new Object[]{asOf, since, communityId, viewerUserId, viewerPrincipalId, viewerPrincipalId, limit}
-                    : new Object[]{asOf, since, communityId, viewerPrincipalId, viewerPrincipalId, limit};
+                    ? new Object[]{asOf, since, communityId, viewerUserId, viewerPrincipalId, viewerPrincipalId, viewerUserId, limit}
+                    : new Object[]{asOf, since, communityId, viewerPrincipalId, viewerPrincipalId, viewerUserId, limit};
         } else {
             params = hideAnonymousPosts
-                    ? new Object[]{asOf, since, viewerUserId, viewerPrincipalId, viewerPrincipalId, limit}
-                    : new Object[]{asOf, since, viewerPrincipalId, viewerPrincipalId, limit};
+                    ? new Object[]{asOf, since, viewerUserId, viewerPrincipalId, viewerPrincipalId, viewerUserId, limit}
+                    : new Object[]{asOf, since, viewerPrincipalId, viewerPrincipalId, viewerUserId, limit};
         }
         return jdbc.query(base, TRENDING_MAPPER, params);
     }
@@ -496,6 +509,7 @@ public class PostRepository {
                         "AND (p.author_id IS NULL OR u.id IS NOT NULL) " +
                         (hideAnonymousPosts ? hideAnonymousFilter(true) : "") +
                         blocksFilter() +
+                        communityBansFilter() +
                         "AND " + match;
 
         if (cursorScore == null || cursorTs == null || cursorId == null) {
@@ -503,8 +517,8 @@ public class PostRepository {
                     "SELECT * FROM (" + base + ") s ORDER BY score DESC, created_at DESC, id DESC LIMIT ?",
                     SCORED_MAPPER,
                     hideAnonymousPosts
-                            ? new Object[]{query, prefixQuery, asOf, companyId, viewerUserId, viewerPrincipalId, viewerPrincipalId, limit}
-                            : new Object[]{query, prefixQuery, asOf, companyId, viewerPrincipalId, viewerPrincipalId, limit}
+                            ? new Object[]{query, prefixQuery, asOf, companyId, viewerUserId, viewerPrincipalId, viewerPrincipalId, viewerUserId, limit}
+                            : new Object[]{query, prefixQuery, asOf, companyId, viewerPrincipalId, viewerPrincipalId, viewerUserId, limit}
             );
         }
         return jdbc.query(
@@ -513,8 +527,8 @@ public class PostRepository {
                         "ORDER BY score DESC, created_at DESC, id DESC LIMIT ?",
                 SCORED_MAPPER,
                 hideAnonymousPosts
-                        ? new Object[]{query, prefixQuery, asOf, companyId, viewerUserId, viewerPrincipalId, viewerPrincipalId, cursorScore, cursorScore, cursorTs, cursorTs, cursorId, limit}
-                        : new Object[]{query, prefixQuery, asOf, companyId, viewerPrincipalId, viewerPrincipalId, cursorScore, cursorScore, cursorTs, cursorTs, cursorId, limit}
+                        ? new Object[]{query, prefixQuery, asOf, companyId, viewerUserId, viewerPrincipalId, viewerPrincipalId, viewerUserId, cursorScore, cursorScore, cursorTs, cursorTs, cursorId, limit}
+                        : new Object[]{query, prefixQuery, asOf, companyId, viewerPrincipalId, viewerPrincipalId, viewerUserId, cursorScore, cursorScore, cursorTs, cursorTs, cursorId, limit}
         );
     }
 

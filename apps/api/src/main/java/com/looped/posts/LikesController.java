@@ -54,6 +54,10 @@ public class LikesController {
                     "error", "not_found",
                     "message", "Post not found"
             ));
+            case COMMUNITY_BANNED -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
+                    "error", "community_banned",
+                    "message", "You are banned from this community"
+            ));
             case INVALID_SIGNATURE -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
                     "error", "invalid_anon_proof",
                     "message", "Invalid anonymous proof"
@@ -96,6 +100,10 @@ public class LikesController {
             case NOT_FOUND -> ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of(
                     "error", "not_found",
                     "message", "Post not found"
+            ));
+            case COMMUNITY_BANNED -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
+                    "error", "community_banned",
+                    "message", "You are banned from this community"
             ));
             case INVALID_SIGNATURE -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
                     "error", "invalid_anon_proof",

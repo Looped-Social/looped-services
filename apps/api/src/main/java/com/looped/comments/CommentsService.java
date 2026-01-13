@@ -8,6 +8,7 @@ import com.looped.principals.PrincipalRepository;
 import com.looped.posts.PostRepository;
 import com.looped.shared.MentionParser;
 import com.looped.shared.Pagination;
+import com.looped.users.UserCommunityBanRepository;
 import com.looped.users.UserRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -25,6 +26,7 @@ public class CommentsService {
     private final PrincipalRepository principals;
     private final AnonProofService anonProofs;
     private final NotificationPublisher notifications;
+    private final UserCommunityBanRepository communityBans;
 
     public CommentsService(CommentsRepository comments,
                            PostRepository posts,
@@ -33,7 +35,8 @@ public class CommentsService {
                            CommunityVerificationsRepository communityVerifications,
                            PrincipalRepository principals,
                            AnonProofService anonProofs,
-                           NotificationPublisher notifications) {
+                           NotificationPublisher notifications,
+                           UserCommunityBanRepository communityBans) {
         this.comments = comments;
         this.posts = posts;
         this.users = users;
@@ -42,6 +45,7 @@ public class CommentsService {
         this.principals = principals;
         this.anonProofs = anonProofs;
         this.notifications = notifications;
+        this.communityBans = communityBans;
     }
 
     public ListResult list(String firebaseUid, long postId, String cursor, int limit, AnonProofService.AnonActionProof anonProof) {
@@ -54,6 +58,9 @@ public class CommentsService {
 
         var post = posts.findById(postId);
         if (post.isEmpty()) return ListResult.postNotFound();
+        if (anonProof == null && post.get().communityId != null && communityBans.isBanned(actor.orElseThrow().id, post.get().communityId)) {
+            return ListResult.communityBanned();
+        }
         long viewerPrincipalId;
         if (anonProof != null && anonProof.anonProfileId() != null) {
             if (post.get().communityId == null) return ListResult.invalidAnonProof();
@@ -100,6 +107,9 @@ public class CommentsService {
             if (firebaseUid == null) return CreateResult.userNotProvisioned();
             var actor = users.findByFirebaseUid(firebaseUid);
             if (actor.isEmpty() || actor.get().companyId == null) return CreateResult.userNotProvisioned();
+            if (communityBans.isBanned(actor.get().id, post.get().communityId)) {
+                return CreateResult.communityBanned();
+            }
             if (requiresVerification(post.get().communityId)
                     && !communityVerifications.isVerified(actor.get().id, post.get().communityId)) {
                 return CreateResult.notVerified();
@@ -263,6 +273,9 @@ public class CommentsService {
             if (firebaseUid == null) return DeleteResult.userNotProvisioned();
             var actor = users.findByFirebaseUid(firebaseUid);
             if (actor.isEmpty() || actor.get().companyId == null) return DeleteResult.userNotProvisioned();
+            if (post.get().communityId != null && communityBans.isBanned(actor.get().id, post.get().communityId)) {
+                return DeleteResult.communityBanned();
+            }
             actorPrincipalId = principals.createForUser(actor.get().id).id;
         }
 
@@ -296,6 +309,9 @@ public class CommentsService {
             if (firebaseUid == null) return LikeResult.userNotProvisioned();
             var actor = users.findByFirebaseUid(firebaseUid);
             if (actor.isEmpty() || actor.get().companyId == null) return LikeResult.userNotProvisioned();
+            if (post.get().communityId != null && communityBans.isBanned(actor.get().id, post.get().communityId)) {
+                return LikeResult.communityBanned();
+            }
             actorPrincipalId = principals.createForUser(actor.get().id).id;
             actorUserId = actor.get().id;
         }
@@ -324,6 +340,9 @@ public class CommentsService {
             if (firebaseUid == null) return UnlikeResult.userNotProvisioned();
             var actor = users.findByFirebaseUid(firebaseUid);
             if (actor.isEmpty() || actor.get().companyId == null) return UnlikeResult.userNotProvisioned();
+            if (post.get().communityId != null && communityBans.isBanned(actor.get().id, post.get().communityId)) {
+                return UnlikeResult.communityBanned();
+            }
             actorPrincipalId = principals.createForUser(actor.get().id).id;
         }
         boolean deleted = comments.deleteLikeIfPresent(commentId, actorPrincipalId);
@@ -356,6 +375,7 @@ public class CommentsService {
         USER_NOT_FOUND,
         INVALID_PARENT,
         COMMUNITY_NOT_FOUND,
+        COMMUNITY_BANNED,
         NOT_VERIFIED,
         INVALID_ANON_PROOF
     }
@@ -364,6 +384,7 @@ public class CommentsService {
         static ListResult ok(List<CommentsRepository.CommentViewRow> comments, String nextCursor) { return new ListResult(Status.OK, comments, nextCursor); }
         static ListResult userNotProvisioned() { return new ListResult(Status.USER_NOT_PROVISIONED, List.of(), null); }
         static ListResult postNotFound() { return new ListResult(Status.POST_NOT_FOUND, List.of(), null); }
+        static ListResult communityBanned() { return new ListResult(Status.COMMUNITY_BANNED, List.of(), null); }
         static ListResult invalidAnonProof() { return new ListResult(Status.INVALID_ANON_PROOF, List.of(), null); }
     }
 
@@ -374,6 +395,7 @@ public class CommentsService {
         static CreateResult parentNotFound() { return new CreateResult(Status.COMMENT_NOT_FOUND, null); }
         static CreateResult invalidParent() { return new CreateResult(Status.INVALID_PARENT, null); }
         static CreateResult communityNotFound() { return new CreateResult(Status.COMMUNITY_NOT_FOUND, null); }
+        static CreateResult communityBanned() { return new CreateResult(Status.COMMUNITY_BANNED, null); }
         static CreateResult notVerified() { return new CreateResult(Status.NOT_VERIFIED, null); }
         static CreateResult invalidAnonProof() { return new CreateResult(Status.INVALID_ANON_PROOF, null); }
     }
@@ -390,6 +412,7 @@ public class CommentsService {
         static LikeResult ok(boolean created, int likesCount, boolean likedByCreator, boolean userLiked) { return new LikeResult(Status.OK, created, likesCount, likedByCreator, userLiked); }
         static LikeResult userNotProvisioned() { return new LikeResult(Status.USER_NOT_PROVISIONED, false, 0, false, false); }
         static LikeResult commentNotFound() { return new LikeResult(Status.COMMENT_NOT_FOUND, false, 0, false, false); }
+        static LikeResult communityBanned() { return new LikeResult(Status.COMMUNITY_BANNED, false, 0, false, false); }
         static LikeResult invalidAnonProof() { return new LikeResult(Status.INVALID_ANON_PROOF, false, 0, false, false); }
     }
 
@@ -415,6 +438,7 @@ public class CommentsService {
         OK,
         USER_NOT_PROVISIONED,
         COMMENT_NOT_FOUND,
+        COMMUNITY_BANNED,
         FORBIDDEN,
         INVALID_ANON_PROOF
     }
@@ -423,6 +447,7 @@ public class CommentsService {
         static DeleteResult ok(boolean deleted) { return new DeleteResult(DeleteStatus.OK, deleted); }
         static DeleteResult userNotProvisioned() { return new DeleteResult(DeleteStatus.USER_NOT_PROVISIONED, false); }
         static DeleteResult commentNotFound() { return new DeleteResult(DeleteStatus.COMMENT_NOT_FOUND, false); }
+        static DeleteResult communityBanned() { return new DeleteResult(DeleteStatus.COMMUNITY_BANNED, false); }
         static DeleteResult forbidden() { return new DeleteResult(DeleteStatus.FORBIDDEN, false); }
         static DeleteResult invalidAnonProof() { return new DeleteResult(DeleteStatus.INVALID_ANON_PROOF, false); }
     }
@@ -431,6 +456,7 @@ public class CommentsService {
         OK,
         USER_NOT_PROVISIONED,
         COMMENT_NOT_FOUND,
+        COMMUNITY_BANNED,
         INVALID_ANON_PROOF
     }
 
@@ -440,6 +466,7 @@ public class CommentsService {
         }
         static UnlikeResult userNotProvisioned() { return new UnlikeResult(UnlikeStatus.USER_NOT_PROVISIONED, false, 0, false, false); }
         static UnlikeResult commentNotFound() { return new UnlikeResult(UnlikeStatus.COMMENT_NOT_FOUND, false, 0, false, false); }
+        static UnlikeResult communityBanned() { return new UnlikeResult(UnlikeStatus.COMMUNITY_BANNED, false, 0, false, false); }
         static UnlikeResult invalidAnonProof() { return new UnlikeResult(UnlikeStatus.INVALID_ANON_PROOF, false, 0, false, false); }
     }
 }

@@ -14,6 +14,7 @@ import com.looped.principals.PrincipalRepository;
 import com.looped.shared.MentionParser;
 import com.looped.users.BlocksRepository;
 import com.looped.users.FollowsRepository;
+import com.looped.users.UserCommunityBanRepository;
 import com.looped.users.UserRepository;
 import org.springframework.dao.DataAccessException;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -38,6 +39,7 @@ public class PostsService {
     private final HashtagPostsRepository hashtagPosts;
     private final FollowsRepository follows;
     private final BlocksRepository blocks;
+    private final UserCommunityBanRepository communityBans;
     private final NotificationPublisher notifications;
     private final PostStateService postState;
     private final PollsService pollsService;
@@ -54,6 +56,7 @@ public class PostsService {
                         HashtagPostsRepository hashtagPosts,
                         FollowsRepository follows,
                         BlocksRepository blocks,
+                        UserCommunityBanRepository communityBans,
                         NotificationPublisher notifications,
                         PostStateService postState,
                         PollsService pollsService) {
@@ -69,6 +72,7 @@ public class PostsService {
         this.hashtagPosts = hashtagPosts;
         this.follows = follows;
         this.blocks = blocks;
+        this.communityBans = communityBans;
         this.notifications = notifications;
         this.postState = postState;
         this.pollsService = pollsService;
@@ -130,6 +134,9 @@ public class PostsService {
         long userId = u.get().id;
         long companyId = Optional.ofNullable(u.get().companyId).orElse(0L);
 
+        if (communityBans.isBanned(userId, communityId)) {
+            return CreateResult.communityBanned();
+        }
         if (requiresVerification(community.get()) && !communityVerifications.isVerified(userId, communityId)) {
             return CreateResult.notVerified();
         }
@@ -200,6 +207,9 @@ public class PostsService {
         }
         if (u.get().hideAnonymousPosts && p.get().authorIsAnonymous && (p.get().authorId == null || p.get().authorId != u.get().id)) {
             return GetResult.notFound();
+        }
+        if (p.get().communityId != null && communityBans.isBanned(u.get().id, p.get().communityId)) {
+            return GetResult.communityBanned();
         }
         postState.applyForPrincipal(principal.id, java.util.List.of(p.get()));
         return GetResult.ok(p.get());
@@ -302,6 +312,7 @@ public class PostsService {
         static GetResult userNotProvisioned() { return new GetResult(Status.USER_NOT_PROVISIONED, null); }
         static GetResult forbidden() { return new GetResult(Status.FORBIDDEN, null); }
         static GetResult notFound() { return new GetResult(Status.NOT_FOUND, null); }
+        static GetResult communityBanned() { return new GetResult(Status.COMMUNITY_BANNED, null); }
     }
 
     public enum Status {
@@ -316,6 +327,7 @@ public class PostsService {
         NOT_FOUND,
         COMMUNITY_REQUIRED,
         COMMUNITY_NOT_FOUND,
+        COMMUNITY_BANNED,
         NOT_VERIFIED
     }
     public record CreateResult(Status status, PostRepository.PostRow post, boolean created) {
@@ -328,6 +340,7 @@ public class PostsService {
         static CreateResult anonMediaNotAllowed() { return new CreateResult(Status.ANON_MEDIA_NOT_ALLOWED, null, false); }
         static CreateResult communityRequired() { return new CreateResult(Status.COMMUNITY_REQUIRED, null, false); }
         static CreateResult communityNotFound() { return new CreateResult(Status.COMMUNITY_NOT_FOUND, null, false); }
+        static CreateResult communityBanned() { return new CreateResult(Status.COMMUNITY_BANNED, null, false); }
         static CreateResult notVerified() { return new CreateResult(Status.NOT_VERIFIED, null, false); }
     }
 

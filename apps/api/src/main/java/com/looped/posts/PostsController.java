@@ -123,6 +123,10 @@ public class PostsController {
                     "error", "community_not_found",
                     "message", "Community not found"
             ));
+            case COMMUNITY_BANNED -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
+                    "error", "community_banned",
+                    "message", "You are banned from this community"
+            ));
             case NOT_VERIFIED -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
                     "error", "community_not_verified",
                     "message", "You must be verified to post to this community"
@@ -168,6 +172,7 @@ public class PostsController {
             case USER_NOT_PROVISIONED -> ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "user_not_provisioned"));
             case NOT_FOUND -> ResponseEntity.status(HttpStatus.NOT_FOUND).build();
             case FORBIDDEN -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "forbidden"));
+            case COMMUNITY_BANNED -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "community_banned"));
             case OK -> {
                 var payload = PostPayloads.from(res.post());
                 Long viewerPrincipalId = pollsService.viewerPrincipalId(jwt.getSubject());
