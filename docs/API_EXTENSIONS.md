@@ -172,7 +172,16 @@
     - `403 { "error": "invalid_session" }`
     - `400 { "error": "verification_not_supported" }` (specializations)
 - **Community details**
-  - `GET /v1/communities/{id}` → `{ id, kind, name, short_name?, description?, image_url?, member_count, specialization_type?, is_following }`
+  - `GET /v1/communities/{id}` → `{ id, kind, name, short_name?, description?, image_url?, member_count, specialization_type?, is_following, is_joined?, join_limit? }`
+    - For specialization communities (`kind="specialization"`) where `specialization_type` is `major` or `department`, responses include:
+      - `is_joined`: whether the current user has joined this specialization
+      - `join_limit`: per-type join limit + cooldown state for the current user:
+        - `{ specialization_type, limit, joined_count, remaining, cooldown_months, cooldown_active, cooldown_ends_at?, cooldown_days_remaining?, can_join, blocked_reason? }`
+- **Specialization join limits (for UI)**
+  - Use to show “joined X/Y majors” and “next change available on …” in settings and specialization pickers.
+  - `GET /v1/me/specializations/join-limits?type=major|department|all`
+    - Auth: Firebase JWT required
+    - Response: `{ "items": [ { specialization_type, limit, joined_count, remaining, cooldown_months, cooldown_active, cooldown_ends_at?, cooldown_days_remaining?, can_join, blocked_reason? } ] }`
 - **Profile display community**
   - `PUT /v1/users/me/display-community` with `{ communityId: <id|null> }` → user payload (same shape as `/v1/me.user`). `null` clears the display community.
 - **Profile display specialization**

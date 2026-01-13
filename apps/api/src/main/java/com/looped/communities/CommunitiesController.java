@@ -20,17 +20,20 @@ public class CommunitiesController {
     private final CommunitiesRepository communities;
     private final CommunityFollowsRepository follows;
     private final SpecializationJoinsRepository specializationJoins;
+    private final SpecializationMembershipService specializationMemberships;
     private final CommunityVerificationsRepository verifications;
 
     public CommunitiesController(UserRepository users,
                                  CommunitiesRepository communities,
                                  CommunityFollowsRepository follows,
                                  SpecializationJoinsRepository specializationJoins,
+                                 SpecializationMembershipService specializationMemberships,
                                  CommunityVerificationsRepository verifications) {
         this.users = users;
         this.communities = communities;
         this.follows = follows;
         this.specializationJoins = specializationJoins;
+        this.specializationMemberships = specializationMemberships;
         this.verifications = verifications;
     }
 
@@ -64,6 +67,19 @@ public class CommunitiesController {
             String t = community.specializationType == null ? "" : community.specializationType.trim().toLowerCase(java.util.Locale.ROOT);
             if (t.equals("major") || t.equals("department")) {
                 out.put("is_joined", specializationJoins.exists(actor.get().id, id));
+                var snap = specializationMemberships.joinLimitSnapshotForUserId(actor.get().id, t);
+                Map<String, Object> joinLimit = new HashMap<>();
+                joinLimit.put("specialization_type", snap.specializationType());
+                joinLimit.put("limit", snap.limit());
+                joinLimit.put("joined_count", snap.joinedCount());
+                joinLimit.put("remaining", snap.remaining());
+                joinLimit.put("cooldown_months", snap.cooldownMonths());
+                joinLimit.put("cooldown_active", snap.cooldownActive());
+                if (snap.cooldownEndsAt() != null) joinLimit.put("cooldown_ends_at", snap.cooldownEndsAt());
+                if (snap.cooldownDaysRemaining() != null) joinLimit.put("cooldown_days_remaining", snap.cooldownDaysRemaining());
+                joinLimit.put("can_join", snap.canJoin());
+                if (snap.blockedReason() != null) joinLimit.put("blocked_reason", snap.blockedReason());
+                out.put("join_limit", joinLimit);
             }
         }
         return ResponseEntity.ok(out);

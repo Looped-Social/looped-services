@@ -160,6 +160,56 @@ public class SpecializationsController {
         return ResponseEntity.ok(body);
     }
 
+    @GetMapping("/me/specializations/join-limits")
+    public ResponseEntity<?> specializationJoinLimits(@AuthenticationPrincipal Jwt jwt,
+                                                      @RequestParam(value = "type", required = false) String type,
+                                                      @RequestParam(value = "specializationType", required = false) String specializationTypeAlt,
+                                                      @RequestParam(value = "specialization_type", required = false) String specializationType) {
+        String requested = type != null ? type : (specializationTypeAlt != null ? specializationTypeAlt : specializationType);
+        String normalized = normalizeListType(requested);
+        if (normalized == null) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of(
+                    "error", "invalid_specialization_type",
+                    "message", "type must be major, department, or all"
+            ));
+        }
+
+        SpecializationMembershipService.JoinLimitSnapshotsResult res;
+        if ("all".equals(normalized)) {
+            res = memberships.joinLimitSnapshots(jwt.getSubject());
+        } else {
+            res = memberships.joinLimitSnapshots(jwt.getSubject(), normalized);
+        }
+
+        if (res.status() == SpecializationMembershipService.Status.USER_NOT_PROVISIONED) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
+                    "error", "user_not_provisioned",
+                    "message", "Complete onboarding before viewing specialization limits"
+            ));
+        }
+        if (res.status() != SpecializationMembershipService.Status.OK) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+
+        List<Map<String, Object>> items = res.items().stream().map(this::joinLimitPayload).toList();
+        return ResponseEntity.ok(Map.of("items", items));
+    }
+
+    private Map<String, Object> joinLimitPayload(SpecializationMembershipService.JoinLimitSnapshot snap) {
+        Map<String, Object> out = new HashMap<>();
+        if (snap.specializationType() != null) out.put("specialization_type", snap.specializationType());
+        out.put("limit", snap.limit());
+        out.put("joined_count", snap.joinedCount());
+        out.put("remaining", snap.remaining());
+        out.put("cooldown_months", snap.cooldownMonths());
+        out.put("cooldown_active", snap.cooldownActive());
+        if (snap.cooldownEndsAt() != null) out.put("cooldown_ends_at", snap.cooldownEndsAt());
+        if (snap.cooldownDaysRemaining() != null) out.put("cooldown_days_remaining", snap.cooldownDaysRemaining());
+        out.put("can_join", snap.canJoin());
+        if (snap.blockedReason() != null) out.put("blocked_reason", snap.blockedReason());
+        return out;
+    }
+
     private Map<String, Object> payload(SpecializationJoinsRepository.JoinRow row, java.util.Map<Long, Integer> memberCounts) {
         Map<String, Object> out = new HashMap<>();
         out.put("id", row.specializationId());

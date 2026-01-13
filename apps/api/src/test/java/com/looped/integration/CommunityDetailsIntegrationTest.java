@@ -17,7 +17,10 @@ import org.springframework.test.web.servlet.MockMvc;
 import java.time.Instant;
 import java.util.List;
 
+import static org.hamcrest.Matchers.equalTo;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -106,5 +109,59 @@ class CommunityDetailsIntegrationTest extends PostgresTestBase {
                 .andExpect(jsonPath("$.image_url").value("https://cdn.example.com/unc.png"))
                 .andExpect(jsonPath("$.member_count").value(2))
                 .andExpect(jsonPath("$.is_following").value(true));
+    }
+
+    @Test
+    void specialization_details_include_join_limit_snapshot_and_me_endpoint_exposes_limits() throws Exception {
+        long companyId = jdbc.queryForObject("INSERT INTO companies(name, domain) VALUES ('SpecLimitCo','speclimit.co') RETURNING id", Long.class);
+        jdbc.update("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?)", "uid-spec-limits", "speclimits", companyId);
+        long majorId = jdbc.queryForObject(
+                "INSERT INTO communities(kind, specialization_type, name) VALUES ('specialization','major','Computer Science') RETURNING id",
+                Long.class
+        );
+
+        String auth = "Bearer " + token("uid-spec-limits");
+
+        mockMvc.perform(post("/v1/specializations/" + majorId + "/join")
+                        .header("Authorization", auth))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.joined").value(true));
+
+        mockMvc.perform(get("/v1/communities/" + majorId)
+                        .header("Authorization", auth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.kind").value("specialization"))
+                .andExpect(jsonPath("$.specialization_type").value("major"))
+                .andExpect(jsonPath("$.is_joined").value(true))
+                .andExpect(jsonPath("$.join_limit.specialization_type").value("major"))
+                .andExpect(jsonPath("$.join_limit.limit").value(2))
+                .andExpect(jsonPath("$.join_limit.joined_count").value(1))
+                .andExpect(jsonPath("$.join_limit.remaining").value(1))
+                .andExpect(jsonPath("$.join_limit.cooldown_active").value(false))
+                .andExpect(jsonPath("$.join_limit.can_join").value(true));
+
+        mockMvc.perform(get("/v1/me/specializations/join-limits?type=major")
+                        .header("Authorization", auth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].specialization_type").value("major"))
+                .andExpect(jsonPath("$.items[0].limit").value(2))
+                .andExpect(jsonPath("$.items[0].joined_count").value(1))
+                .andExpect(jsonPath("$.items[0].remaining").value(1))
+                .andExpect(jsonPath("$.items[0].cooldown_active").value(false))
+                .andExpect(jsonPath("$.items[0].can_join").value(true));
+
+        mockMvc.perform(delete("/v1/specializations/" + majorId + "/join")
+                        .header("Authorization", auth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.joined").value(false));
+
+        mockMvc.perform(get("/v1/me/specializations/join-limits?type=major")
+                        .header("Authorization", auth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].joined_count").value(0))
+                .andExpect(jsonPath("$.items[0].cooldown_active").value(true))
+                .andExpect(jsonPath("$.items[0].cooldown_ends_at").exists())
+                .andExpect(jsonPath("$.items[0].can_join").value(false))
+                .andExpect(jsonPath("$.items[0].blocked_reason").value(equalTo("cooldown")));
     }
 }

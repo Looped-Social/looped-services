@@ -57,6 +57,19 @@ public class SpecializationMembershipService {
         static ListResult userNotProvisioned() { return new ListResult(Status.USER_NOT_PROVISIONED, List.of(), null); }
     }
 
+    public record JoinLimitSnapshot(String specializationType, int limit, int joinedCount, int remaining,
+                                    boolean cooldownActive, OffsetDateTime cooldownEndsAt, Long cooldownDaysRemaining,
+                                    boolean canJoin, String blockedReason, int cooldownMonths) {}
+
+    public record JoinLimitSnapshotsResult(Status status, List<JoinLimitSnapshot> items) {
+        static JoinLimitSnapshotsResult ok(List<JoinLimitSnapshot> items) {
+            return new JoinLimitSnapshotsResult(Status.OK, items);
+        }
+        static JoinLimitSnapshotsResult userNotProvisioned() {
+            return new JoinLimitSnapshotsResult(Status.USER_NOT_PROVISIONED, List.of());
+        }
+    }
+
     public JoinResult join(String firebaseUid, long specializationId) {
         var actor = provisionedUser(firebaseUid);
         if (actor.isEmpty()) return JoinResult.userNotProvisioned();
@@ -125,6 +138,54 @@ public class SpecializationMembershipService {
             next = com.looped.shared.Pagination.encode(last.createdAt(), last.joinId());
         }
         return ListResult.ok(rows, next);
+    }
+
+    public JoinLimitSnapshotsResult joinLimitSnapshots(String firebaseUid, String specializationType) {
+        var actor = provisionedUser(firebaseUid);
+        if (actor.isEmpty()) return JoinLimitSnapshotsResult.userNotProvisioned();
+        String normalizedType = normalizeType(specializationType);
+        if (normalizedType == null) {
+            return JoinLimitSnapshotsResult.ok(List.of());
+        }
+        return JoinLimitSnapshotsResult.ok(List.of(joinLimitSnapshotForUserId(actor.get().id, normalizedType)));
+    }
+
+    public JoinLimitSnapshotsResult joinLimitSnapshots(String firebaseUid) {
+        var actor = provisionedUser(firebaseUid);
+        if (actor.isEmpty()) return JoinLimitSnapshotsResult.userNotProvisioned();
+        return JoinLimitSnapshotsResult.ok(List.of(
+                joinLimitSnapshotForUserId(actor.get().id, "major"),
+                joinLimitSnapshotForUserId(actor.get().id, "department")
+        ));
+    }
+
+    public JoinLimitSnapshot joinLimitSnapshotForUserId(long userId, String specializationType) {
+        String normalizedType = normalizeType(specializationType);
+        if (normalizedType == null) {
+            return new JoinLimitSnapshot(null, MAX_PER_TYPE, 0, MAX_PER_TYPE, false,
+                    null, null, true, null, COOLDOWN_MONTHS);
+        }
+
+        int joinedCount = joins.countJoinedByType(userId, normalizedType);
+        int remaining = Math.max(0, MAX_PER_TYPE - joinedCount);
+
+        OffsetDateTime now = OffsetDateTime.now();
+        var lastChange = limits.findLastChange(userId, normalizedType, LIMIT_SCOPE).orElse(null);
+        OffsetDateTime cooldownEndsAt = lastChange == null ? null : lastChange.plusMonths(COOLDOWN_MONTHS);
+        boolean cooldownActive = cooldownEndsAt != null && cooldownEndsAt.isAfter(now);
+        Long cooldownDaysRemaining = null;
+        if (cooldownActive) {
+            long days = java.time.Duration.between(now, cooldownEndsAt).toDays();
+            cooldownDaysRemaining = Math.max(0, days);
+        }
+
+        String blockedReason = null;
+        if (joinedCount >= MAX_PER_TYPE) blockedReason = "limit";
+        else if (cooldownActive) blockedReason = "cooldown";
+
+        boolean canJoin = blockedReason == null;
+        return new JoinLimitSnapshot(normalizedType, MAX_PER_TYPE, joinedCount, remaining,
+                cooldownActive, cooldownEndsAt, cooldownDaysRemaining, canJoin, blockedReason, COOLDOWN_MONTHS);
     }
 
     private Optional<UserRepository.UserRow> provisionedUser(String firebaseUid) {
