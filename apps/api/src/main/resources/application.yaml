@@ -35,6 +35,9 @@ s3:
   verification:
     bucket: ${S3_VERIFICATION_BUCKET:}
     region: ${S3_VERIFICATION_REGION:${AWS_REGION:us-east-1}}
+  messaging:
+    bucket: ${S3_MESSAGING_BUCKET:${S3_DM_BUCKET:}}
+    region: ${S3_MESSAGING_REGION:${S3_DM_REGION:${AWS_REGION:us-east-1}}}
 
 cloudfront:
   domain: ${CLOUDFRONT_DOMAIN:}

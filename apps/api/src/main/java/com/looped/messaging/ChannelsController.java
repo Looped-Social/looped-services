@@ -216,6 +216,9 @@ public class ChannelsController {
         if (res.status() == ChannelService.Status.FORBIDDEN) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "forbidden"));
         }
+        if (res.status() == ChannelService.Status.INVALID_ATTACHMENTS) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of("error", "invalid_attachments"));
+        }
         if (res.status() == ChannelService.Status.NOT_FOUND) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "not_found"));
         }

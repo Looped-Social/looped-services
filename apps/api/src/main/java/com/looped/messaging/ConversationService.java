@@ -162,6 +162,7 @@ public class ConversationService {
         var company = conversations.conversationCompany(conversationId);
         if (company.isEmpty()) return SendResult.notFound();
         if (!conversations.isParticipant(conversationId, actor.get().id)) return SendResult.forbidden();
+        if (!attachmentsValid(attachments)) return SendResult.invalidAttachments();
         var request = messageRequests.findByConversationRecipient(conversationId, actor.get().id);
         if (request.isPresent() && !REQUEST_STATUS_APPROVED.equals(request.get().status)) {
             return REQUEST_STATUS_REJECTED.equals(request.get().status)
@@ -177,13 +178,22 @@ public class ConversationService {
         return SendResult.ok(row);
     }
 
+    private boolean attachmentsValid(List<String> attachments) {
+        if (attachments == null || attachments.isEmpty()) return true;
+        for (String a : attachments) {
+            if (a == null || a.isBlank()) continue;
+            if (!a.startsWith("dm/")) return false;
+        }
+        return true;
+    }
+
     private Optional<UserRepository.UserRow> requireProvisionedUser(String firebaseUid) {
         var user = users.findByFirebaseUid(firebaseUid);
         if (user.isEmpty() || user.get().companyId == null) return Optional.empty();
         return user;
     }
 
-    public enum Status { OK, USER_NOT_PROVISIONED, NOT_FOUND, FORBIDDEN, ANONYMOUS_NOT_ALLOWED, MESSAGE_REQUEST_PENDING, MESSAGE_REQUEST_REJECTED, INVALID_PARTICIPANT }
+    public enum Status { OK, USER_NOT_PROVISIONED, NOT_FOUND, FORBIDDEN, ANONYMOUS_NOT_ALLOWED, MESSAGE_REQUEST_PENDING, MESSAGE_REQUEST_REJECTED, INVALID_PARTICIPANT, INVALID_ATTACHMENTS }
 
     public record ConversationListResult(Status status, List<Map<String, Object>> items, String nextCursor) {
         static ConversationListResult ok(List<Map<String, Object>> items, String next) { return new ConversationListResult(Status.OK, items, next); }
@@ -218,6 +228,7 @@ public class ConversationService {
         static SendResult messageRequestPending() { return new SendResult(Status.MESSAGE_REQUEST_PENDING, null); }
         static SendResult messageRequestRejected() { return new SendResult(Status.MESSAGE_REQUEST_REJECTED, null); }
         static SendResult anonymousNotAllowed() { return new SendResult(Status.ANONYMOUS_NOT_ALLOWED, null); }
+        static SendResult invalidAttachments() { return new SendResult(Status.INVALID_ATTACHMENTS, null); }
     }
 
     private void maybeCreateMessageRequest(long senderId, long conversationId, long messageId) {

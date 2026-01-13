@@ -92,11 +92,21 @@ public class ChannelService {
         if (channel.get().companyId != actor.get().companyId) return SendResult.forbidden();
         boolean allowed = channel.get().isPublic || channels.isMember(channelId, actor.get().id);
         if (!allowed) return SendResult.forbidden();
+        if (!attachmentsValid(attachments)) return SendResult.invalidAttachments();
 
         // Auto-join public channels on send
         channels.addMember(channelId, actor.get().id, false);
         var message = channels.insertMessage(channelId, actor.get().id, content, attachments);
         return SendResult.ok(message);
+    }
+
+    private boolean attachmentsValid(List<String> attachments) {
+        if (attachments == null || attachments.isEmpty()) return true;
+        for (String a : attachments) {
+            if (a == null || a.isBlank()) continue;
+            if (!a.startsWith("dm/")) return false;
+        }
+        return true;
     }
 
     @Transactional
@@ -241,7 +251,7 @@ public class ChannelService {
         return new ValidateMembersResult(Status.OK);
     }
 
-    public enum Status { OK, USER_NOT_PROVISIONED, FORBIDDEN, NOT_FOUND, ANONYMOUS_NOT_ALLOWED }
+    public enum Status { OK, USER_NOT_PROVISIONED, FORBIDDEN, NOT_FOUND, ANONYMOUS_NOT_ALLOWED, INVALID_ATTACHMENTS }
 
     public record ChannelListResult(Status status, List<Map<String, Object>> items, String nextCursor) {
         static ChannelListResult ok(List<Map<String, Object>> items, String next) { return new ChannelListResult(Status.OK, items, next); }
@@ -263,6 +273,7 @@ public class ChannelService {
         static SendResult forbidden() { return new SendResult(Status.FORBIDDEN, null); }
         static SendResult notFound() { return new SendResult(Status.NOT_FOUND, null); }
         static SendResult anonymousNotAllowed() { return new SendResult(Status.ANONYMOUS_NOT_ALLOWED, null); }
+        static SendResult invalidAttachments() { return new SendResult(Status.INVALID_ATTACHMENTS, null); }
     }
 
     public record CreateResult(Status status, Map<String, Object> channel) {

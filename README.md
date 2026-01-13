@@ -217,7 +217,7 @@ Notes
 
 ## Deploy (ECS Fargate quick notes)
 - Build and push to ECR: tag `looped-api:<sha>`; set repository in ECR.
-- Task definition env vars: `DB_URL`, `DB_USERNAME`, `DB_PASSWORD` (or use Secrets Manager), `AUTH_*`, `REDIS_URL`, `S3_BUCKET`, `AWS_REGION`, `CLOUDFRONT_DOMAIN`, `MEDIA_*`.
+- Task definition env vars: `DB_URL`, `DB_USERNAME`, `DB_PASSWORD` (or use Secrets Manager), `AUTH_*`, `REDIS_URL`, `S3_BUCKET`, `AWS_REGION`, `CLOUDFRONT_DOMAIN`, `MEDIA_*`, `S3_MESSAGING_BUCKET` (private DM/channel attachments).
 - ALB target group health check: path `/health`, interval 30s.
 - IAM task role: allow S3 PutObject for the media bucket (prefix `media/original/*`).
 - Secrets: prefer SSM/Secrets Manager and reference via task definition; app reads from env.
