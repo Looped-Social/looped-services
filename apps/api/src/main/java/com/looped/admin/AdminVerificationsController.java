@@ -4,6 +4,7 @@ import com.looped.communities.CommunitiesRepository;
 import com.looped.communities.CommunityVerificationsRepository;
 import com.looped.shared.Pagination;
 import com.looped.verification.PhotoIdVerificationProperties;
+import com.looped.verification.VerificationProperties;
 import com.looped.verification.VerificationRepository;
 import com.looped.verification.VerificationPrivateMediaService;
 import com.looped.verification.VerificationRequestsRepository;
@@ -37,6 +38,7 @@ public class AdminVerificationsController {
     private final AdminAuditRepository audit;
     private final VerificationPrivateMediaService privateMedia;
     private final PhotoIdVerificationProperties photoIdProps;
+    private final VerificationProperties verificationProps;
 
     public AdminVerificationsController(AdminAuthService auth, VerificationRequestsRepository requests,
                                         VerificationRepository verifications,
@@ -44,7 +46,8 @@ public class AdminVerificationsController {
                                         CommunitiesRepository communities,
                                         AdminAuditRepository audit,
                                         VerificationPrivateMediaService privateMedia,
-                                        PhotoIdVerificationProperties photoIdProps) {
+                                        PhotoIdVerificationProperties photoIdProps,
+                                        VerificationProperties verificationProps) {
         this.auth = auth;
         this.requests = requests;
         this.verifications = verifications;
@@ -53,6 +56,7 @@ public class AdminVerificationsController {
         this.audit = audit;
         this.privateMedia = privateMedia;
         this.photoIdProps = photoIdProps;
+        this.verificationProps = verificationProps;
     }
 
     @GetMapping("/verifications")
@@ -263,9 +267,8 @@ public class AdminVerificationsController {
 
     private java.time.OffsetDateTime resolveExpiry(CommunitiesRepository.CommunityRow community) {
         Integer ttlDays = community.verificationTtlDays;
-        if (ttlDays != null && ttlDays > 0) {
-            return java.time.OffsetDateTime.now().plusDays(ttlDays);
-        }
-        return null;
+        int effectiveTtlDays = ttlDays != null ? ttlDays : verificationProps.getDefaultCommunityTtlDays();
+        if (effectiveTtlDays > 0) return java.time.OffsetDateTime.now().plusDays(effectiveTtlDays);
+        return null; // 0 or negative => no expiry
     }
 }

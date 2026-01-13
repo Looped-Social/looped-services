@@ -494,6 +494,11 @@ Request (optional overrides)
 }
 ```
 
+Notes
+- `verificationTtlDays` controls how long a community verification stays active after approval.
+- If omitted, the API uses `verification.default-community-ttl-days` (default 365).
+- Set to `0` to make community verifications never expire (`expires_at = null`).
+
 Response (200)
 ```json
 {

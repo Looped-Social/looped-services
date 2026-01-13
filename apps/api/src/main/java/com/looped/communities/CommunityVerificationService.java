@@ -174,10 +174,9 @@ public class CommunityVerificationService {
 
     private OffsetDateTime resolveExpiry(CommunitiesRepository.CommunityRow community) {
         Integer ttlDays = community.verificationTtlDays;
-        if (ttlDays != null && ttlDays > 0) {
-            return OffsetDateTime.now().plusDays(ttlDays);
-        }
-        return null;
+        int effectiveTtlDays = ttlDays != null ? ttlDays : props.getDefaultCommunityTtlDays();
+        if (effectiveTtlDays > 0) return OffsetDateTime.now().plusDays(effectiveTtlDays);
+        return null; // 0 or negative => no expiry
     }
 
     private String keyEmail(long userId, long communityId) { return "verify:community:email:" + userId + ":" + communityId; }

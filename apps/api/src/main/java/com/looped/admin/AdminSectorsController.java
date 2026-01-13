@@ -99,7 +99,7 @@ public class AdminSectorsController {
         String description = normalizeDescription(body.description());
         String imageUrl = normalizeDescription(body.imageUrl());
         Integer ttlDays = body.verificationTtlDays();
-        if (ttlDays != null && ttlDays < 1) {
+        if (ttlDays != null && ttlDays < 0) {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of("error", "invalid_ttl_days"));
         }
         if (communities.findByKindAndName("sector", name).isPresent()) {

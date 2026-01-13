@@ -154,7 +154,7 @@ public class AdminCommunitiesController {
         String imageUrl = normalizeDescription(body.imageUrl());
         String shortName = normalizeShortName(body.shortName());
         Integer ttlDays = body.verificationTtlDays();
-        if (ttlDays != null && ttlDays < 1) {
+        if (ttlDays != null && ttlDays < 0) {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of("error", "invalid_ttl_days"));
         }
         if (communities.findByKindAndName(kind, name, specializationType).isPresent()) {
@@ -175,7 +175,7 @@ public class AdminCommunitiesController {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "forbidden"));
         }
         Integer ttlDays = body.verificationTtlDays();
-        if (ttlDays != null && ttlDays < 1) {
+        if (ttlDays != null && ttlDays < 0) {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of("error", "invalid_ttl_days"));
         }
         boolean descriptionProvided = body.description() != null;

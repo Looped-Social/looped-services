@@ -8,6 +8,7 @@ import org.springframework.context.annotation.Configuration;
 public class VerificationProperties {
     private boolean echoCode = false; // dev convenience only
     private int codeTtlSeconds = 600; // 10 minutes
+    private int defaultCommunityTtlDays = 365; // 1 year; set to 0 for no expiry
 
     public boolean isEchoCode() {
         return echoCode;
@@ -23,5 +24,13 @@ public class VerificationProperties {
 
     public void setCodeTtlSeconds(int codeTtlSeconds) {
         this.codeTtlSeconds = codeTtlSeconds;
+    }
+
+    public int getDefaultCommunityTtlDays() {
+        return defaultCommunityTtlDays;
+    }
+
+    public void setDefaultCommunityTtlDays(int defaultCommunityTtlDays) {
+        this.defaultCommunityTtlDays = defaultCommunityTtlDays;
     }
 }

@@ -21,6 +21,7 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.utility.DockerImageName;
 
 import java.time.Instant;
+import java.time.OffsetDateTime;
 import java.util.List;
 
 import static org.hamcrest.Matchers.equalTo;
@@ -111,7 +112,8 @@ class CommunityVerificationIntegrationTest extends PostgresTestBase {
                         .content(finishBody))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.verified", equalTo(true)))
-                .andExpect(jsonPath("$.status", equalTo("approved")));
+                .andExpect(jsonPath("$.status", equalTo("approved")))
+                .andExpect(jsonPath("$.expires_at", notNullValue()));
 
         String stored = jdbc.queryForObject(
                 "SELECT email FROM verification_requests WHERE user_id = ? ORDER BY id DESC LIMIT 1",
@@ -119,6 +121,14 @@ class CommunityVerificationIntegrationTest extends PostgresTestBase {
                 userId
         );
         org.junit.jupiter.api.Assertions.assertEquals("alice@amazon.com", stored);
+
+        OffsetDateTime expiresAt = jdbc.queryForObject(
+                "SELECT expires_at FROM community_verifications WHERE user_id = ? AND community_id = ?",
+                OffsetDateTime.class,
+                userId,
+                communityId
+        );
+        org.junit.jupiter.api.Assertions.assertNotNull(expiresAt);
     }
 
     @Test

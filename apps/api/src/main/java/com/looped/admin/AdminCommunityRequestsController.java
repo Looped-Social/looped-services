@@ -137,7 +137,7 @@ public class AdminCommunityRequestsController {
             imageUrl = cdnUrl(req.imageKey);
         }
         Integer ttlDays = body != null ? body.verificationTtlDays() : null;
-        if (ttlDays != null && ttlDays < 1) {
+        if (ttlDays != null && ttlDays < 0) {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of("error", "invalid_ttl_days"));
         }
         if (communities.findByKindAndName(kind, name).isPresent()) {
