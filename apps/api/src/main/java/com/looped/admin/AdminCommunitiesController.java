@@ -157,10 +157,23 @@ public class AdminCommunitiesController {
         if (ttlDays != null && ttlDays < 0) {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of("error", "invalid_ttl_days"));
         }
+        Integer cooldownMonths = body.specializationJoinCooldownMonths();
+        if (cooldownMonths != null && cooldownMonths < 0) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of("error", "invalid_cooldown_months"));
+        }
+        if (cooldownMonths != null) {
+            if (!"specialization".equals(kind) || specializationType == null) {
+                return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of(
+                        "error", "invalid_specialization",
+                        "message", "specializationJoinCooldownMonths can only be set for major/department specializations"
+                ));
+            }
+            if (cooldownMonths == 0) cooldownMonths = null;
+        }
         if (communities.findByKindAndName(kind, name, specializationType).isPresent()) {
             return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "community_exists"));
         }
-        long id = communities.insert(kind, name, description, imageUrl, ttlDays, specializationType, shortName);
+        long id = communities.insert(kind, name, description, imageUrl, ttlDays, specializationType, shortName, cooldownMonths);
         audit.log(authRes.admin().id, "community.create", "community", id, null);
         return ResponseEntity.status(HttpStatus.CREATED).body(Map.of("id", id));
     }
@@ -178,14 +191,32 @@ public class AdminCommunitiesController {
         if (ttlDays != null && ttlDays < 0) {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of("error", "invalid_ttl_days"));
         }
+        Integer cooldownMonths = body.specializationJoinCooldownMonths();
+        if (cooldownMonths != null && cooldownMonths < 0) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of("error", "invalid_cooldown_months"));
+        }
+        if (cooldownMonths != null) {
+            var existing = communities.findById(id);
+            if (existing.isEmpty()) {
+                return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "not_found"));
+            }
+            String kind = existing.get().kind == null ? "" : existing.get().kind.trim().toLowerCase(Locale.ROOT);
+            String specializationType = existing.get().specializationType == null ? "" : existing.get().specializationType.trim().toLowerCase(Locale.ROOT);
+            if (!"specialization".equals(kind) || (!"major".equals(specializationType) && !"department".equals(specializationType))) {
+                return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of(
+                        "error", "invalid_specialization",
+                        "message", "specializationJoinCooldownMonths can only be set for major/department specializations"
+                ));
+            }
+        }
         boolean descriptionProvided = body.description() != null;
         String description = normalizeDescription(body.description());
         boolean shortNameProvided = body.shortName() != null;
         String shortName = normalizeShortName(body.shortName());
-        if (!descriptionProvided && ttlDays == null && !shortNameProvided) {
+        if (!descriptionProvided && ttlDays == null && !shortNameProvided && cooldownMonths == null) {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of("error", "no_changes"));
         }
-        boolean updated = communities.updateDetails(id, descriptionProvided, description, ttlDays, shortNameProvided, shortName);
+        boolean updated = communities.updateDetails(id, descriptionProvided, description, ttlDays, shortNameProvided, shortName, cooldownMonths);
         if (!updated) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "not_found"));
         }
@@ -194,6 +225,10 @@ public class AdminCommunitiesController {
         if (ttlDays != null) {
             if (meta.length() > 0) meta.append(",");
             meta.append("verification_ttl_days=").append(ttlDays);
+        }
+        if (cooldownMonths != null) {
+            if (meta.length() > 0) meta.append(",");
+            meta.append("specialization_join_cooldown_months=").append(cooldownMonths);
         }
         if (shortNameProvided) {
             if (meta.length() > 0) meta.append(",");
@@ -205,6 +240,7 @@ public class AdminCommunitiesController {
         out.put("id", id);
         if (descriptionProvided) out.put("description", description);
         if (ttlDays != null) out.put("verification_ttl_days", ttlDays);
+        if (cooldownMonths != null) out.put("specialization_join_cooldown_months", cooldownMonths == 0 ? null : cooldownMonths);
         if (shortNameProvided) out.put("short_name", shortName);
         return ResponseEntity.ok(out);
     }
@@ -253,6 +289,9 @@ public class AdminCommunitiesController {
         if (resolved != null && !resolved.isBlank()) map.put("image_url", resolved);
         map.put("created_at", row.createdAt);
         if (row.verificationTtlDays != null) map.put("verification_ttl_days", row.verificationTtlDays);
+        if (row.specializationJoinCooldownMonths != null) {
+            map.put("specialization_join_cooldown_months", row.specializationJoinCooldownMonths);
+        }
         return map;
     }
 
@@ -314,7 +353,9 @@ public class AdminCommunitiesController {
     }
 
     public record CreateCommunityRequest(@NotBlank String kind, @NotBlank String name, String description, String imageUrl,
-                                         Integer verificationTtlDays, String specializationType, String shortName) {}
+                                         Integer verificationTtlDays, String specializationType, String shortName,
+                                         Integer specializationJoinCooldownMonths) {}
 
-    public record UpdateCommunityRequest(String description, Integer verificationTtlDays, String shortName) {}
+    public record UpdateCommunityRequest(String description, Integer verificationTtlDays, String shortName,
+                                         Integer specializationJoinCooldownMonths) {}
 }

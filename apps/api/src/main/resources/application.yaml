@@ -85,6 +85,9 @@ verification:
   echo-code: ${VERIFICATION_ECHO_CODE:false}
   code-ttl-seconds: ${VERIFICATION_CODE_TTL_SECONDS:600}
   default-community-ttl-days: ${VERIFICATION_DEFAULT_COMMUNITY_TTL_DAYS:365}
+
+specializations:
+  default-join-cooldown-months: ${SPECIALIZATIONS_DEFAULT_JOIN_COOLDOWN_MONTHS:6}
   photo-id:
     max-image-bytes: ${VERIFICATION_PHOTO_ID_MAX_IMAGE_BYTES:10485760} # 10MB
     session-ttl: ${VERIFICATION_PHOTO_ID_SESSION_TTL:PT30M}

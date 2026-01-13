@@ -89,13 +89,14 @@ public class SpecializationsController {
             case COOLDOWN -> {
                 Map<String, Object> body = new HashMap<>();
                 body.put("error", "specialization_join_cooldown");
-                body.put("message", cooldownMessage(res.specializationType()));
+                body.put("message", cooldownMessage(res.specializationType(), res.cooldownMonths()));
                 body.put("specialization_type", res.specializationType());
                 if (res.cooldownEndsAt() != null) {
                     body.put("cooldown_ends_at", res.cooldownEndsAt());
                     long days = java.time.Duration.between(OffsetDateTime.now(), res.cooldownEndsAt()).toDays();
                     if (days > 0) body.put("cooldown_days_remaining", days);
                 }
+                if (res.cooldownMonths() != null) body.put("cooldown_months", res.cooldownMonths());
                 yield ResponseEntity.status(HttpStatus.CONFLICT).body(body);
             }
             case OK -> new ResponseEntity<>(Map.of(
@@ -227,10 +228,14 @@ public class SpecializationsController {
         return "You can only join up to " + limit + " " + label + ".";
     }
 
-    private String cooldownMessage(String specializationType) {
+    private String cooldownMessage(String specializationType, Integer cooldownMonths) {
         if (specializationType == null) return "You must wait before changing specializations.";
         String label = specializationType.equals("major") ? "majors" : "departments";
-        return "You must wait 6 months before changing " + label + ".";
+        if (cooldownMonths == null || cooldownMonths <= 0) {
+            return "You must wait before changing " + label + ".";
+        }
+        String unit = cooldownMonths == 1 ? "month" : "months";
+        return "You must wait " + cooldownMonths + " " + unit + " before changing " + label + ".";
     }
 
     private ResponseEntity<?> validateMajorOrDepartment(long specializationId) {

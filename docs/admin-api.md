@@ -256,6 +256,133 @@ Response (200)
 }
 ```
 
+### POST /v1/admin/users/{id}/community-verifications/{communityId}/revoke
+Revoke a user's verification for a specific community (immediately removes verified permissions). Requires `verify_users`.
+
+Request (optional)
+```json
+{
+  "reason": "manual revoke"
+}
+```
+
+Response (200)
+```json
+{
+  "status": "revoked",
+  "user_id": 123,
+  "community_id": 42
+}
+```
+
+Errors:
+- `404 { "error": "user_not_found" }`
+- `404 { "error": "community_not_found" }`
+- `404 { "error": "community_verification_not_found" }`
+
+### POST /v1/admin/users/{id}/specializations/join-limits/reset
+Clear a user's specialization join cooldown (and optionally remove their joined majors/departments). Requires `verify_users`.
+
+Request (optional)
+```json
+{
+  "specialization_type": "major",
+  "clear_joins": true
+}
+```
+
+Notes:
+- `specialization_type` may be `major`, `department`, or `all` (default `all`).
+- When `clear_joins=true`, joined rows in `specialization_joins` for that type are deleted (this does not affect follows).
+
+Response (200)
+```json
+{
+  "status": "reset",
+  "user_id": 123,
+  "specialization_type": "major",
+  "clear_joins": true,
+  "cooldowns_cleared": 1,
+  "joins_removed": 2
+}
+```
+
+Errors:
+- `400 { "error": "invalid_specialization_type" }`
+- `404 { "error": "user_not_found" }`
+
+### GET /v1/admin/settings/specializations
+Fetch specialization join-limit settings used by the API. Requires `create_community`.
+
+Response (200)
+```json
+{
+  "default_join_cooldown_months": 6
+}
+```
+
+### PATCH /v1/admin/settings/specializations
+Update the default specialization join cooldown. Requires `create_community`.
+
+Request
+```json
+{
+  "defaultJoinCooldownMonths": 6
+}
+```
+
+Response (200)
+```json
+{
+  "default_join_cooldown_months": 6
+}
+```
+
+Errors:
+- `422 { "error": "invalid_default_join_cooldown_months" }`
+
+### POST /v1/admin/communities
+Create a community. Requires `create_community`.
+
+Request
+```json
+{
+  "kind": "specialization",
+  "specializationType": "major",
+  "name": "Computer Science",
+  "description": "Optional",
+  "imageUrl": "https://...",
+  "verificationTtlDays": 365,
+  "specializationJoinCooldownMonths": 6,
+  "shortName": "CS"
+}
+```
+
+Notes:
+- `specializationJoinCooldownMonths` is only valid for `kind="specialization"` with `specializationType` of `major` or `department`.
+- Omit `specializationJoinCooldownMonths` to use the global default (`GET /v1/admin/settings/specializations`).
+
+Response (201)
+```json
+{ "id": 42 }
+```
+
+### PATCH /v1/admin/communities/{id}
+Update a community. Requires `create_community`.
+
+Request (any subset)
+```json
+{
+  "description": "Updated",
+  "verificationTtlDays": 365,
+  "shortName": "CS",
+  "specializationJoinCooldownMonths": 0
+}
+```
+
+Notes:
+- For `specializationJoinCooldownMonths`, send `0` to clear the override (falls back to the global default).
+
 ### GET /v1/admin/posts/{id}
 Fetch a post including removal info. Requires `remove_post`.
 

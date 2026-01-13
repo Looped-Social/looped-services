@@ -46,6 +46,15 @@ public class SpecializationJoinsRepository {
         return rows > 0;
     }
 
+    public int deleteJoinedByType(long userId, String specializationType) {
+        int rows = jdbc.update(
+                "DELETE FROM specialization_joins j USING communities c " +
+                        "WHERE c.id = j.specialization_id AND j.user_id = ? AND c.kind = 'specialization' AND c.specialization_type = ?",
+                userId, specializationType
+        );
+        return rows;
+    }
+
     public int countJoinedByType(long userId, String specializationType) {
         Integer count = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM specialization_joins j " +
@@ -114,4 +123,3 @@ public class SpecializationJoinsRepository {
         }
     };
 }
-

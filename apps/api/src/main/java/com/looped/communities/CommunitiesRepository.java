@@ -21,7 +21,7 @@ public class CommunitiesRepository {
     }
 
     private static final String BASE_COLUMNS =
-            "id, kind, name, description, member_count, image_url, specialization_type, created_at, verification_ttl_days, short_name";
+            "id, kind, name, description, member_count, image_url, specialization_type, created_at, verification_ttl_days, short_name, specialization_join_cooldown_months";
 
     private static final RowMapper<CommunityRow> MAPPER = new RowMapper<>() {
         @Override
@@ -38,6 +38,8 @@ public class CommunitiesRepository {
             int ttlDays = rs.getInt("verification_ttl_days");
             row.verificationTtlDays = rs.wasNull() ? null : ttlDays;
             row.shortName = rs.getString("short_name");
+            int cooldownMonths = rs.getInt("specialization_join_cooldown_months");
+            row.specializationJoinCooldownMonths = rs.wasNull() ? null : cooldownMonths;
             return row;
         }
     };
@@ -404,11 +406,17 @@ public class CommunitiesRepository {
 
     public long insert(String kind, String name, String description, String imageUrl,
                        Integer verificationTtlDays, String specializationType, String shortName) {
+        return insert(kind, name, description, imageUrl, verificationTtlDays, specializationType, shortName, null);
+    }
+
+    public long insert(String kind, String name, String description, String imageUrl,
+                       Integer verificationTtlDays, String specializationType, String shortName,
+                       Integer specializationJoinCooldownMonths) {
         Long id = jdbc.query(
-                "INSERT INTO communities(kind, name, description, image_url, verification_ttl_days, specialization_type, short_name) " +
-                        "VALUES (?,?,?,?,?,?,?) RETURNING id",
+                "INSERT INTO communities(kind, name, description, image_url, verification_ttl_days, specialization_type, short_name, specialization_join_cooldown_months) " +
+                        "VALUES (?,?,?,?,?,?,?,?) RETURNING id",
                 rs -> rs.next() ? rs.getLong(1) : null,
-                kind, name, description, imageUrl, verificationTtlDays, specializationType, shortName
+                kind, name, description, imageUrl, verificationTtlDays, specializationType, shortName, specializationJoinCooldownMonths
         );
         if (id == null) {
             throw new IllegalStateException("Failed to insert community");
@@ -427,6 +435,7 @@ public class CommunitiesRepository {
         public OffsetDateTime createdAt;
         public Integer verificationTtlDays;
         public String shortName;
+        public Integer specializationJoinCooldownMonths;
     }
 
     public static class ScoredCommunityRow {
@@ -461,7 +470,13 @@ public class CommunitiesRepository {
 
     public boolean updateDetails(long communityId, boolean descriptionProvided, String description,
                                  Integer ttlDays, boolean shortNameProvided, String shortName) {
-        boolean hasUpdate = descriptionProvided || ttlDays != null || shortNameProvided;
+        return updateDetails(communityId, descriptionProvided, description, ttlDays, shortNameProvided, shortName, null);
+    }
+
+    public boolean updateDetails(long communityId, boolean descriptionProvided, String description,
+                                 Integer ttlDays, boolean shortNameProvided, String shortName,
+                                 Integer specializationJoinCooldownMonths) {
+        boolean hasUpdate = descriptionProvided || ttlDays != null || shortNameProvided || specializationJoinCooldownMonths != null;
         if (!hasUpdate) return false;
         StringBuilder sql = new StringBuilder("UPDATE communities SET ");
         java.util.List<Object> params = new java.util.ArrayList<>();
@@ -481,6 +496,12 @@ public class CommunitiesRepository {
             if (!first) sql.append(", ");
             sql.append("short_name = ?");
             params.add(shortName);
+            first = false;
+        }
+        if (specializationJoinCooldownMonths != null) {
+            if (!first) sql.append(", ");
+            sql.append("specialization_join_cooldown_months = ?");
+            params.add(specializationJoinCooldownMonths == 0 ? null : specializationJoinCooldownMonths);
         }
         sql.append(" WHERE id = ?");
         params.add(communityId);

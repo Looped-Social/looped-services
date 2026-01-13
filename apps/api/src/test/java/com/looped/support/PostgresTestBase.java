@@ -37,7 +37,7 @@ public abstract class PostgresTestBase {
                     "conversation_participants, conversations, channel_members, channels, posts, devices, reports, media_assets, " +
                     "poll_vote_options, poll_votes, poll_options, polls, " +
                     "anon_enrollment_sanctions, anon_backup_blobs, anon_revocations, anon_issuers, anon_handle_counters, anonymous_profiles, " +
-                    "principals, verifications, hashtag_posts, hashtags, community_verifications, community_follows, community_requests, community_domains, community_sector_links, feedback, communities, user_loops, loops, admin_invites, admin_users, user_tombstones, users, companies " +
+                    "principals, verifications, hashtag_posts, hashtags, community_verifications, community_follows, community_requests, community_domains, community_sector_links, feedback, communities, user_loops, loops, admin_invites, admin_users, app_settings, user_tombstones, users, companies " +
                     "RESTART IDENTITY CASCADE");
             s.execute("INSERT INTO companies(name, domain) VALUES ('Looped Global','looped.global')");
         }
