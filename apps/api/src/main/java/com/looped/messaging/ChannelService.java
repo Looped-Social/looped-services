@@ -1,7 +1,9 @@
 package com.looped.messaging;
 
+import com.looped.media.MediaRepository;
 import com.looped.shared.Pagination;
 import com.looped.users.UserRepository;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -17,10 +19,22 @@ import java.util.stream.Collectors;
 public class ChannelService {
     private final ChannelRepository channels;
     private final UserRepository users;
+    private final ChannelPreferencesRepository channelPreferences;
+    private final MediaRepository media;
+    private final String cloudfrontDomain;
 
-    public ChannelService(ChannelRepository channels, UserRepository users) {
+    private static final Set<String> ALLOWED_CHANNEL_PHOTO = Set.of("image/jpeg", "image/png", "image/webp");
+
+    public ChannelService(ChannelRepository channels,
+                          UserRepository users,
+                          ChannelPreferencesRepository channelPreferences,
+                          MediaRepository media,
+                          @Value("${cloudfront.domain:}") String cloudfrontDomain) {
         this.channels = channels;
         this.users = users;
+        this.channelPreferences = channelPreferences;
+        this.media = media;
+        this.cloudfrontDomain = cloudfrontDomain == null ? "" : cloudfrontDomain.trim();
     }
 
     public ChannelListResult list(String firebaseUid, String cursor, int limit) {
@@ -41,6 +55,10 @@ public class ChannelService {
             var last = rows.get(rows.size() - 1);
             next = Pagination.encode(last.createdAt, last.id);
         }
+        Map<Long, Boolean> mutedByChannelId = channelPreferences.mutedByChannelIds(
+                actor.get().id,
+                rows.stream().map(r -> r.id).toList()
+        );
         List<Map<String, Object>> items = rows.stream().map(row -> {
             Map<String, Object> map = new HashMap<>();
             map.put("id", row.id);
@@ -51,9 +69,90 @@ public class ChannelService {
                 map.put("owner_user_id", row.ownerUserId);
             }
             map.put("viewer_can_manage_members", row.viewerCanManageMembers);
+            if (row.photoMediaAssetId != null) map.put("photo_media_asset_id", row.photoMediaAssetId);
+            String photoUrl = channelPhotoUrl(row);
+            if (photoUrl != null) map.put("photo_url", photoUrl);
+            map.put("muted", mutedByChannelId.getOrDefault(row.id, false));
             return map;
         }).toList();
         return ChannelListResult.ok(items, next);
+    }
+
+    @Transactional
+    public UpdateResult update(String firebaseUid, long channelId, String name, boolean namePresent,
+                               Long photoMediaAssetId, boolean photoPresent) {
+        var actor = requireProvisionedUser(firebaseUid);
+        if (actor.isEmpty()) return UpdateResult.userNotProvisioned();
+        if (actor.get().isAnonymous) return UpdateResult.anonymousNotAllowed();
+        var channel = channels.findById(channelId);
+        if (channel.isEmpty()) return UpdateResult.notFound();
+        if (channel.get().companyId != actor.get().companyId) return UpdateResult.forbidden();
+        if (!canManageMembers(actor.get(), channel.get())) return UpdateResult.forbidden();
+
+        if (namePresent) {
+            String normalized = name == null ? "" : name.trim();
+            if (normalized.isBlank()) return UpdateResult.badRequest("name_required");
+            if (normalized.length() > 80) return UpdateResult.badRequest("name_too_long");
+            channels.updateName(channelId, normalized);
+        }
+
+        if (photoPresent) {
+            if (photoMediaAssetId == null) {
+                channels.updatePhotoMediaAssetId(channelId, null);
+            } else {
+                var m = media.findById(photoMediaAssetId);
+                if (m.isEmpty()) return UpdateResult.notFound("media_asset_not_found");
+                Long ownerId = m.get().ownerId;
+                if (ownerId == null || ownerId != actor.get().id) return UpdateResult.forbidden("media_asset_forbidden");
+                if (m.get().mimeType == null || !ALLOWED_CHANNEL_PHOTO.contains(m.get().mimeType)) {
+                    return UpdateResult.unprocessable("invalid_channel_photo");
+                }
+                if (m.get().s3Key == null || !m.get().s3Key.startsWith("media/")) {
+                    return UpdateResult.unprocessable("invalid_channel_photo");
+                }
+                channels.updatePhotoMediaAssetId(channelId, photoMediaAssetId);
+            }
+        }
+
+        var updated = channels.findById(channelId).orElseThrow();
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("id", updated.id);
+        payload.put("name", updated.name);
+        payload.put("member_count", updated.memberCount);
+        payload.put("is_public", updated.isPublic);
+        if (updated.ownerUserId != null) payload.put("owner_user_id", updated.ownerUserId);
+        payload.put("viewer_can_manage_members", true);
+        if (updated.photoMediaAssetId != null) payload.put("photo_media_asset_id", updated.photoMediaAssetId);
+        String photoUrl = channelPhotoUrl(updated);
+        if (photoUrl != null) payload.put("photo_url", photoUrl);
+        payload.put("muted", channelPreferences.mutedByChannelIds(actor.get().id, List.of(channelId)).getOrDefault(channelId, false));
+        return UpdateResult.ok(payload);
+    }
+
+    public PreferencesResult setPreferences(String firebaseUid, long channelId, boolean muted) {
+        var actor = requireProvisionedUser(firebaseUid);
+        if (actor.isEmpty()) return PreferencesResult.userNotProvisioned();
+        if (actor.get().isAnonymous) return PreferencesResult.anonymousNotAllowed();
+        var channel = channels.findById(channelId);
+        if (channel.isEmpty()) return PreferencesResult.notFound();
+        if (channel.get().companyId != actor.get().companyId) return PreferencesResult.forbidden();
+        boolean allowed = channel.get().isPublic || channels.isMember(channelId, actor.get().id);
+        if (!allowed) return PreferencesResult.forbidden();
+        channelPreferences.upsertMuted(channelId, actor.get().id, muted);
+        return PreferencesResult.ok(muted);
+    }
+
+    public JoinResult join(String firebaseUid, long channelId) {
+        var actor = requireProvisionedUser(firebaseUid);
+        if (actor.isEmpty()) return JoinResult.userNotProvisioned();
+        if (actor.get().isAnonymous) return JoinResult.anonymousNotAllowed();
+        var channel = channels.findById(channelId);
+        if (channel.isEmpty()) return JoinResult.notFound();
+        if (channel.get().companyId != actor.get().companyId) return JoinResult.forbidden();
+        if (!channel.get().isPublic) return JoinResult.forbidden();
+        boolean changed = channels.addMember(channelId, actor.get().id, false);
+        int memberCount = channels.findById(channelId).map(r -> r.memberCount).orElse(channel.get().memberCount);
+        return JoinResult.ok(true, changed, memberCount);
     }
 
     public MessagesResult messages(String firebaseUid, long channelId, String cursor, int limit) {
@@ -83,7 +182,7 @@ public class ChannelService {
         return MessagesResult.ok(rows, next);
     }
 
-    public SendResult send(String firebaseUid, long channelId, String content, List<String> attachments) {
+    public SendResult send(String firebaseUid, long channelId, String content, List<MessageAttachment> attachments) {
         var actor = requireProvisionedUser(firebaseUid);
         if (actor.isEmpty()) return SendResult.userNotProvisioned();
         if (actor.get().isAnonymous) return SendResult.anonymousNotAllowed();
@@ -100,13 +199,8 @@ public class ChannelService {
         return SendResult.ok(message);
     }
 
-    private boolean attachmentsValid(List<String> attachments) {
-        if (attachments == null || attachments.isEmpty()) return true;
-        for (String a : attachments) {
-            if (a == null || a.isBlank()) continue;
-            if (!a.startsWith("dm/")) return false;
-        }
-        return true;
+    private boolean attachmentsValid(List<MessageAttachment> attachments) {
+        return MessageAttachments.validDmKeys(attachments);
     }
 
     @Transactional
@@ -134,6 +228,10 @@ public class ChannelService {
             payload.put("owner_user_id", created.ownerUserId);
         }
         payload.put("viewer_can_manage_members", true);
+        if (created.photoMediaAssetId != null) payload.put("photo_media_asset_id", created.photoMediaAssetId);
+        String photoUrl = channelPhotoUrl(created);
+        if (photoUrl != null) payload.put("photo_url", photoUrl);
+        payload.put("muted", false);
         return new CreateResult(Status.OK, payload);
     }
 
@@ -298,6 +396,50 @@ public class ChannelService {
         static ModifyMembersResult forbidden() { return new ModifyMembersResult(Status.FORBIDDEN, 0); }
         static ModifyMembersResult notFound() { return new ModifyMembersResult(Status.NOT_FOUND, 0); }
         static ModifyMembersResult anonymousNotAllowed() { return new ModifyMembersResult(Status.ANONYMOUS_NOT_ALLOWED, 0); }
+    }
+
+    public enum UpdateStatus { OK, USER_NOT_PROVISIONED, FORBIDDEN, NOT_FOUND, BAD_REQUEST, UNPROCESSABLE_ENTITY }
+
+    public record UpdateResult(UpdateStatus status, Map<String, Object> channel, String error) {
+        static UpdateResult ok(Map<String, Object> channel) { return new UpdateResult(UpdateStatus.OK, channel, null); }
+        static UpdateResult userNotProvisioned() { return new UpdateResult(UpdateStatus.USER_NOT_PROVISIONED, null, "user_not_provisioned"); }
+        static UpdateResult forbidden() { return new UpdateResult(UpdateStatus.FORBIDDEN, null, "forbidden"); }
+        static UpdateResult forbidden(String error) { return new UpdateResult(UpdateStatus.FORBIDDEN, null, error); }
+        static UpdateResult notFound() { return new UpdateResult(UpdateStatus.NOT_FOUND, null, "not_found"); }
+        static UpdateResult notFound(String error) { return new UpdateResult(UpdateStatus.NOT_FOUND, null, error); }
+        static UpdateResult anonymousNotAllowed() { return new UpdateResult(UpdateStatus.FORBIDDEN, null, "anonymous_not_allowed"); }
+        static UpdateResult badRequest(String error) { return new UpdateResult(UpdateStatus.BAD_REQUEST, null, error); }
+        static UpdateResult unprocessable(String error) { return new UpdateResult(UpdateStatus.UNPROCESSABLE_ENTITY, null, error); }
+    }
+
+    public enum PreferencesStatus { OK, USER_NOT_PROVISIONED, FORBIDDEN, NOT_FOUND }
+
+    public record PreferencesResult(PreferencesStatus status, Boolean muted) {
+        static PreferencesResult ok(boolean muted) { return new PreferencesResult(PreferencesStatus.OK, muted); }
+        static PreferencesResult userNotProvisioned() { return new PreferencesResult(PreferencesStatus.USER_NOT_PROVISIONED, null); }
+        static PreferencesResult forbidden() { return new PreferencesResult(PreferencesStatus.FORBIDDEN, null); }
+        static PreferencesResult notFound() { return new PreferencesResult(PreferencesStatus.NOT_FOUND, null); }
+        static PreferencesResult anonymousNotAllowed() { return new PreferencesResult(PreferencesStatus.FORBIDDEN, null); }
+    }
+
+    public enum JoinStatus { OK, USER_NOT_PROVISIONED, FORBIDDEN, NOT_FOUND }
+
+    public record JoinResult(JoinStatus status, boolean joined, boolean changed, Integer memberCount) {
+        static JoinResult ok(boolean joined, boolean changed, int memberCount) {
+            return new JoinResult(JoinStatus.OK, joined, changed, memberCount);
+        }
+        static JoinResult userNotProvisioned() { return new JoinResult(JoinStatus.USER_NOT_PROVISIONED, false, false, null); }
+        static JoinResult forbidden() { return new JoinResult(JoinStatus.FORBIDDEN, false, false, null); }
+        static JoinResult notFound() { return new JoinResult(JoinStatus.NOT_FOUND, false, false, null); }
+        static JoinResult anonymousNotAllowed() { return new JoinResult(JoinStatus.FORBIDDEN, false, false, null); }
+    }
+
+    private String channelPhotoUrl(ChannelRepository.ChannelRow row) {
+        if (row == null) return null;
+        if (cloudfrontDomain == null || cloudfrontDomain.isBlank()) return null;
+        if (row.photoS3Key == null || row.photoS3Key.isBlank()) return null;
+        if (!row.photoS3Key.startsWith("media/")) return null;
+        return "https://" + cloudfrontDomain + "/" + row.photoS3Key;
     }
 
     private record ValidateMembersResult(Status status) {}

@@ -1,5 +1,6 @@
 package com.looped.messaging;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import jakarta.validation.constraints.NotBlank;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -108,7 +109,13 @@ public class ConversationsController {
             @PathVariable("id") long id,
         @Validated @RequestBody SendRequest body
     ) {
-        var res = service.send(jwt.getSubject(), id, body.content(), body.attachments());
+        List<MessageAttachment> attachments;
+        try {
+            attachments = MessageAttachments.parse(body.attachments());
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of("error", "invalid_attachments"));
+        }
+        var res = service.send(jwt.getSubject(), id, body.content(), attachments);
         if (res.status() == ConversationService.Status.USER_NOT_PROVISIONED) {
             return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "user_not_provisioned"));
         }
@@ -144,5 +151,5 @@ public class ConversationsController {
     }
 
     public record StartRequest(long participantUserId) {}
-    public record SendRequest(@NotBlank String content, List<String> attachments) {}
+    public record SendRequest(@NotBlank String content, JsonNode attachments) {}
 }

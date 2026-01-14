@@ -1,7 +1,9 @@
 package com.looped.messaging;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotEmpty;
+import jakarta.validation.constraints.NotNull;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -64,6 +66,75 @@ public class ChannelsController {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "forbidden"));
         }
         return ResponseEntity.status(HttpStatus.CREATED).body(res.channel());
+    }
+
+    @PatchMapping("/{id}")
+    public ResponseEntity<?> update(
+            @AuthenticationPrincipal Jwt jwt,
+            @PathVariable("id") long id,
+            @RequestBody(required = false) JsonNode body
+    ) {
+        if (body == null || !body.isObject()) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of("error", "invalid_request"));
+        }
+        boolean namePresent = body.has("name");
+        String name = namePresent ? body.get("name").asText(null) : null;
+
+        boolean photoPresent = body.has("photoMediaAssetId") || body.has("photo_media_asset_id");
+        JsonNode photoNode = body.has("photoMediaAssetId") ? body.get("photoMediaAssetId") : body.get("photo_media_asset_id");
+        Long photoMediaAssetId = null;
+        if (photoPresent) {
+            if (photoNode != null && !photoNode.isNull()) {
+                if (!photoNode.canConvertToLong()) {
+                    return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of("error", "invalid_request"));
+                }
+                photoMediaAssetId = photoNode.asLong();
+                if (photoMediaAssetId <= 0) photoMediaAssetId = null;
+            }
+        }
+
+        var res = service.update(jwt.getSubject(), id, name, namePresent, photoMediaAssetId, photoPresent);
+        return switch (res.status()) {
+            case USER_NOT_PROVISIONED -> ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "user_not_provisioned"));
+            case FORBIDDEN -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", res.error()));
+            case NOT_FOUND -> ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", res.error()));
+            case BAD_REQUEST -> ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of("error", res.error()));
+            case UNPROCESSABLE_ENTITY -> ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of("error", res.error()));
+            case OK -> ResponseEntity.ok(res.channel());
+        };
+    }
+
+    @PutMapping("/{id}/preferences")
+    public ResponseEntity<?> preferences(
+            @AuthenticationPrincipal Jwt jwt,
+            @PathVariable("id") long id,
+            @Validated @RequestBody PreferencesRequest body
+    ) {
+        var res = service.setPreferences(jwt.getSubject(), id, Boolean.TRUE.equals(body.muted()));
+        return switch (res.status()) {
+            case USER_NOT_PROVISIONED -> ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "user_not_provisioned"));
+            case FORBIDDEN -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "forbidden"));
+            case NOT_FOUND -> ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "not_found"));
+            case OK -> ResponseEntity.ok(Map.of("channel_id", id, "muted", res.muted()));
+        };
+    }
+
+    @PostMapping("/{id}/join")
+    public ResponseEntity<?> join(
+            @AuthenticationPrincipal Jwt jwt,
+            @PathVariable("id") long id
+    ) {
+        var res = service.join(jwt.getSubject(), id);
+        return switch (res.status()) {
+            case USER_NOT_PROVISIONED -> ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "user_not_provisioned"));
+            case FORBIDDEN -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "forbidden"));
+            case NOT_FOUND -> ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "not_found"));
+            case OK -> new ResponseEntity<>(Map.of(
+                    "channel_id", id,
+                    "joined", true,
+                    "member_count", res.memberCount()
+            ), res.changed() ? HttpStatus.CREATED : HttpStatus.OK);
+        };
     }
 
     @GetMapping("/{id}/members")
@@ -206,7 +277,13 @@ public class ChannelsController {
             @PathVariable("id") long id,
         @Validated @RequestBody SendRequest body
     ) {
-        var res = service.send(jwt.getSubject(), id, body.content(), body.attachments());
+        List<MessageAttachment> attachments;
+        try {
+            attachments = MessageAttachments.parse(body.attachments());
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of("error", "invalid_attachments"));
+        }
+        var res = service.send(jwt.getSubject(), id, body.content(), attachments);
         if (res.status() == ChannelService.Status.USER_NOT_PROVISIONED) {
             return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "user_not_provisioned"));
         }
@@ -238,6 +315,7 @@ public class ChannelsController {
     public record CreateRequest(@NotBlank String name, List<Long> memberUserIds) {}
     public record AddMembersRequest(@NotEmpty List<Long> userIds) {}
     public record UpdateMemberRequest(boolean canManageMembers) {}
+    public record PreferencesRequest(@NotNull Boolean muted) {}
 
-    public record SendRequest(@NotBlank String content, List<String> attachments) {}
+    public record SendRequest(@NotBlank String content, JsonNode attachments) {}
 }

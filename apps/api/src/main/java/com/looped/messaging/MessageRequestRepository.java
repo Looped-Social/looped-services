@@ -1,6 +1,5 @@
 package com.looped.messaging;
 
-import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
@@ -16,7 +15,6 @@ import java.util.Optional;
 public class MessageRequestRepository {
     private final JdbcTemplate jdbc;
     private final ObjectMapper mapper = new ObjectMapper();
-    private static final TypeReference<List<String>> STRING_LIST = new TypeReference<>() {};
 
     public MessageRequestRepository(JdbcTemplate jdbc) {
         this.jdbc = jdbc;
@@ -37,7 +35,8 @@ public class MessageRequestRepository {
             row.messageContent = rs.getString("message_content");
             String attachmentsRaw = rs.getString("message_attachments");
             try {
-                row.messageAttachments = attachmentsRaw == null ? List.of() : mapper.readValue(attachmentsRaw, STRING_LIST);
+                var node = attachmentsRaw == null ? null : mapper.readTree(attachmentsRaw);
+                row.messageAttachments = MessageAttachments.parse(node);
             } catch (Exception e) {
                 row.messageAttachments = List.of();
             }
@@ -120,7 +119,7 @@ public class MessageRequestRepository {
         public OffsetDateTime createdAt;
         public OffsetDateTime updatedAt;
         public String messageContent;
-        public List<String> messageAttachments = List.of();
+        public List<MessageAttachment> messageAttachments = List.of();
         public OffsetDateTime messageCreatedAt;
     }
 }

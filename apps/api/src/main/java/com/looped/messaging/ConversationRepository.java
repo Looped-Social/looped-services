@@ -1,6 +1,5 @@
 package com.looped.messaging;
 
-import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
@@ -22,8 +21,6 @@ public class ConversationRepository {
         this.jdbc = jdbc;
     }
 
-    private static final TypeReference<List<String>> STRING_LIST = new TypeReference<>() {};
-
     private final RowMapper<MessageRow> messageMapper = new RowMapper<>() {
         @Override
         public MessageRow mapRow(ResultSet rs, int rowNum) throws SQLException {
@@ -34,7 +31,8 @@ public class ConversationRepository {
             row.content = rs.getString("content");
             String attachmentsRaw = rs.getString("attachments");
             try {
-                row.attachments = attachmentsRaw == null ? List.of() : mapper.readValue(attachmentsRaw, STRING_LIST);
+                var node = attachmentsRaw == null ? null : mapper.readTree(attachmentsRaw);
+                row.attachments = MessageAttachments.parse(node);
             } catch (Exception e) {
                 row.attachments = List.of();
             }
@@ -158,7 +156,7 @@ public class ConversationRepository {
         );
     }
 
-    public MessageRow insertMessage(long conversationId, long senderId, String content, List<String> attachments) {
+    public MessageRow insertMessage(long conversationId, long senderId, String content, List<MessageAttachment> attachments) {
         String json;
         try {
             json = mapper.writeValueAsString(attachments == null ? Collections.emptyList() : attachments);
@@ -206,7 +204,7 @@ public class ConversationRepository {
         public long conversationId;
         public long senderId;
         public String content;
-        public List<String> attachments = List.of();
+        public List<MessageAttachment> attachments = List.of();
         public OffsetDateTime createdAt;
     }
 }

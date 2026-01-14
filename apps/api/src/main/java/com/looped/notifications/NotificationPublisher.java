@@ -185,18 +185,38 @@ public class NotificationPublisher {
     }
 
     private void applyDeeplink(Map<String, Object> payload, NotificationType type, Long notificationId) {
-        if (payload.containsKey("deeplink")) return;
+        String existingDeeplink = payload.get("deeplink") instanceof String s ? s : null;
+        String existingAction = payload.get("action_deeplink") instanceof String s ? s : null;
+        if (existingDeeplink != null && !existingDeeplink.isBlank()) {
+            if (existingAction == null || existingAction.isBlank()) payload.put("action_deeplink", existingDeeplink);
+            return;
+        }
+        if (existingAction != null && !existingAction.isBlank()) {
+            payload.put("deeplink", existingAction);
+            return;
+        }
         String deeplink = buildDeeplink(type, payload, notificationId);
         if (deeplink != null && !deeplink.isBlank()) {
             payload.put("deeplink", deeplink);
+            payload.put("action_deeplink", deeplink);
         }
     }
 
     private void ensureDeeplink(long notificationId, NotificationType type, Map<String, Object> payload) {
-        if (payload.containsKey("deeplink")) return;
+        String existingDeeplink = payload.get("deeplink") instanceof String s ? s : null;
+        String existingAction = payload.get("action_deeplink") instanceof String s ? s : null;
+        if ((existingDeeplink != null && !existingDeeplink.isBlank()) ||
+                (existingAction != null && !existingAction.isBlank())) {
+            String resolved = existingDeeplink != null && !existingDeeplink.isBlank() ? existingDeeplink : existingAction;
+            if (existingDeeplink == null || existingDeeplink.isBlank()) payload.put("deeplink", resolved);
+            if (existingAction == null || existingAction.isBlank()) payload.put("action_deeplink", resolved);
+            notifications.updatePayload(notificationId, payload);
+            return;
+        }
         String deeplink = buildDeeplink(type, payload, notificationId);
         if (deeplink == null || deeplink.isBlank()) return;
         payload.put("deeplink", deeplink);
+        payload.put("action_deeplink", deeplink);
         notifications.updatePayload(notificationId, payload);
     }
 
@@ -206,21 +226,40 @@ public class NotificationPublisher {
         switch (type) {
             case FOLLOW -> {
                 Long userId = asLong(payload.get("actor_user_id"));
-                return userId == null ? null : "looped://user/" + userId;
+                if (userId == null) return null;
+                Object rawAnon = payload.get("actor_is_anonymous");
+                if (rawAnon instanceof Boolean anon) {
+                    return "looped://user/" + userId + "?anon=" + anon;
+                }
+                return "looped://user/" + userId;
             }
-            case LIKE, COMMENT, POST_FROM_FOLLOWED, REPOST -> {
+            case LIKE, POST_FROM_FOLLOWED, REPOST -> {
                 postId = asLong(payload.get("post_id"));
                 return postId == null ? null : "looped://post/" + postId;
             }
+            case COMMENT -> {
+                commentId = asLong(payload.get("comment_id"));
+                postId = asLong(payload.get("post_id"));
+                if (commentId == null) return postId == null ? null : "looped://post/" + postId;
+                if (postId == null) return "looped://comment/" + commentId;
+                return "looped://comment/" + commentId + "?post_id=" + postId;
+            }
             case REPLY -> {
                 commentId = asLong(payload.get("comment_id"));
-                return commentId == null ? null : "looped://comment/" + commentId;
+                if (commentId == null) return null;
+                postId = asLong(payload.get("post_id"));
+                if (postId == null) return "looped://comment/" + commentId;
+                return "looped://comment/" + commentId + "?post_id=" + postId;
             }
             case MENTION -> {
                 String context = payload.get("context") instanceof String s ? s : null;
                 if ("comment".equals(context)) {
                     commentId = asLong(payload.get("comment_id"));
-                    if (commentId != null) return "looped://comment/" + commentId;
+                    if (commentId != null) {
+                        postId = asLong(payload.get("post_id"));
+                        if (postId == null) return "looped://comment/" + commentId;
+                        return "looped://comment/" + commentId + "?post_id=" + postId;
+                    }
                 }
                 postId = asLong(payload.get("post_id"));
                 return postId == null ? null : "looped://post/" + postId;

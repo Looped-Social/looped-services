@@ -146,15 +146,21 @@ class ExtendedEndpointsIntegrationTest extends PostgresTestBase {
         mockMvc.perform(post("/v1/conversations/" + conversationId + "/messages")
                         .header("Authorization", auth)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"content\":\"hello\",\"attachments\":[]}"))
+                        .content("{\"content\":\"hello\",\"attachments\":[{\"url\":\"dm/original/abc\",\"type\":\"image\",\"width\":1,\"height\":2,\"sizeBytes\":3}]}"))
                 .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.content").value("hello"));
+                .andExpect(jsonPath("$.content").value("hello"))
+                .andExpect(jsonPath("$.attachments[0].url", equalTo("dm/original/abc")))
+                .andExpect(jsonPath("$.attachments[0].type", equalTo("image")))
+                .andExpect(jsonPath("$.attachments[0].width", equalTo(1)))
+                .andExpect(jsonPath("$.attachments[0].height", equalTo(2)))
+                .andExpect(jsonPath("$.attachments[0].size_bytes", equalTo(3)));
 
         mockMvc.perform(get("/v1/conversations/" + conversationId + "/messages")
                         .header("Authorization", auth))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items[0].sender_id", equalTo((int) actorId)))
-                .andExpect(jsonPath("$.items[0].content", equalTo("hello")));
+                .andExpect(jsonPath("$.items[0].content", equalTo("hello")))
+                .andExpect(jsonPath("$.items[0].attachments[0].url", equalTo("dm/original/abc")));
 
         mockMvc.perform(get("/v1/conversations")
                         .header("Authorization", auth))
@@ -392,10 +398,12 @@ class ExtendedEndpointsIntegrationTest extends PostgresTestBase {
         long companyId = jdbc.queryForObject("INSERT INTO companies(name, domain) VALUES ('ChannelCo','ch.co') RETURNING id", Long.class);
         long userId = jdbc.queryForObject("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?) RETURNING id",
                 Long.class, "uid-channel", "charlie", companyId);
-        long chanId = jdbc.queryForObject("INSERT INTO channels(company_id, name, is_public) VALUES (?,?, true) RETURNING id",
-                Long.class, companyId, "general");
-        jdbc.update("INSERT INTO notifications(user_id, type, payload) VALUES (?,?, ?::jsonb)", userId, "channel.mention",
-                "{\"channel_id\":" + chanId + "}");
+        long chanId = jdbc.queryForObject("INSERT INTO channels(company_id, owner_user_id, name, is_public) VALUES (?,?,?, true) RETURNING id",
+                Long.class, companyId, userId, "general");
+        long photoId = jdbc.queryForObject(
+                "INSERT INTO media_assets(owner_id, s3_key, mime_type, width, height) VALUES (?,?,?,?,?) RETURNING id",
+                Long.class, userId, "media/original/photo-" + chanId, "image/jpeg", 1, 1
+        );
 
         String auth = "Bearer " + token("uid-channel");
 
@@ -403,7 +411,43 @@ class ExtendedEndpointsIntegrationTest extends PostgresTestBase {
                         .header("Authorization", auth))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items[0].name", equalTo("general")))
-                .andExpect(jsonPath("$.items[0].member_count", greaterThanOrEqualTo(0)));
+                .andExpect(jsonPath("$.items[0].member_count", greaterThanOrEqualTo(0)))
+                .andExpect(jsonPath("$.items[0].muted", equalTo(false)));
+
+        mockMvc.perform(post("/v1/channels/" + chanId + "/join")
+                        .header("Authorization", auth))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.joined", equalTo(true)));
+
+        mockMvc.perform(patch("/v1/channels/" + chanId)
+                        .header("Authorization", auth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"general-2\",\"photoMediaAssetId\":" + photoId + "}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.name", equalTo("general-2")))
+                .andExpect(jsonPath("$.photo_media_asset_id", equalTo((int) photoId)));
+
+        mockMvc.perform(put("/v1/channels/" + chanId + "/preferences")
+                        .header("Authorization", auth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"muted\":true}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.muted", equalTo(true)));
+
+        jdbc.update("INSERT INTO notifications(user_id, type, payload) VALUES (?,?, ?::jsonb)", userId, "channel.mention",
+                "{\"channel_id\":" + chanId + "}");
+
+        mockMvc.perform(get("/v1/notifications")
+                        .header("Authorization", auth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items", hasSize(0)));
+
+        mockMvc.perform(put("/v1/channels/" + chanId + "/preferences")
+                        .header("Authorization", auth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"muted\":false}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.muted", equalTo(false)));
 
         mockMvc.perform(post("/v1/channels/" + chanId + "/messages")
                         .header("Authorization", auth)
@@ -431,5 +475,65 @@ class ExtendedEndpointsIntegrationTest extends PostgresTestBase {
                         .header("Authorization", auth))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.read").value(true));
+    }
+
+    @Test
+    void notifications_include_action_deeplink_when_deeplink_present() throws Exception {
+        long companyId = jdbc.queryForObject("INSERT INTO companies(name, domain) VALUES ('NotifCo','notif.co') RETURNING id", Long.class);
+        long userId = jdbc.queryForObject("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?) RETURNING id",
+                Long.class, "uid-notif", "notifier", companyId);
+        jdbc.update("INSERT INTO notifications(user_id, type, payload) VALUES (?,?, ?::jsonb)", userId, "system",
+                "{\"deeplink\":\"looped://post/123\"}");
+
+        String auth = "Bearer " + token("uid-notif");
+
+        mockMvc.perform(get("/v1/notifications")
+                        .header("Authorization", auth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].payload.deeplink", equalTo("looped://post/123")))
+                .andExpect(jsonPath("$.items[0].payload.action_deeplink", equalTo("looped://post/123")));
+    }
+
+    @Test
+    void me_analytics_returns_total_and_window_counts() throws Exception {
+        long companyId = jdbc.queryForObject("INSERT INTO companies(name, domain) VALUES ('AnalyticCo','ana.co') RETURNING id", Long.class);
+        long userId = jdbc.queryForObject("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?) RETURNING id",
+                Long.class, "uid-ana", "analyst", companyId);
+        long userPrincipalId = jdbc.queryForObject("INSERT INTO principals(kind, user_id) VALUES ('user', ?) RETURNING id",
+                Long.class, userId);
+
+        long likerA = jdbc.queryForObject("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?) RETURNING id",
+                Long.class, "uid-like-a", "likerA", companyId);
+        long likerAPrincipalId = jdbc.queryForObject("INSERT INTO principals(kind, user_id) VALUES ('user', ?) RETURNING id",
+                Long.class, likerA);
+        long likerB = jdbc.queryForObject("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?) RETURNING id",
+                Long.class, "uid-like-b", "likerB", companyId);
+        long likerBPrincipalId = jdbc.queryForObject("INSERT INTO principals(kind, user_id) VALUES ('user', ?) RETURNING id",
+                Long.class, likerB);
+
+        long recentPostId = jdbc.queryForObject(
+                "INSERT INTO posts(author_id, author_principal_id, company_id, content, likes_count, created_at) " +
+                        "VALUES (?,?,?,?,?, now()) RETURNING id",
+                Long.class, userId, userPrincipalId, companyId, "recent", 2
+        );
+        long oldPostId = jdbc.queryForObject(
+                "INSERT INTO posts(author_id, author_principal_id, company_id, content, likes_count, created_at) " +
+                        "VALUES (?,?,?,?,?, now() - interval '10 days') RETURNING id",
+                Long.class, userId, userPrincipalId, companyId, "old", 3
+        );
+
+        jdbc.update("INSERT INTO post_likes(liker_principal_id, post_id, created_at) VALUES (?,?, now())",
+                likerAPrincipalId, recentPostId);
+        jdbc.update("INSERT INTO post_likes(liker_principal_id, post_id, created_at) VALUES (?,?, now() - interval '10 days')",
+                likerBPrincipalId, oldPostId);
+
+        String auth = "Bearer " + token("uid-ana");
+        mockMvc.perform(get("/v1/me/analytics?window_days=7")
+                        .header("Authorization", auth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.window_days", equalTo(7)))
+                .andExpect(jsonPath("$.total_hearts", equalTo(5)))
+                .andExpect(jsonPath("$.hearts_last_window", equalTo(1)))
+                .andExpect(jsonPath("$.posts_last_window", equalTo(1)));
     }
 }

@@ -155,7 +155,7 @@ public class ConversationService {
         return MessagesResult.ok(rows, next);
     }
 
-    public SendResult send(String firebaseUid, long conversationId, String content, List<String> attachments) {
+    public SendResult send(String firebaseUid, long conversationId, String content, List<MessageAttachment> attachments) {
         var actor = requireProvisionedUser(firebaseUid);
         if (actor.isEmpty()) return SendResult.userNotProvisioned();
         if (actor.get().isAnonymous) return SendResult.anonymousNotAllowed();
@@ -178,13 +178,8 @@ public class ConversationService {
         return SendResult.ok(row);
     }
 
-    private boolean attachmentsValid(List<String> attachments) {
-        if (attachments == null || attachments.isEmpty()) return true;
-        for (String a : attachments) {
-            if (a == null || a.isBlank()) continue;
-            if (!a.startsWith("dm/")) return false;
-        }
-        return true;
+    private boolean attachmentsValid(List<MessageAttachment> attachments) {
+        return MessageAttachments.validDmKeys(attachments);
     }
 
     private Optional<UserRepository.UserRow> requireProvisionedUser(String firebaseUid) {

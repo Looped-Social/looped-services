@@ -1,6 +1,7 @@
 package com.looped.notifications;
 
 import com.looped.shared.Pagination;
+import com.looped.messaging.ChannelPreferencesRepository;
 import com.looped.users.UserRepository;
 import org.springframework.stereotype.Service;
 
@@ -13,13 +14,16 @@ public class NotificationService {
     private final NotificationRepository repo;
     private final UserRepository users;
     private final NotificationPreferencesService preferences;
+    private final ChannelPreferencesRepository channelPreferences;
 
     public NotificationService(NotificationRepository repo,
                                UserRepository users,
-                               NotificationPreferencesService preferences) {
+                               NotificationPreferencesService preferences,
+                               ChannelPreferencesRepository channelPreferences) {
         this.repo = repo;
         this.users = users;
         this.preferences = preferences;
+        this.channelPreferences = channelPreferences;
     }
 
     public ListResult list(String firebaseUid, String cursor, int limit) {
@@ -41,8 +45,12 @@ public class NotificationService {
             var rows = repo.findByUser(actor.get().id, cTs, cId, limit);
             lastBatchSize = rows.size();
             if (rows.isEmpty()) break;
+            var mutedByChannelId = mutedChannelsForUser(actor.get().id, rows);
             for (var row : rows) {
                 var type = NotificationType.fromValue(row.type).orElse(null);
+                if (isMutedChannelNotification(row, mutedByChannelId)) {
+                    continue;
+                }
                 if (type == null || prefs.allows(NotificationChannel.IN_APP, type)) {
                     filtered.add(row);
                     lastIncluded = row;
@@ -90,5 +98,33 @@ public class NotificationService {
         static MarkReadResult userNotProvisioned() { return new MarkReadResult(Status.USER_NOT_PROVISIONED); }
         static MarkReadResult forbidden() { return new MarkReadResult(Status.FORBIDDEN); }
         static MarkReadResult notFound() { return new MarkReadResult(Status.NOT_FOUND); }
+    }
+
+    private java.util.Map<Long, Boolean> mutedChannelsForUser(long userId, List<NotificationRepository.NotificationRow> rows) {
+        if (rows == null || rows.isEmpty()) return java.util.Map.of();
+        List<Long> channelIds = rows.stream()
+                .map(this::channelIdFromPayload)
+                .filter(id -> id != null && id > 0)
+                .distinct()
+                .limit(200)
+                .toList();
+        if (channelIds.isEmpty()) return java.util.Map.of();
+        return channelPreferences.mutedByChannelIds(userId, channelIds);
+    }
+
+    private boolean isMutedChannelNotification(NotificationRepository.NotificationRow row, java.util.Map<Long, Boolean> mutedByChannelId) {
+        if (row == null || row.type == null) return false;
+        if (!row.type.startsWith("channel.")) return false;
+        Long channelId = channelIdFromPayload(row);
+        if (channelId == null || channelId <= 0) return false;
+        return mutedByChannelId.getOrDefault(channelId, false);
+    }
+
+    private Long channelIdFromPayload(NotificationRepository.NotificationRow row) {
+        if (row == null || row.payload == null) return null;
+        Object val = row.payload.get("channel_id");
+        if (val == null) val = row.payload.get("channelId");
+        if (val instanceof Number n) return n.longValue();
+        return null;
     }
 }

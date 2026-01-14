@@ -62,7 +62,15 @@ public class NotificationsController {
         map.put("created_at", row.createdAt);
         map.put("unread", row.readAt == null);
         if (row.payload != null && !row.payload.isEmpty()) {
-            map.put("payload", row.payload);
+            Map<String, Object> payload = new HashMap<>(row.payload);
+            String deeplink = payload.get("deeplink") instanceof String s ? s : null;
+            String action = payload.get("action_deeplink") instanceof String s ? s : null;
+            if (deeplink != null && !deeplink.isBlank() && (action == null || action.isBlank())) {
+                payload.put("action_deeplink", deeplink);
+            } else if (action != null && !action.isBlank() && (deeplink == null || deeplink.isBlank())) {
+                payload.put("deeplink", action);
+            }
+            map.put("payload", payload);
         }
         return map;
     }

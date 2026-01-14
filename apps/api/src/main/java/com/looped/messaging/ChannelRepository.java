@@ -1,6 +1,5 @@
 package com.looped.messaging;
 
-import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
@@ -17,7 +16,6 @@ import java.util.Optional;
 public class ChannelRepository {
     private final JdbcTemplate jdbc;
     private final ObjectMapper mapper = new ObjectMapper();
-    private static final TypeReference<List<String>> STRING_LIST = new TypeReference<>() {};
 
     public ChannelRepository(JdbcTemplate jdbc) {
         this.jdbc = jdbc;
@@ -36,6 +34,10 @@ public class ChannelRepository {
             row.createdAt = rs.getObject("created_at", OffsetDateTime.class);
             row.memberCount = rs.getInt("member_count");
             row.viewerCanManageMembers = rs.getBoolean("viewer_can_manage_members");
+            long photoId = rs.getLong("photo_media_asset_id");
+            row.photoMediaAssetId = rs.wasNull() ? null : photoId;
+            row.photoS3Key = rs.getString("photo_s3_key");
+            row.photoMimeType = rs.getString("photo_mime_type");
             return row;
         }
     };
@@ -50,7 +52,8 @@ public class ChannelRepository {
             row.content = rs.getString("content");
             String raw = rs.getString("attachments");
             try {
-                row.attachments = raw == null ? List.of() : mapper.readValue(raw, STRING_LIST);
+                var node = raw == null ? null : mapper.readTree(raw);
+                row.attachments = MessageAttachments.parse(node);
             } catch (Exception e) {
                 row.attachments = List.of();
             }
@@ -61,10 +64,13 @@ public class ChannelRepository {
 
     public Optional<ChannelRow> findById(long id) {
         var rows = jdbc.query(
-                "SELECT id, company_id, owner_user_id, name, is_public, created_at, " +
+                "SELECT channels.id, channels.company_id, channels.owner_user_id, channels.name, channels.is_public, channels.created_at, " +
+                        "channels.photo_media_asset_id, ma.s3_key AS photo_s3_key, ma.mime_type AS photo_mime_type, " +
                         "(SELECT COUNT(*) FROM channel_members m WHERE m.channel_id = channels.id) AS member_count " +
                         ", false AS viewer_can_manage_members " +
-                        "FROM channels WHERE id = ?",
+                        "FROM channels " +
+                        "LEFT JOIN media_assets ma ON ma.id = channels.photo_media_asset_id " +
+                        "WHERE channels.id = ?",
                 channelMapper, id
         );
         return rows.isEmpty() ? Optional.empty() : Optional.of(rows.get(0));
@@ -73,19 +79,21 @@ public class ChannelRepository {
     public List<ChannelRow> listForUser(long companyId, long userId, OffsetDateTime cursorTs, Long cursorId, int limit) {
         String base = "SELECT channels.id, channels.company_id, channels.owner_user_id, channels.name, channels.is_public, " +
                 "channels.created_at AS created_at, " +
+                "channels.photo_media_asset_id, ma.s3_key AS photo_s3_key, ma.mime_type AS photo_mime_type, " +
                 "(SELECT COUNT(*) FROM channel_members m WHERE m.channel_id = channels.id) AS member_count, " +
-                "COALESCE(cm.can_manage_members, false) AS viewer_can_manage_members " +
+                "CASE WHEN channels.owner_user_id = ? THEN true ELSE COALESCE(cm.can_manage_members, false) END AS viewer_can_manage_members " +
                 "FROM channels " +
+                "LEFT JOIN media_assets ma ON ma.id = channels.photo_media_asset_id " +
                 "LEFT JOIN channel_members cm ON cm.channel_id = channels.id AND cm.user_id = ? " +
                 "WHERE channels.company_id = ? AND (channels.is_public = true " +
                 "OR EXISTS (SELECT 1 FROM channel_members m WHERE m.channel_id = channels.id AND m.user_id = ?)) ";
         if (cursorTs == null || cursorId == null) {
             base += "ORDER BY channels.created_at DESC, channels.id DESC LIMIT " + limit;
-            return jdbc.query(base, channelMapper, userId, companyId, userId);
+            return jdbc.query(base, channelMapper, userId, userId, companyId, userId);
         }
         base += "AND (channels.created_at < ? OR (channels.created_at = ? AND channels.id < ?)) " +
                 "ORDER BY channels.created_at DESC, channels.id DESC LIMIT " + limit;
-        return jdbc.query(base, channelMapper, userId, companyId, userId, cursorTs, cursorTs, cursorId);
+        return jdbc.query(base, channelMapper, userId, userId, companyId, userId, cursorTs, cursorTs, cursorId);
     }
 
     public boolean isMember(long channelId, long userId) {
@@ -132,7 +140,7 @@ public class ChannelRepository {
         );
     }
 
-    public ChannelMessageRow insertMessage(long channelId, long senderId, String content, List<String> attachments) {
+    public ChannelMessageRow insertMessage(long channelId, long senderId, String content, List<MessageAttachment> attachments) {
         String json;
         try {
             json = mapper.writeValueAsString(attachments == null ? Collections.emptyList() : attachments);
@@ -181,6 +189,22 @@ public class ChannelRepository {
         return rows > 0;
     }
 
+    public boolean updateName(long channelId, String name) {
+        int rows = jdbc.update(
+                "UPDATE channels SET name = ? WHERE id = ?",
+                name, channelId
+        );
+        return rows > 0;
+    }
+
+    public boolean updatePhotoMediaAssetId(long channelId, Long photoMediaAssetId) {
+        int rows = jdbc.update(
+                "UPDATE channels SET photo_media_asset_id = ? WHERE id = ?",
+                photoMediaAssetId, channelId
+        );
+        return rows > 0;
+    }
+
     public long insertChannel(long companyId, long ownerUserId, String name, boolean isPublic) {
         Long id = jdbc.query(
                 "INSERT INTO channels(company_id, owner_user_id, name, is_public) VALUES (?,?,?,?) RETURNING id",
@@ -199,6 +223,9 @@ public class ChannelRepository {
         public OffsetDateTime createdAt;
         public int memberCount;
         public boolean viewerCanManageMembers;
+        public Long photoMediaAssetId;
+        public String photoS3Key;
+        public String photoMimeType;
     }
 
     private final RowMapper<ChannelMemberRow> memberMapper = new RowMapper<>() {
@@ -232,7 +259,7 @@ public class ChannelRepository {
         public long channelId;
         public long senderId;
         public String content;
-        public List<String> attachments = List.of();
+        public List<MessageAttachment> attachments = List.of();
         public OffsetDateTime createdAt;
     }
 }

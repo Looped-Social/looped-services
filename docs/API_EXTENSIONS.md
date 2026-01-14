@@ -55,7 +55,12 @@
   - `GET /v1/conversations/{id}/messages?cursor=&limit=` → message DTOs.
   - `POST /v1/conversations/{id}/messages` → message DTO (201).
     - Body: `{ "content": "<text>", "attachments": [] }`
+      - `attachments` supports either:
+        - legacy: `["dm/original/<uuid>", ...]`
+        - preferred: `[{"url":"dm/original/<uuid>","type":"image|video","width":123,"height":456,"size_bytes":12345,"duration_seconds":12,"thumbnail_url":"..."}]`
+      - Server requires `attachments[].url` (or string) to start with `dm/`.
   - Message DTO: `{ id, sender_id, content, attachments, created_at }`
+    - `attachments` is an array of objects with `url` (plus optional metadata) in responses.
   - Message media (private)
     - `POST /v1/message-media/presign` → `{ key, uploadUrl, headers }`
       - Use this for DM/channel attachments (uploads go to private messaging S3 bucket).
@@ -84,17 +89,35 @@
 - **Violations**
   - `GET /v1/violations?cursor=&limit=` → `{ items: [{ target_type, target_id, reason, status, created_at }], next_cursor }`
 - **Channels**
-  - `GET /v1/channels?cursor=&limit=` → `{ id, name, member_count, is_public }`
+  - `GET /v1/channels?cursor=&limit=` → `{ items: [{ id, name, member_count, is_public, owner_user_id?, viewer_can_manage_members, photo_media_asset_id?, photo_url?, muted }], next_cursor }`
   - `GET /v1/channels/{id}/messages?cursor=&limit=` and `POST /v1/channels/{id}/messages` (same shape as DM messages).
+  - Join public channel: `POST /v1/channels/{id}/join` → `{ channel_id, joined: true, member_count }` (201 when newly joined)
+  - Rename / set group photo (requires `viewer_can_manage_members=true`):
+    - `PATCH /v1/channels/{id}` body supports `{ "name": "..." }` and/or `{ "photoMediaAssetId": <media_assets.id|null> }` (also accepts `photo_media_asset_id`)
+    - Response: channel DTO (same shape as list item)
+    - Photo rules: must be owned by caller; must be `image/jpeg|image/png|image/webp`.
+  - Per-channel mute:
+    - `PUT /v1/channels/{id}/preferences` body `{ "muted": true|false }` → `{ channel_id, muted }`
+    - Mute hides `channel.*` notifications for that channel in `GET /v1/notifications`.
   - Anonymous profiles are blocked with `403 { "error": "anonymous_not_allowed" }`.
 - **Notifications**
   - `GET /v1/notifications?cursor=&limit=` → `{ items: [{ id, type, created_at, unread, payload }], next_cursor }`
   - `POST /v1/notifications/{id}/read` → `{ "read": true }`
   - `GET /v1/notifications/preferences` → `{ notifications: { channels: { in_app|push|email: { enabled, types: { follow, like, comment, reply, mention, post_from_followed, repost, announcement, system } } } } }`
   - `PUT /v1/notifications/preferences` → same response; body updates any `enabled` or per-type flags.
-  - Payload fields (by type): `actor_principal_id`, `actor_user_id`, `actor_anon_profile_id`, `actor_is_anonymous`, `actor_display_name`, `actor_profile_image_url`, `post_id`, `comment_id`, `context`, `deeplink`, `action_deeplink` (announcements).
-  - Deeplinks: `looped://post/{post_id}` (like/comment/mention/post_from_followed/repost), `looped://comment/{comment_id}` (reply or mention-in-comment), `looped://user/{user_id}` (follow), `looped://announcement/{notification_id}` (announcement/system).
+  - Payload fields (by type): `actor_principal_id`, `actor_user_id`, `actor_anon_profile_id`, `actor_is_anonymous`, `actor_display_name`, `actor_profile_image_url`, `post_id`, `comment_id`, `context`, `deeplink`, `action_deeplink`.
+  - `action_deeplink` is always present when a `deeplink` can be derived (or if the notification already includes one).
+  - Deeplinks (preferred):
+    - `looped://post/{post_id}` (like/mention/post_from_followed/repost)
+    - `looped://comment/{comment_id}?post_id={post_id}` (comment/reply/mention-in-comment; `post_id` optional)
+    - `looped://user/{user_id}?anon=true|false` (follow)
+    - `looped://announcement/{notification_id}` (announcement/system)
+  - Invite notification conventions (payload is passed through):
+    - `type: "loopInvite"`: include `community_id` (or `loop_id`) and `action_deeplink`
+    - `type: "groupInvite"`: include `channel_id` and `action_deeplink`
   - Push payload (APNs custom keys): `type`, `notification_id`, `deeplink` (when present).
+- **Me analytics**
+  - `GET /v1/me/analytics?window_days=7` → `{ window_days, total_hearts, hearts_last_window, posts_last_window }`
 - **Post shares**
   - `POST /v1/posts/{id}/share` → `{ post_id, share_count }`
   - Every call records a share event and increments `share_count`.
@@ -185,6 +208,11 @@
       - `is_joined`: whether the current user has joined this specialization
       - `join_limit`: per-type join limit + cooldown state for the current user:
         - `{ specialization_type, limit, joined_count, remaining, cooldown_months, cooldown_active, cooldown_ends_at?, cooldown_days_remaining?, can_join, blocked_reason? }`
+  - Join/unjoin (invite acceptance)
+    - `POST /v1/communities/{id}/join` → `{ community_id, joined: true, member_count }` (201 when newly joined)
+    - `DELETE /v1/communities/{id}/join` → `{ community_id, joined: false, member_count }`
+    - For `kind="specialization"`, this delegates to specialization join rules (major/department only; may return cooldown/limit conflicts).
+    - For other community kinds, this is an alias for follow/unfollow.
 - **Specialization join limits (for UI)**
   - Use to show “joined X/Y majors” and “next change available on …” in settings and specialization pickers.
   - `GET /v1/me/specializations/join-limits?type=major|department|all`
