@@ -11,6 +11,7 @@ public final class CommentPayloads {
         out.put("id", row.comment.id);
         out.put("post_id", row.comment.postId);
         out.put("content", row.comment.content);
+        out.put("media_asset_id", row.comment.mediaAssetId);
         out.put("created_at", row.comment.createdAt);
         out.put("likes_count", row.comment.likesCount);
         out.put("reply_count", row.comment.replyCount);

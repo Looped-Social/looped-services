@@ -3,6 +3,7 @@ package com.looped.comments;
 import com.looped.anon.AnonProofService;
 import com.looped.communities.CommunitiesRepository;
 import com.looped.communities.CommunityVerificationsRepository;
+import com.looped.media.MediaRepository;
 import com.looped.notifications.NotificationPublisher;
 import com.looped.principals.PrincipalRepository;
 import com.looped.posts.PostRepository;
@@ -27,6 +28,7 @@ public class CommentsService {
     private final AnonProofService anonProofs;
     private final NotificationPublisher notifications;
     private final UserCommunityBanRepository communityBans;
+    private final MediaRepository media;
 
     public CommentsService(CommentsRepository comments,
                            PostRepository posts,
@@ -36,7 +38,8 @@ public class CommentsService {
                            PrincipalRepository principals,
                            AnonProofService anonProofs,
                            NotificationPublisher notifications,
-                           UserCommunityBanRepository communityBans) {
+                           UserCommunityBanRepository communityBans,
+                           MediaRepository media) {
         this.comments = comments;
         this.posts = posts;
         this.users = users;
@@ -46,6 +49,7 @@ public class CommentsService {
         this.anonProofs = anonProofs;
         this.notifications = notifications;
         this.communityBans = communityBans;
+        this.media = media;
     }
 
     public ListResult list(String firebaseUid, long postId, String cursor, int limit, AnonProofService.AnonActionProof anonProof) {
@@ -89,7 +93,7 @@ public class CommentsService {
     }
 
     @Transactional
-    public CreateResult create(String firebaseUid, long postId, String content, Long parentId, AnonProofService.AnonActionProof anonProof) {
+    public CreateResult create(String firebaseUid, long postId, String content, Long mediaAssetId, Long parentId, AnonProofService.AnonActionProof anonProof) {
         var post = posts.findById(postId);
         if (post.isEmpty()) return CreateResult.postNotFound();
         if (post.get().communityId == null) return CreateResult.communityNotFound();
@@ -103,6 +107,9 @@ public class CommentsService {
             actorPrincipalId = verified.actor().principalId();
             if (verified.actor().companyId() == null) return CreateResult.invalidAnonProof();
             effectiveCompanyId = verified.actor().companyId();
+            if (mediaAssetId != null && !mediaOwnerIsNull(mediaAssetId)) {
+                return CreateResult.anonMediaNotAllowed();
+            }
         } else {
             if (firebaseUid == null) return CreateResult.userNotProvisioned();
             var actor = users.findByFirebaseUid(firebaseUid);
@@ -127,7 +134,7 @@ public class CommentsService {
             parentComment = parent.get();
         }
 
-        var inserted = comments.insert(postId, actorUserId, actorPrincipalId, effectiveCompanyId, content, parentId);
+        var inserted = comments.insert(postId, actorUserId, actorPrincipalId, effectiveCompanyId, content, mediaAssetId, parentId);
         posts.incrementCommentsCount(postId);
         if (parentId != null) {
             comments.incrementReplyCount(parentId);
@@ -142,6 +149,11 @@ public class CommentsService {
             notifyMentions(actorPrincipalId, actorUserId, effectiveCompanyId, content, postId, inserted.id, post.get().authorId);
         } catch (RuntimeException ignored) {}
         return CreateResult.ok(view);
+    }
+
+    private boolean mediaOwnerIsNull(long mediaAssetId) {
+        Long ownerId = media.findOwnerId(mediaAssetId);
+        return ownerId == null;
     }
 
     public RepliesResult replies(String firebaseUid, long commentId, String cursor, int limit, AnonProofService.AnonActionProof anonProof) {
@@ -377,7 +389,8 @@ public class CommentsService {
         COMMUNITY_NOT_FOUND,
         COMMUNITY_BANNED,
         NOT_VERIFIED,
-        INVALID_ANON_PROOF
+        INVALID_ANON_PROOF,
+        ANON_MEDIA_NOT_ALLOWED
     }
 
     public record ListResult(Status status, List<CommentsRepository.CommentViewRow> comments, String nextCursor) {
@@ -398,6 +411,7 @@ public class CommentsService {
         static CreateResult communityBanned() { return new CreateResult(Status.COMMUNITY_BANNED, null); }
         static CreateResult notVerified() { return new CreateResult(Status.NOT_VERIFIED, null); }
         static CreateResult invalidAnonProof() { return new CreateResult(Status.INVALID_ANON_PROOF, null); }
+        static CreateResult anonMediaNotAllowed() { return new CreateResult(Status.ANON_MEDIA_NOT_ALLOWED, null); }
     }
 
     public record RepliesResult(Status status, List<CommentsRepository.CommentViewRow> comments, String nextCursor) {

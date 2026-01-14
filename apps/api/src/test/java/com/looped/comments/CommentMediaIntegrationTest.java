@@ -1,4 +1,4 @@
-package com.looped.media;
+package com.looped.comments;
 
 import com.looped.auth.TestSecurityConfig;
 import com.looped.support.PostgresTestBase;
@@ -8,31 +8,28 @@ import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMock
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.security.oauth2.jwt.JwsHeader;
 import org.springframework.security.oauth2.jose.jws.SignatureAlgorithm;
 import org.springframework.security.oauth2.jwt.JwtClaimsSet;
 import org.springframework.security.oauth2.jwt.JwtEncoder;
 import org.springframework.security.oauth2.jwt.JwtEncoderParameters;
+import org.springframework.security.oauth2.jwt.JwsHeader;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.time.Instant;
 import java.util.List;
 
 import static org.hamcrest.Matchers.equalTo;
-import static org.hamcrest.Matchers.notNullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @SpringBootTest(properties = {
         "auth.issuer=http://test-issuer",
-        "auth.audience=test-app",
-        "cloudfront.domain=cdn.example.com",
-        "media.callbackSecret=secret123"
+        "auth.audience=test-app"
 })
 @AutoConfigureMockMvc
 @org.springframework.context.annotation.Import(TestSecurityConfig.class)
-class MediaCallbackIntegrationTest extends PostgresTestBase {
+class CommentMediaIntegrationTest extends PostgresTestBase {
 
     @Autowired
     MockMvc mockMvc;
@@ -55,37 +52,45 @@ class MediaCallbackIntegrationTest extends PostgresTestBase {
     }
 
     @Test
-    void callback_persists_asset_with_valid_signature() throws Exception {
+    void create_comment_accepts_media_asset_id() throws Exception {
         long companyId = jdbc.queryForObject("INSERT INTO companies(name, domain) VALUES ('Acme','acme.com') RETURNING id", Long.class);
-        jdbc.update("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?)", "uid-media", "mike", companyId);
+        long userId = jdbc.queryForObject(
+                "INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?) RETURNING id",
+                Long.class,
+                "uid-comment-media",
+                "carla",
+                companyId
+        );
+        long principalId = jdbc.queryForObject(
+                "INSERT INTO principals(kind, user_id) VALUES ('user', ?) RETURNING id",
+                Long.class,
+                userId
+        );
+        long communityId = jdbc.queryForObject(
+                "INSERT INTO communities(kind, name) VALUES ('specialization', 'iOS') RETURNING id",
+                Long.class
+        );
+        long postId = jdbc.queryForObject(
+                "INSERT INTO posts(author_id, author_principal_id, company_id, community_id, content, media_asset_id, is_anon, " +
+                        "anon_profile_id, anon_company_id, anon_cert, anon_cert_kid, anon_sig, anon_ephemeral_pubkey) " +
+                        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?) RETURNING id",
+                Long.class,
+                userId, principalId, companyId, communityId, "hello", null, false,
+                null, null, null, null, null, null
+        );
+        long mediaId = jdbc.queryForObject(
+                "INSERT INTO media_assets(owner_id, s3_key, mime_type) VALUES (NULL, ?, ?) RETURNING id",
+                Long.class,
+                "media/original/323e4567-e89b-12d3-a456-426614174000",
+                "image/jpeg"
+        );
 
-        String key = "media/original/123e4567-e89b-12d3-a456-426614174000";
-        String sig = MediaService.hmacSha256Base64("secret123", key);
-        String body = "{\"key\":\"" + key + "\",\"mimeType\":\"image/jpeg\",\"width\":640,\"height\":480}";
-
-        mockMvc.perform(post("/v1/media/callback")
+        String body = "{\"content\":\"nice\",\"mediaAssetId\":" + mediaId + "}";
+        mockMvc.perform(post("/v1/posts/" + postId + "/comments")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .header("Authorization", "Bearer " + token("uid-media"))
-                        .header("X-Media-Signature", sig)
+                        .header("Authorization", "Bearer " + token("uid-comment-media"))
                         .content(body))
                 .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.id", notNullValue()))
-                .andExpect(jsonPath("$.cdn_url", equalTo("https://cdn.example.com/" + key)));
-    }
-
-    @Test
-    void callback_allows_anon_actor_without_jwt() throws Exception {
-        String key = "media/original/223e4567-e89b-12d3-a456-426614174000";
-        String sig = MediaService.hmacSha256Base64("secret123", key);
-        String body = "{\"key\":\"" + key + "\",\"mimeType\":\"image/jpeg\",\"width\":640,\"height\":480}";
-
-        mockMvc.perform(post("/v1/media/callback")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .header("X-Actor", "anon")
-                        .header("X-Media-Signature", sig)
-                        .content(body))
-                .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.id", notNullValue()))
-                .andExpect(jsonPath("$.cdn_url", equalTo("https://cdn.example.com/" + key)));
+                .andExpect(jsonPath("$.media_asset_id", equalTo((int) mediaId)));
     }
 }

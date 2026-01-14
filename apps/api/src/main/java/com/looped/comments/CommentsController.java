@@ -108,7 +108,7 @@ public class CommentsController {
                     "message", "Authorization is required"
             ));
         }
-        var res = service.create(jwt == null ? null : jwt.getSubject(), postId, body.content(), body.parentId(), body.toAnonProof());
+        var res = service.create(jwt == null ? null : jwt.getSubject(), postId, body.content(), body.mediaAssetId(), body.parentId(), body.toAnonProof());
         return switch (res.status()) {
             case USER_NOT_PROVISIONED -> ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
                     "error", "user_not_provisioned",
@@ -145,6 +145,10 @@ public class CommentsController {
             case INVALID_PARENT -> ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of(
                     "error", "invalid_parent",
                     "message", "Parent comment must belong to the same post"
+            ));
+            case ANON_MEDIA_NOT_ALLOWED -> ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of(
+                    "error", "anon_media_invalid",
+                    "message", "Anonymous media assets must not be user-owned"
             ));
             case OK -> ResponseEntity.status(HttpStatus.CREATED).body(CommentPayloads.from(res.comment()));
         };
@@ -426,6 +430,7 @@ public class CommentsController {
     }
 
     public record CreateRequest(@NotBlank @Size(max = 1000) String content,
+                                Long mediaAssetId,
                                 Long parentId,
                                 Boolean asAnon,
                                 Long anonProfileId,

@@ -42,7 +42,7 @@ public class SecurityConfig {
     @Value("${cors.allowed-methods:GET,POST,PATCH,PUT,DELETE,OPTIONS}")
     private String corsAllowedMethods;
 
-    @Value("${cors.allowed-headers:Authorization,Content-Type}")
+    @Value("${cors.allowed-headers:Authorization,Content-Type,Idempotency-Key,X-Actor,X-Media-Signature}")
     private String corsAllowedHeaders;
 
     @Value("${cors.allow-credentials:false}")
@@ -57,6 +57,9 @@ public class SecurityConfig {
             .authorizeHttpRequests(authz -> authz
                 .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                 .requestMatchers("/health", "/actuator/health", "/actuator/info").permitAll()
+                .requestMatchers(HttpMethod.POST, "/v1/media/presign").permitAll()
+                .requestMatchers(HttpMethod.POST, "/v1/media/callback").permitAll()
+                .requestMatchers(HttpMethod.POST, "/v1/media/resolve").permitAll()
                 .requestMatchers(HttpMethod.POST, "/v1/posts").permitAll()
                 .requestMatchers(HttpMethod.PUT, "/v1/posts/*").permitAll()
                 .requestMatchers(HttpMethod.DELETE, "/v1/posts/*").permitAll()

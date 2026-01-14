@@ -1,6 +1,7 @@
 package com.looped.media;
 
 import com.looped.users.UserRepository;
+import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import org.springframework.beans.factory.annotation.Value;
@@ -12,6 +13,7 @@ import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 @RestController
@@ -68,6 +70,12 @@ public class MediaController {
         Long ownerId = null;
         boolean isAnon = actor != null && actor.equalsIgnoreCase("anon");
         if (!isAnon) {
+            if (jwt == null) {
+                return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of(
+                        "error", "unauthorized",
+                        "message", "Authorization is required"
+                ));
+            }
             var u = users.findByFirebaseUid(jwt.getSubject());
             if (u.isEmpty()) {
                 return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
@@ -95,6 +103,33 @@ public class MediaController {
         return new ResponseEntity<>(out, HttpStatus.CREATED);
     }
 
+    @PostMapping("/resolve")
+    public ResponseEntity<?> resolve(@Validated @RequestBody ResolveRequest body) {
+        List<Long> ids = body.ids().stream()
+                .filter(id -> id != null && id > 0)
+                .distinct()
+                .limit(50)
+                .toList();
+
+        var rows = mediaRepository.findByIds(ids);
+        List<Map<String, Object>> items = rows.stream()
+                .filter(r -> r.s3Key != null && r.s3Key.startsWith("media/"))
+                .map(r -> {
+                    Map<String, Object> item = new HashMap<>();
+                    item.put("id", r.id);
+                    item.put("key", r.s3Key);
+                    item.put("mime_type", r.mimeType);
+                    if (cloudfrontDomain != null && !cloudfrontDomain.isBlank()) {
+                        item.put("cdn_url", "https://" + cloudfrontDomain + "/" + r.s3Key);
+                    }
+                    return item;
+                })
+                .toList();
+
+        return ResponseEntity.ok(Map.of("items", items));
+    }
+
     public record PresignRequest(@NotBlank String contentType, @NotNull Long sizeBytes) {}
     public record CallbackRequest(@NotBlank String key, @NotBlank String mimeType, Integer width, Integer height, Integer durationSeconds) {}
+    public record ResolveRequest(@NotEmpty List<Long> ids) {}
 }

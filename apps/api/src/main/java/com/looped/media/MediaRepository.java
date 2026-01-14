@@ -7,6 +7,7 @@ import org.springframework.stereotype.Repository;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.OffsetDateTime;
+import java.util.List;
 import java.util.Optional;
 
 @Repository
@@ -67,6 +68,23 @@ public class MediaRepository {
                 mediaAssetId
         );
         return rows.isEmpty() ? Optional.empty() : Optional.of(rows.get(0));
+    }
+
+    public List<MediaRow> findByIds(List<Long> mediaAssetIds) {
+        if (mediaAssetIds == null || mediaAssetIds.isEmpty()) return List.of();
+        String placeholders = String.join(",", java.util.Collections.nCopies(mediaAssetIds.size(), "?"));
+        return jdbc.query(
+                "SELECT id, owner_id, s3_key, mime_type FROM media_assets WHERE id IN (" + placeholders + ")",
+                (rs, rowNum) -> {
+                    MediaRow row = new MediaRow();
+                    row.id = rs.getLong("id");
+                    row.ownerId = rs.getObject("owner_id", Long.class);
+                    row.s3Key = rs.getString("s3_key");
+                    row.mimeType = rs.getString("mime_type");
+                    return row;
+                },
+                mediaAssetIds.toArray()
+        );
     }
 
     public static class MediaRow {
