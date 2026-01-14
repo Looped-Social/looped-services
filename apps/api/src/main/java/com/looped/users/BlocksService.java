@@ -34,7 +34,7 @@ public class BlocksService {
 
         var targetPrincipal = principals.createForUser(targetUserId);
 
-        long actorPrincipalId = resolveActorPrincipalId(firebaseUid, anonProof, "block", targetPrincipal.id);
+        long actorPrincipalId = resolveActorPrincipalId(firebaseUid, anonProof, "block", targetPrincipal.id, targetUserId);
         if (actorPrincipalId == 0) return BlockResult.userNotProvisioned();
         if (actorPrincipalId == -1) return BlockResult.invalidSignature();
 
@@ -49,7 +49,7 @@ public class BlocksService {
 
         var targetPrincipal = principals.createForUser(targetUserId);
 
-        long actorPrincipalId = resolveActorPrincipalId(firebaseUid, anonProof, "unblock", targetPrincipal.id);
+        long actorPrincipalId = resolveActorPrincipalId(firebaseUid, anonProof, "unblock", targetPrincipal.id, targetUserId);
         if (actorPrincipalId == 0) return BlockResult.userNotProvisioned();
         if (actorPrincipalId == -1) return BlockResult.invalidSignature();
 
@@ -61,7 +61,7 @@ public class BlocksService {
     public BlockResult blockPrincipal(String firebaseUid, long targetPrincipalId, AnonProofService.AnonActionProof anonProof) {
         if (principals.findById(targetPrincipalId).isEmpty()) return BlockResult.notFound();
 
-        long actorPrincipalId = resolveActorPrincipalId(firebaseUid, anonProof, "block", targetPrincipalId);
+        long actorPrincipalId = resolveActorPrincipalId(firebaseUid, anonProof, "block", targetPrincipalId, null);
         if (actorPrincipalId == 0) return BlockResult.userNotProvisioned();
         if (actorPrincipalId == -1) return BlockResult.invalidSignature();
 
@@ -73,7 +73,7 @@ public class BlocksService {
     public BlockResult unblockPrincipal(String firebaseUid, long targetPrincipalId, AnonProofService.AnonActionProof anonProof) {
         if (principals.findById(targetPrincipalId).isEmpty()) return BlockResult.notFound();
 
-        long actorPrincipalId = resolveActorPrincipalId(firebaseUid, anonProof, "unblock", targetPrincipalId);
+        long actorPrincipalId = resolveActorPrincipalId(firebaseUid, anonProof, "unblock", targetPrincipalId, null);
         if (actorPrincipalId == 0) return BlockResult.userNotProvisioned();
         if (actorPrincipalId == -1) return BlockResult.invalidSignature();
 
@@ -112,9 +112,11 @@ public class BlocksService {
 
     private record CursorParts(OffsetDateTime timestamp, Long principalId) {}
 
-    private long resolveActorPrincipalId(String firebaseUid, AnonProofService.AnonActionProof anonProof, String action, long targetPrincipalId) {
+    private long resolveActorPrincipalId(String firebaseUid, AnonProofService.AnonActionProof anonProof, String action, long targetId, Long alternateTargetId) {
         if (anonProof != null && anonProof.anonProfileId() != null) {
-            var verified = anonProofs.verifyAction(anonProof, action, targetPrincipalId);
+            var verified = alternateTargetId == null
+                    ? anonProofs.verifyAction(anonProof, action, targetId)
+                    : anonProofs.verifyActionAnyTarget(anonProof, action, targetId, alternateTargetId);
             return verified.status() == AnonProofService.Status.OK ? verified.actor().principalId() : -1;
         }
         if (firebaseUid == null) return 0;

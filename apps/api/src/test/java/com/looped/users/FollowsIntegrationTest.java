@@ -1,26 +1,24 @@
 package com.looped.users;
 
-import com.looped.auth.TestSecurityConfig;
+import com.looped.anon.crypto.AnonCrypto;
+import com.looped.anon.crypto.BlindRsaSigner;
+import com.looped.anon.crypto.Ed25519Verifier;
 import com.looped.support.PostgresTestBase;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.security.oauth2.jwt.JwsHeader;
-import org.springframework.security.oauth2.jose.jws.SignatureAlgorithm;
-import org.springframework.security.oauth2.jwt.JwtClaimsSet;
-import org.springframework.security.oauth2.jwt.JwtEncoder;
-import org.springframework.security.oauth2.jwt.JwtEncoderParameters;
 import org.springframework.test.web.servlet.MockMvc;
 
-import java.time.Instant;
-import java.util.List;
+import java.security.KeyPairGenerator;
+import java.security.Signature;
+import java.security.interfaces.RSAPrivateKey;
+import java.security.interfaces.RSAPublicKey;
+import java.util.Base64;
 
-import static org.hamcrest.Matchers.equalTo;
-import static org.hamcrest.Matchers.hasSize;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -30,77 +28,104 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         "auth.audience=test-app"
 })
 @AutoConfigureMockMvc
-@org.springframework.context.annotation.Import(TestSecurityConfig.class)
+@org.springframework.context.annotation.Import(com.looped.auth.TestSecurityConfig.class)
 class FollowsIntegrationTest extends PostgresTestBase {
 
     @Autowired
     MockMvc mockMvc;
     @Autowired
-    JwtEncoder jwtEncoder;
-    @Autowired
     JdbcTemplate jdbc;
 
-    private String token(String sub) {
-        Instant now = Instant.now();
-        JwtClaimsSet claims = JwtClaimsSet.builder()
-                .issuer("http://test-issuer")
-                .issuedAt(now)
-                .expiresAt(now.plusSeconds(3600))
-                .subject(sub)
-                .audience(List.of("test-app"))
-                .build();
-        JwsHeader header = JwsHeader.with(SignatureAlgorithm.RS256).build();
-        return jwtEncoder.encode(JwtEncoderParameters.from(header, claims)).getTokenValue();
+    private static byte[] rawEd25519PublicKey(java.security.PublicKey publicKey) {
+        return Ed25519Verifier.parseRawPublicKey(publicKey.getEncoded());
+    }
+
+    private static byte[] signEd25519(java.security.PrivateKey privateKey, byte[] message) throws Exception {
+        Signature signature = Signature.getInstance("Ed25519");
+        signature.initSign(privateKey);
+        signature.update(message);
+        return signature.sign();
     }
 
     @Test
-    void followers_and_following_list_newest_first() throws Exception {
-        long companyId = jdbc.queryForObject("INSERT INTO companies(name, domain) VALUES ('FollowCo','follow.co') RETURNING id", Long.class);
-        long alice = jdbc.queryForObject("INSERT INTO users(firebase_uid, handle, company_id, display_name) VALUES (?,?,?,?) RETURNING id",
-                Long.class, "uid-alice", "alice", companyId, "Alice");
-        long bob = jdbc.queryForObject("INSERT INTO users(firebase_uid, handle, company_id, display_name) VALUES (?,?,?,?) RETURNING id",
-                Long.class, "uid-bob", "bob", companyId, "Bob");
-        long carol = jdbc.queryForObject("INSERT INTO users(firebase_uid, handle, company_id, display_name) VALUES (?,?,?,?) RETURNING id",
-                Long.class, "uid-carol", "carol", companyId, "Carol");
+    void anonymous_can_follow_and_unfollow_user_using_proof_signed_over_user_id() throws Exception {
+        long companyId = jdbc.queryForObject("INSERT INTO companies(name, domain) VALUES ('FollowAnon','followanon.co') RETURNING id", Long.class);
+        long targetUserId = jdbc.queryForObject(
+                "INSERT INTO users(firebase_uid, handle, company_id, display_name) VALUES (?,?,?,?) RETURNING id",
+                Long.class, "uid-follow-target", "follow_target", companyId, "Follow Target"
+        );
+        long targetPrincipalId = jdbc.queryForObject(
+                "INSERT INTO principals(kind, user_id) VALUES ('user', ?) RETURNING id",
+                Long.class, targetUserId
+        );
 
-        long alicePrincipal = jdbc.queryForObject("INSERT INTO principals(kind, user_id) VALUES ('user', ?) RETURNING id", Long.class, alice);
-        long bobPrincipal = jdbc.queryForObject("INSERT INTO principals(kind, user_id) VALUES ('user', ?) RETURNING id", Long.class, bob);
-        long carolPrincipal = jdbc.queryForObject("INSERT INTO principals(kind, user_id) VALUES ('user', ?) RETURNING id", Long.class, carol);
+        var rsaKpg = KeyPairGenerator.getInstance("RSA");
+        rsaKpg.initialize(2048);
+        var rsa = rsaKpg.generateKeyPair();
+        String kid = "kid-follow";
+        jdbc.update(
+                "INSERT INTO anon_issuers(kid, alg, public_key, company_id, scope_kind, scope_id, expires_at) " +
+                        "VALUES (?,?,?,?,?,?, now() + interval '1 day')",
+                kid, "RSABSSA", rsa.getPublic().getEncoded(), companyId, "company", companyId
+        );
 
-        jdbc.update("INSERT INTO principal_follows(follower_principal_id, followee_principal_id, created_at) VALUES (?,?, now() - interval '5 seconds')", bobPrincipal, alicePrincipal);
-        jdbc.update("INSERT INTO principal_follows(follower_principal_id, followee_principal_id, created_at) VALUES (?,?, now() - interval '2 seconds')", carolPrincipal, alicePrincipal);
+        var edKpg = KeyPairGenerator.getInstance("Ed25519");
+        var ed = edKpg.generateKeyPair();
+        byte[] personaPubkeyRaw = rawEd25519PublicKey(ed.getPublic());
 
-        mockMvc.perform(get("/v1/users/" + alice + "/followers")
-                        .header("Authorization", "Bearer " + token("uid-alice")))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.items", hasSize(2)))
-                .andExpect(jsonPath("$.items[0].handle", equalTo("carol")))
-                .andExpect(jsonPath("$.items[1].handle", equalTo("bob")));
+        long anonProfileId = jdbc.queryForObject(
+                "INSERT INTO anonymous_profiles(company_id, public_key, handle) VALUES (?,?,?) RETURNING id",
+                Long.class, companyId, personaPubkeyRaw, "anonymous-follow-test"
+        );
 
-        mockMvc.perform(get("/v1/users/" + bob + "/following")
-                        .header("Authorization", "Bearer " + token("uid-bob")))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.items", hasSize(1)))
-                .andExpect(jsonPath("$.items[0].handle", equalTo("alice")));
-    }
+        byte[] certMsg = AnonCrypto.certMessage(personaPubkeyRaw);
+        byte[] certSig = new BlindRsaSigner((RSAPrivateKey) rsa.getPrivate(), (RSAPublicKey) rsa.getPublic())
+                .signBlinded(certMsg);
+        String anonCertB64 = Base64.getEncoder().encodeToString(certSig);
 
-    @Test
-    void follow_and_unfollow_user() throws Exception {
-        long companyId = jdbc.queryForObject("INSERT INTO companies(name, domain) VALUES ('Follow2','follow2.co') RETURNING id", Long.class);
-        jdbc.update("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?)", "uid-follower", "follower", companyId);
-        long targetId = jdbc.queryForObject("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?) RETURNING id",
-                Long.class, "uid-target", "target", companyId);
+        byte[] followMsg = AnonCrypto.actionMessage("follow", targetUserId);
+        String followSigB64 = Base64.getEncoder().encodeToString(signEd25519(ed.getPrivate(), followMsg));
+        String followBody = "{"
+                + "\"asAnon\":true,"
+                + "\"anonProfileId\":" + anonProfileId + ","
+                + "\"anonCert\":\"" + anonCertB64 + "\","
+                + "\"anonCertKid\":\"" + kid + "\","
+                + "\"anonSig\":\"" + followSigB64 + "\""
+                + "}";
 
-        String auth = "Bearer " + token("uid-follower");
-
-        mockMvc.perform(post("/v1/users/" + targetId + "/follow")
-                        .header("Authorization", auth))
+        mockMvc.perform(post("/v1/users/" + targetUserId + "/follow")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(followBody))
                 .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.user_id").value((int) targetUserId))
                 .andExpect(jsonPath("$.following").value(true));
 
-        mockMvc.perform(delete("/v1/users/" + targetId + "/follow")
-                        .header("Authorization", auth))
+        Long anonPrincipalId = jdbc.queryForObject(
+                "SELECT id FROM principals WHERE anon_profile_id = ?",
+                Long.class, anonProfileId
+        );
+        Integer count = jdbc.queryForObject(
+                "SELECT COUNT(1) FROM principal_follows WHERE follower_principal_id=? AND followee_principal_id=?",
+                Integer.class, anonPrincipalId, targetPrincipalId
+        );
+        org.junit.jupiter.api.Assertions.assertEquals(1, count);
+
+        byte[] unfollowMsg = AnonCrypto.actionMessage("unfollow", targetUserId);
+        String unfollowSigB64 = Base64.getEncoder().encodeToString(signEd25519(ed.getPrivate(), unfollowMsg));
+        String unfollowBody = "{"
+                + "\"asAnon\":true,"
+                + "\"anonProfileId\":" + anonProfileId + ","
+                + "\"anonCert\":\"" + anonCertB64 + "\","
+                + "\"anonCertKid\":\"" + kid + "\","
+                + "\"anonSig\":\"" + unfollowSigB64 + "\""
+                + "}";
+
+        mockMvc.perform(delete("/v1/users/" + targetUserId + "/follow")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(unfollowBody))
                 .andExpect(status().isOk())
+                .andExpect(jsonPath("$.user_id").value((int) targetUserId))
                 .andExpect(jsonPath("$.following").value(false));
     }
 }
+

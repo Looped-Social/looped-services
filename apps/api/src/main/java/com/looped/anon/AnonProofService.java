@@ -62,6 +62,24 @@ public class AnonProofService {
         return verifyActionScoped(proof, action, targetId, null);
     }
 
+    /**
+     * Verifies an anonymous action proof against multiple possible canonical target IDs.
+     * <p>
+     * This is useful when an endpoint is addressed by one ID type (e.g., user_id) while the
+     * underlying storage uses another (e.g., principal_id), and clients may have signed either.
+     */
+    public VerifyResult verifyActionAnyTarget(AnonActionProof proof, String action, long targetId, long... alternateTargetIds) {
+        VerifyResult first = verifyAction(proof, action, targetId);
+        if (first.status() != Status.INVALID_SIGNATURE) return first;
+        if (alternateTargetIds == null || alternateTargetIds.length == 0) return first;
+        for (long alt : alternateTargetIds) {
+            VerifyResult res = verifyAction(proof, action, alt);
+            if (res.status() == Status.OK) return res;
+            if (res.status() != Status.INVALID_SIGNATURE) return res;
+        }
+        return first;
+    }
+
     public VerifyResult verifyActionScoped(AnonActionProof proof, String action, long targetId, Long communityId) {
         var profile = profiles.findById(proof.anonProfileId());
         if (profile.isEmpty()) return VerifyResult.notFound();

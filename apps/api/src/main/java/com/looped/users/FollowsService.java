@@ -79,7 +79,7 @@ public class FollowsService {
 
         long actorPrincipalId;
         if (anonProof != null && anonProof.anonProfileId() != null) {
-            var verified = anonProofs.verifyAction(anonProof, "follow", targetPrincipal.id);
+            var verified = anonProofs.verifyActionAnyTarget(anonProof, "follow", targetPrincipal.id, targetUserId);
             if (verified.status() != AnonProofService.Status.OK) return FollowResult.invalidSignature();
             actorPrincipalId = verified.actor().principalId();
         } else {
@@ -108,7 +108,7 @@ public class FollowsService {
 
         long actorPrincipalId;
         if (anonProof != null && anonProof.anonProfileId() != null) {
-            var verified = anonProofs.verifyAction(anonProof, "unfollow", targetPrincipal.id);
+            var verified = anonProofs.verifyActionAnyTarget(anonProof, "unfollow", targetPrincipal.id, targetUserId);
             if (verified.status() != AnonProofService.Status.OK) return FollowResult.invalidSignature();
             actorPrincipalId = verified.actor().principalId();
         } else {
