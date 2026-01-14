@@ -232,7 +232,9 @@ public class PostRepository {
                 "FLOOR(EXTRACT(EPOCH FROM (?::timestamptz - p.created_at)) / 3600))";
         String base = "SELECT p.id, p.author_id, p.author_principal_id, p.is_anon, p.anon_profile_id, p.anon_company_id, " +
                 "p.company_id, p.community_id, c.name AS community_name, c.kind AS community_kind, " +
-                "p.content, p.media_asset_id, p.likes_count, p.comments_count, p.share_count, p.repost_count, p.created_at, " +
+                "p.content, p.media_asset_id, " +
+                "COALESCE(pm.media_asset_ids, CASE WHEN p.media_asset_id IS NULL THEN NULL ELSE ARRAY[p.media_asset_id] END) AS media_asset_ids, " +
+                "p.likes_count, p.comments_count, p.share_count, p.repost_count, p.created_at, " +
                 "p.removed_at, p.removed_by, p.removed_reason, " +
                 "COALESCE(u.handle, ap.handle) AS author_handle, u.display_name AS author_display_name, " +
                 "u.first_name AS author_first_name, u.last_name AS author_last_name, " +
@@ -251,6 +253,10 @@ public class PostRepository {
                 "LEFT JOIN communities ds ON ds.id = u.display_specialization_id " +
                 "AND ds.kind = 'specialization' AND ds.specialization_type IN ('major','department') " +
                 "LEFT JOIN anonymous_profiles ap ON ap.id = p.anon_profile_id " +
+                "LEFT JOIN LATERAL (" +
+                "  SELECT ARRAY_AGG(pma.media_asset_id ORDER BY pma.sort_order) AS media_asset_ids " +
+                "  FROM post_media_assets pma WHERE pma.post_id = p.id" +
+                ") pm ON true " +
                 "WHERE p.created_at >= ? AND p.removed_at IS NULL AND (p.author_id IS NULL OR u.id IS NOT NULL)";
         if (hideAnonymousPosts) {
             base += " " + hideAnonymousFilter(true);
@@ -261,6 +267,7 @@ public class PostRepository {
             return jdbc.query(
                     "SELECT id, author_id, author_principal_id, is_anon, anon_profile_id, anon_company_id, company_id, community_id, " +
                             "community_name, community_kind, content, media_asset_id, likes_count, comments_count, share_count, repost_count, created_at, " +
+                            "media_asset_ids, " +
                             "removed_at, removed_by, removed_reason, " +
                             "author_handle, author_display_name, author_first_name, author_last_name, author_profile_image_url, " +
                             "author_display_community_id, author_display_community_name, author_display_community_kind, " +
@@ -277,6 +284,7 @@ public class PostRepository {
         return jdbc.query(
                 "SELECT id, author_id, author_principal_id, is_anon, anon_profile_id, anon_company_id, company_id, community_id, " +
                         "community_name, community_kind, content, media_asset_id, likes_count, comments_count, share_count, repost_count, created_at, " +
+                        "media_asset_ids, " +
                         "removed_at, removed_by, removed_reason, " +
                         "author_handle, author_display_name, author_first_name, author_last_name, author_profile_image_url, " +
                         "author_display_community_id, author_display_community_name, author_display_community_kind, " +
@@ -299,7 +307,9 @@ public class PostRepository {
                 "FLOOR(EXTRACT(EPOCH FROM (?::timestamptz - p.created_at)) / 3600))";
         String base = "SELECT p.id, p.author_id, p.author_principal_id, p.is_anon, p.anon_profile_id, p.anon_company_id, " +
                 "p.company_id, p.community_id, c.name AS community_name, c.kind AS community_kind, " +
-                "p.content, p.media_asset_id, p.likes_count, p.comments_count, p.share_count, p.repost_count, p.created_at, " +
+                "p.content, p.media_asset_id, " +
+                "COALESCE(pm.media_asset_ids, CASE WHEN p.media_asset_id IS NULL THEN NULL ELSE ARRAY[p.media_asset_id] END) AS media_asset_ids, " +
+                "p.likes_count, p.comments_count, p.share_count, p.repost_count, p.created_at, " +
                 "p.removed_at, p.removed_by, p.removed_reason, " +
                 "COALESCE(u.handle, ap.handle) AS author_handle, u.display_name AS author_display_name, " +
                 "u.first_name AS author_first_name, u.last_name AS author_last_name, " +
@@ -318,6 +328,10 @@ public class PostRepository {
                 "LEFT JOIN communities ds ON ds.id = u.display_specialization_id " +
                 "AND ds.kind = 'specialization' AND ds.specialization_type IN ('major','department') " +
                 "LEFT JOIN anonymous_profiles ap ON ap.id = p.anon_profile_id " +
+                "LEFT JOIN LATERAL (" +
+                "  SELECT ARRAY_AGG(pma.media_asset_id ORDER BY pma.sort_order) AS media_asset_ids " +
+                "  FROM post_media_assets pma WHERE pma.post_id = p.id" +
+                ") pm ON true " +
                 "WHERE p.created_at >= ? AND p.removed_at IS NULL AND p.community_id = ? " +
                 "AND (p.author_id IS NULL OR u.id IS NOT NULL)";
         if (hideAnonymousPosts) {
@@ -329,6 +343,7 @@ public class PostRepository {
             return jdbc.query(
                     "SELECT id, author_id, author_principal_id, is_anon, anon_profile_id, anon_company_id, company_id, community_id, " +
                             "community_name, community_kind, content, media_asset_id, likes_count, comments_count, share_count, repost_count, created_at, " +
+                            "media_asset_ids, " +
                             "removed_at, removed_by, removed_reason, " +
                             "author_handle, author_display_name, author_first_name, author_last_name, author_profile_image_url, " +
                             "author_display_community_id, author_display_community_name, author_display_community_kind, " +
@@ -345,6 +360,7 @@ public class PostRepository {
         return jdbc.query(
                 "SELECT id, author_id, author_principal_id, is_anon, anon_profile_id, anon_company_id, company_id, community_id, " +
                         "community_name, community_kind, content, media_asset_id, likes_count, comments_count, share_count, repost_count, created_at, " +
+                        "media_asset_ids, " +
                         "removed_at, removed_by, removed_reason, " +
                         "author_handle, author_display_name, author_first_name, author_last_name, author_profile_image_url, " +
                         "author_display_community_id, author_display_community_name, author_display_community_kind, " +
