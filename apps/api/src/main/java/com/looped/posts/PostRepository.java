@@ -4,9 +4,12 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
 
+import java.sql.Array;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.OffsetDateTime;
+import java.util.Arrays;
+import java.util.List;
 import java.util.Optional;
 
 @Repository
@@ -42,6 +45,7 @@ public class PostRepository {
             "SELECT p.id, p.author_id, p.author_principal_id, p.is_anon, p.anon_profile_id, p.anon_company_id, " +
             "p.company_id, p.community_id, c.name AS community_name, c.kind AS community_kind, " +
             "p.content, p.media_asset_id, p.likes_count, p.comments_count, p.share_count, p.repost_count, p.created_at, " +
+            "COALESCE(pm.media_asset_ids, CASE WHEN p.media_asset_id IS NULL THEN NULL ELSE ARRAY[p.media_asset_id] END) AS media_asset_ids, " +
             "p.removed_at, p.removed_by, p.removed_reason, " +
             "COALESCE(u.handle, ap.handle) AS author_handle, " +
             "u.display_name AS author_display_name, " +
@@ -65,7 +69,11 @@ public class PostRepository {
             "LEFT JOIN communities dc ON dc.id = cv.community_id " +
             "LEFT JOIN communities ds ON ds.id = u.display_specialization_id " +
             "AND ds.kind = 'specialization' AND ds.specialization_type IN ('major','department') " +
-            "LEFT JOIN anonymous_profiles ap ON ap.id = p.anon_profile_id ";
+            "LEFT JOIN anonymous_profiles ap ON ap.id = p.anon_profile_id " +
+            "LEFT JOIN LATERAL (" +
+            "  SELECT ARRAY_AGG(pma.media_asset_id ORDER BY pma.sort_order) AS media_asset_ids " +
+            "  FROM post_media_assets pma WHERE pma.post_id = p.id" +
+            ") pm ON true ";
 
     private static final RowMapper<PostRow> MAPPER = new RowMapper<>() {
         @Override
@@ -88,6 +96,7 @@ public class PostRepository {
             p.content = rs.getString("content");
             long media = rs.getLong("media_asset_id");
             p.mediaAssetId = rs.wasNull() ? null : media;
+            p.mediaAssetIds = readMediaAssetIds(rs);
             p.likesCount = rs.getInt("likes_count");
             p.commentsCount = rs.getInt("comments_count");
             p.shareCount = rs.getInt("share_count");
@@ -116,6 +125,15 @@ public class PostRepository {
             return p;
         }
     };
+
+    static List<Long> readMediaAssetIds(ResultSet rs) throws SQLException {
+        Array arr = rs.getArray("media_asset_ids");
+        if (arr == null) return null;
+        Object raw = arr.getArray();
+        if (!(raw instanceof Long[] ids)) return null;
+        List<Long> out = Arrays.stream(ids).filter(v -> v != null && v > 0).toList();
+        return out.isEmpty() ? null : out;
+    }
 
     public PostRow insert(Long authorId, long authorPrincipalId, long companyId, Long communityId, String content, Long mediaAssetId,
                           boolean isAnon, Long anonProfileId, Long anonCompanyId, byte[] anonCert, String anonCertKid,
@@ -414,6 +432,7 @@ public class PostRepository {
                 "FLOOR(EXTRACT(EPOCH FROM (?::timestamptz - p.created_at)) / 3600))";
         String base = "SELECT p.id, p.author_id, p.author_principal_id, p.is_anon, p.anon_profile_id, p.anon_company_id, " +
                 "p.company_id, p.community_id, p.content, p.media_asset_id, p.likes_count, p.comments_count, p.share_count, p.repost_count, p.created_at, " +
+                "COALESCE(pm.media_asset_ids, CASE WHEN p.media_asset_id IS NULL THEN NULL ELSE ARRAY[p.media_asset_id] END) AS media_asset_ids, " +
                 "COALESCE(u.handle, ap.handle) AS author_handle, u.display_name AS author_display_name, " +
                 "u.first_name AS author_first_name, u.last_name AS author_last_name, " +
                 "u.profile_image_url AS author_profile_image_url, " +
@@ -432,6 +451,10 @@ public class PostRepository {
                 "LEFT JOIN communities ds ON ds.id = u.display_specialization_id " +
                 "AND ds.kind = 'specialization' AND ds.specialization_type IN ('major','department') " +
                 "LEFT JOIN anonymous_profiles ap ON ap.id = p.anon_profile_id " +
+                "LEFT JOIN LATERAL (" +
+                "  SELECT ARRAY_AGG(pma.media_asset_id ORDER BY pma.sort_order) AS media_asset_ids " +
+                "  FROM post_media_assets pma WHERE pma.post_id = p.id" +
+                ") pm ON true " +
                 "WHERE p.media_asset_id IS NOT NULL AND p.created_at >= ? AND p.removed_at IS NULL AND (p.author_id IS NULL OR u.id IS NOT NULL) ";
         if (communityId != null) {
             base += "AND p.community_id = ? ";
@@ -478,6 +501,7 @@ public class PostRepository {
                         "SELECT p.id, p.author_id, p.author_principal_id, p.is_anon, p.anon_profile_id, p.anon_company_id, " +
                         "p.company_id, p.community_id, c.name AS community_name, c.kind AS community_kind, " +
                         "p.content, p.media_asset_id, p.likes_count, p.comments_count, p.share_count, p.repost_count, p.created_at, " +
+                        "COALESCE(pm.media_asset_ids, CASE WHEN p.media_asset_id IS NULL THEN NULL ELSE ARRAY[p.media_asset_id] END) AS media_asset_ids, " +
                         "p.removed_at, p.removed_by, p.removed_reason, " +
                         "COALESCE(u.handle, ap.handle) AS author_handle, " +
                         "u.display_name AS author_display_name, " +
@@ -503,6 +527,10 @@ public class PostRepository {
                         "LEFT JOIN communities ds ON ds.id = u.display_specialization_id " +
                         "AND ds.kind = 'specialization' AND ds.specialization_type IN ('major','department') " +
                         "LEFT JOIN anonymous_profiles ap ON ap.id = p.anon_profile_id " +
+                        "LEFT JOIN LATERAL (" +
+                        "  SELECT ARRAY_AGG(pma.media_asset_id ORDER BY pma.sort_order) AS media_asset_ids " +
+                        "  FROM post_media_assets pma WHERE pma.post_id = p.id" +
+                        ") pm ON true " +
                         "CROSS JOIN q " +
                         "WHERE p.company_id = ? " +
                         "AND p.removed_at IS NULL " +
@@ -577,6 +605,7 @@ public class PostRepository {
         public String communityKind;
         public String content;
         public Long mediaAssetId;
+        public List<Long> mediaAssetIds;
         public int likesCount;
         public int commentsCount;
         public int shareCount;
@@ -638,6 +667,7 @@ public class PostRepository {
             p.content = rs.getString("content");
             long media = rs.getLong("media_asset_id");
             p.mediaAssetId = rs.wasNull() ? null : media;
+            p.mediaAssetIds = readMediaAssetIds(rs);
             p.likesCount = rs.getInt("likes_count");
             p.commentsCount = rs.getInt("comments_count");
             p.shareCount = rs.getInt("share_count");
@@ -687,6 +717,7 @@ public class PostRepository {
             p.content = rs.getString("content");
             long media = rs.getLong("media_asset_id");
             p.mediaAssetId = rs.wasNull() ? null : media;
+            p.mediaAssetIds = readMediaAssetIds(rs);
             p.likesCount = rs.getInt("likes_count");
             p.commentsCount = rs.getInt("comments_count");
             p.shareCount = rs.getInt("share_count");

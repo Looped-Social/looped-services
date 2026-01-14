@@ -22,7 +22,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.Base64;
+import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Optional;
 
 @Service
@@ -33,6 +36,7 @@ public class PostsService {
     private final CommunitiesRepository communities;
     private final CommunityVerificationsRepository communityVerifications;
     private final MediaRepository media;
+    private final PostMediaAssetsRepository postMediaAssets;
     private final StringRedisTemplate redis;
     private final AnonProofService anonProofs;
     private final HashtagsRepository hashtags;
@@ -50,6 +54,7 @@ public class PostsService {
                         CommunitiesRepository communities,
                         CommunityVerificationsRepository communityVerifications,
                         MediaRepository media,
+                        PostMediaAssetsRepository postMediaAssets,
                         StringRedisTemplate redis,
                         AnonProofService anonProofs,
                         HashtagsRepository hashtags,
@@ -66,6 +71,7 @@ public class PostsService {
         this.communities = communities;
         this.communityVerifications = communityVerifications;
         this.media = media;
+        this.postMediaAssets = postMediaAssets;
         this.redis = redis;
         this.anonProofs = anonProofs;
         this.hashtags = hashtags;
@@ -79,7 +85,7 @@ public class PostsService {
     }
 
     @Transactional
-    public CreateResult create(String firebaseUid, String idempotencyKey, String content, Long mediaAssetId, Long communityId,
+    public CreateResult create(String firebaseUid, String idempotencyKey, String content, Long mediaAssetId, List<Long> mediaAssetIds, Long communityId,
                                boolean isAnon, PollRequests.PostPollCreate poll, Long anonProfileId, String anonCert, String anonCertKid,
                                String anonSig, Long anonTimestamp) {
         if (communityId == null) return CreateResult.communityRequired();
@@ -88,6 +94,11 @@ public class PostsService {
 
         var pollValidation = pollsService.validateCreate(poll);
         if (pollValidation.isPresent()) return CreateResult.invalidPoll(pollValidation.get());
+
+        List<Long> normalizedMediaIds = normalizeMediaIds(mediaAssetId, mediaAssetIds);
+        if (normalizedMediaIds.size() > 4) {
+            return CreateResult.mediaTooMany();
+        }
 
         if (isAnon) {
             if (anonProfileId == null || anonCert == null || anonCertKid == null || anonSig == null || anonTimestamp == null) {
@@ -98,8 +109,9 @@ public class PostsService {
             if (verified.status() != AnonProofService.Status.OK) {
                 return CreateResult.invalidAnonProof();
             }
-            if (mediaAssetId != null && !mediaOwnerIsNull(mediaAssetId)) {
-                return CreateResult.anonMediaNotAllowed();
+            var mediaValidation = validatePostMedia(normalizedMediaIds, null, true);
+            if (mediaValidation.status() != MediaValidationStatus.OK) {
+                return toCreateResult(mediaValidation);
             }
             if (verified.actor().companyId() == null) {
                 return CreateResult.invalidAnonProof();
@@ -115,18 +127,21 @@ public class PostsService {
             }
 
             long effectiveCompanyId = verified.actor().companyId();
-            var p = posts.insert(null, verified.actor().principalId(), effectiveCompanyId, communityId, content, mediaAssetId,
+            Long primaryMediaAssetId = mediaValidation.primaryId();
+            var p = posts.insert(null, verified.actor().principalId(), effectiveCompanyId, communityId, content, primaryMediaAssetId,
                     true, anonProfileId, effectiveCompanyId, certBytes, anonCertKid, sigBytes, null);
+            postMediaAssets.insert(p.id, normalizedMediaIds);
+            var refreshed = posts.findById(p.id).orElse(p);
             if (poll != null) {
-                pollsService.createForPost(p.id, poll);
+                pollsService.createForPost(refreshed.id, poll);
             }
-            indexHashtags(p.id, effectiveCompanyId, content);
+            indexHashtags(refreshed.id, effectiveCompanyId, content);
             try {
-                notifyPostFromFollowed(p.authorPrincipalId, p.id);
-                notifyMentions(p.authorPrincipalId, null, effectiveCompanyId, content, p.id);
+                notifyPostFromFollowed(refreshed.authorPrincipalId, refreshed.id);
+                notifyMentions(refreshed.authorPrincipalId, null, effectiveCompanyId, content, refreshed.id);
             } catch (RuntimeException ignored) {}
-            postState.applyForPrincipal(verified.actor().principalId(), java.util.List.of(p));
-            return CreateResult.ok(p, true);
+            postState.applyForPrincipal(verified.actor().principalId(), java.util.List.of(refreshed));
+            return CreateResult.ok(refreshed, true);
         }
 
         var u = users.findByFirebaseUid(firebaseUid);
@@ -146,6 +161,11 @@ public class PostsService {
         }
 
         var principal = principals.createForUser(userId);
+
+        var mediaValidation = validatePostMedia(normalizedMediaIds, userId, false);
+        if (mediaValidation.status() != MediaValidationStatus.OK) {
+            return toCreateResult(mediaValidation);
+        }
 
         String redisKey = "idem:posts:" + userId + ":" + idempotencyKey;
         boolean useIdem = true;
@@ -167,29 +187,102 @@ public class PostsService {
         }
 
         try {
-            var p = posts.insert(userId, principal.id, companyId, communityId, content, mediaAssetId,
+            Long primaryMediaAssetId = mediaValidation.primaryId();
+            var p = posts.insert(userId, principal.id, companyId, communityId, content, primaryMediaAssetId,
                     false, null, null, null, null, null, null);
+            postMediaAssets.insert(p.id, normalizedMediaIds);
+            var refreshed = posts.findById(p.id).orElse(p);
             if (poll != null) {
-                pollsService.createForPost(p.id, poll);
+                pollsService.createForPost(refreshed.id, poll);
             }
-            indexHashtags(p.id, companyId, content);
+            indexHashtags(refreshed.id, companyId, content);
             if (useIdem) {
                 try {
-                    redis.opsForValue().set(redisKey, Long.toString(p.id), Duration.ofHours(24));
+                    redis.opsForValue().set(redisKey, Long.toString(refreshed.id), Duration.ofHours(24));
                 } catch (RuntimeException ignored) {}
             }
             try {
-                notifyPostFromFollowed(p.authorPrincipalId, p.id);
-                notifyMentions(p.authorPrincipalId, userId, companyId, content, p.id);
+                notifyPostFromFollowed(refreshed.authorPrincipalId, refreshed.id);
+                notifyMentions(refreshed.authorPrincipalId, userId, companyId, content, refreshed.id);
             } catch (RuntimeException ignored) {}
-            postState.applyForPrincipal(principal.id, java.util.List.of(p));
-            return CreateResult.ok(p, true);
+            postState.applyForPrincipal(principal.id, java.util.List.of(refreshed));
+            return CreateResult.ok(refreshed, true);
         } catch (DataAccessException e) {
             if (useIdem) {
                 try { redis.delete(redisKey); } catch (RuntimeException ignored) {}
             }
             throw e;
         }
+    }
+
+    private static List<Long> normalizeMediaIds(Long mediaAssetId, List<Long> mediaAssetIds) {
+        LinkedHashSet<Long> out = new LinkedHashSet<>();
+        if (mediaAssetIds != null && !mediaAssetIds.isEmpty()) {
+            for (Long id : mediaAssetIds) {
+                if (id != null && id > 0) out.add(id);
+            }
+        } else if (mediaAssetId != null && mediaAssetId > 0) {
+            out.add(mediaAssetId);
+        }
+        return new ArrayList<>(out);
+    }
+
+    private MediaValidation validatePostMedia(List<Long> mediaAssetIds, Long expectedOwnerId, boolean requireNullOwner) {
+        if (mediaAssetIds == null || mediaAssetIds.isEmpty()) {
+            return MediaValidation.ok(null);
+        }
+        var rows = media.findByIds(mediaAssetIds);
+        if (rows.size() != mediaAssetIds.size()) {
+            return MediaValidation.notFound();
+        }
+
+        boolean hasImage = false;
+        boolean hasVideo = false;
+        for (var row : rows) {
+            if (row.mimeType != null && row.mimeType.startsWith("image/")) hasImage = true;
+            else if (row.mimeType != null && row.mimeType.startsWith("video/")) hasVideo = true;
+            else return MediaValidation.invalidType();
+
+            if (requireNullOwner) {
+                if (row.ownerId != null) return MediaValidation.anonNotAllowed();
+            } else if (expectedOwnerId != null) {
+                if (row.ownerId == null || !row.ownerId.equals(expectedOwnerId)) return MediaValidation.notOwned();
+            }
+        }
+
+        if (hasVideo && mediaAssetIds.size() > 1) {
+            return MediaValidation.mixed();
+        }
+        if (hasVideo && hasImage) {
+            return MediaValidation.mixed();
+        }
+        if (hasImage && mediaAssetIds.size() > 4) {
+            return MediaValidation.tooMany();
+        }
+        return MediaValidation.ok(mediaAssetIds.get(0));
+    }
+
+    private static CreateResult toCreateResult(MediaValidation validation) {
+        return switch (validation.status()) {
+            case NOT_FOUND -> CreateResult.mediaNotFound();
+            case INVALID_TYPE, MIXED_TYPES -> CreateResult.mediaInvalid();
+            case TOO_MANY -> CreateResult.mediaTooMany();
+            case NOT_OWNED -> CreateResult.mediaNotOwned();
+            case ANON_NOT_ALLOWED -> CreateResult.anonMediaNotAllowed();
+            case OK -> throw new IllegalStateException("Unexpected OK media validation in error mapper");
+        };
+    }
+
+    private enum MediaValidationStatus { OK, NOT_FOUND, INVALID_TYPE, MIXED_TYPES, TOO_MANY, NOT_OWNED, ANON_NOT_ALLOWED }
+
+    private record MediaValidation(MediaValidationStatus status, Long primaryId) {
+        static MediaValidation ok(Long primaryId) { return new MediaValidation(MediaValidationStatus.OK, primaryId); }
+        static MediaValidation notFound() { return new MediaValidation(MediaValidationStatus.NOT_FOUND, null); }
+        static MediaValidation invalidType() { return new MediaValidation(MediaValidationStatus.INVALID_TYPE, null); }
+        static MediaValidation mixed() { return new MediaValidation(MediaValidationStatus.MIXED_TYPES, null); }
+        static MediaValidation tooMany() { return new MediaValidation(MediaValidationStatus.TOO_MANY, null); }
+        static MediaValidation notOwned() { return new MediaValidation(MediaValidationStatus.NOT_OWNED, null); }
+        static MediaValidation anonNotAllowed() { return new MediaValidation(MediaValidationStatus.ANON_NOT_ALLOWED, null); }
     }
 
     public Optional<PostRepository.PostRow> get(long id) {
@@ -271,10 +364,6 @@ public class PostsService {
         return DeleteResult.ok(removed);
     }
 
-    private boolean mediaOwnerIsNull(long mediaAssetId) {
-        Long ownerId = media.findOwnerId(mediaAssetId);
-        return ownerId == null;
-    }
 
     private boolean requiresVerification(CommunitiesRepository.CommunityRow community) {
         return community != null && !"specialization".equalsIgnoreCase(community.kind);
@@ -323,6 +412,10 @@ public class PostsService {
         INVALID_POLL,
         INVALID_ANON_PROOF,
         ANON_MEDIA_NOT_ALLOWED,
+        MEDIA_TOO_MANY,
+        MEDIA_NOT_FOUND,
+        MEDIA_INVALID,
+        MEDIA_NOT_OWNED,
         FORBIDDEN,
         NOT_FOUND,
         COMMUNITY_REQUIRED,
@@ -338,6 +431,10 @@ public class PostsService {
         static CreateResult invalidPoll(String ignored) { return new CreateResult(Status.INVALID_POLL, null, false); }
         static CreateResult invalidAnonProof() { return new CreateResult(Status.INVALID_ANON_PROOF, null, false); }
         static CreateResult anonMediaNotAllowed() { return new CreateResult(Status.ANON_MEDIA_NOT_ALLOWED, null, false); }
+        static CreateResult mediaTooMany() { return new CreateResult(Status.MEDIA_TOO_MANY, null, false); }
+        static CreateResult mediaNotFound() { return new CreateResult(Status.MEDIA_NOT_FOUND, null, false); }
+        static CreateResult mediaInvalid() { return new CreateResult(Status.MEDIA_INVALID, null, false); }
+        static CreateResult mediaNotOwned() { return new CreateResult(Status.MEDIA_NOT_OWNED, null, false); }
         static CreateResult communityRequired() { return new CreateResult(Status.COMMUNITY_REQUIRED, null, false); }
         static CreateResult communityNotFound() { return new CreateResult(Status.COMMUNITY_NOT_FOUND, null, false); }
         static CreateResult communityBanned() { return new CreateResult(Status.COMMUNITY_BANNED, null, false); }

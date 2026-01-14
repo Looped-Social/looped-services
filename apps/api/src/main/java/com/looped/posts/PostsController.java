@@ -101,6 +101,7 @@ public class PostsController {
                 idempotencyKey,
                 body.content(),
                 body.mediaAssetId(),
+                body.mediaAssetIds(),
                 communityId,
                 isAnon,
                 body.poll(),
@@ -146,6 +147,22 @@ public class PostsController {
             case INVALID_ANON_PROOF -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
                     "error", "invalid_anon_proof",
                     "message", "Invalid anonymous proof"
+            ));
+            case MEDIA_TOO_MANY -> ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of(
+                    "error", "media_too_many",
+                    "message", "Attach up to 4 photos or 1 video"
+            ));
+            case MEDIA_NOT_FOUND -> ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of(
+                    "error", "media_not_found",
+                    "message", "One or more media assets do not exist"
+            ));
+            case MEDIA_INVALID -> ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of(
+                    "error", "media_invalid",
+                    "message", "Attach up to 4 photos or 1 video"
+            ));
+            case MEDIA_NOT_OWNED -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
+                    "error", "media_forbidden",
+                    "message", "You may only attach media you uploaded"
             ));
             case ANON_MEDIA_NOT_ALLOWED -> ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of(
                     "error", "anon_media_invalid",
@@ -288,6 +305,7 @@ public class PostsController {
 
     public record CreateRequest(@NotBlank @Size(max = 1000) String content,
                                Long mediaAssetId,
+                               @Size(max = 4) List<Long> mediaAssetIds,
                                Long communityId,
                                Long loopId,
                                Boolean isAnon,

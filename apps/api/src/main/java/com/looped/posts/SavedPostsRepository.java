@@ -77,7 +77,9 @@ public class SavedPostsRepository {
     private static final String BASE_QUERY = "SELECT " +
             "p.id AS post_id, p.author_id, p.author_principal_id, p.is_anon, p.anon_profile_id, p.anon_company_id, " +
             "p.company_id, p.community_id, c.name AS community_name, c.kind AS community_kind, " +
-            "p.content, p.media_asset_id, p.likes_count, p.comments_count, p.share_count, p.repost_count, " +
+            "p.content, p.media_asset_id, " +
+            "COALESCE(pm.media_asset_ids, CASE WHEN p.media_asset_id IS NULL THEN NULL ELSE ARRAY[p.media_asset_id] END) AS media_asset_ids, " +
+            "p.likes_count, p.comments_count, p.share_count, p.repost_count, " +
             "p.created_at AS post_created_at, " +
             "COALESCE(u.handle, ap.handle) AS author_handle, " +
             "u.display_name AS author_display_name, " +
@@ -102,7 +104,11 @@ public class SavedPostsRepository {
             "LEFT JOIN communities dc ON dc.id = cv.community_id " +
             "LEFT JOIN communities ds ON ds.id = u.display_specialization_id " +
             "AND ds.kind = 'specialization' AND ds.specialization_type IN ('major','department') " +
-            "LEFT JOIN anonymous_profiles ap ON ap.id = p.anon_profile_id";
+            "LEFT JOIN anonymous_profiles ap ON ap.id = p.anon_profile_id " +
+            "LEFT JOIN LATERAL (" +
+            "  SELECT ARRAY_AGG(pma.media_asset_id ORDER BY pma.sort_order) AS media_asset_ids " +
+            "  FROM post_media_assets pma WHERE pma.post_id = p.id" +
+            ") pm ON true";
 
     private static final RowMapper<SavedPostRow> MAPPER = new RowMapper<>() {
         @Override
@@ -125,6 +131,7 @@ public class SavedPostsRepository {
             post.content = rs.getString("content");
             long media = rs.getLong("media_asset_id");
             post.mediaAssetId = rs.wasNull() ? null : media;
+            post.mediaAssetIds = PostRepository.readMediaAssetIds(rs);
             post.likesCount = rs.getInt("likes_count");
             post.commentsCount = rs.getInt("comments_count");
             post.shareCount = rs.getInt("share_count");

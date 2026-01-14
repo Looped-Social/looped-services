@@ -50,6 +50,10 @@ public final class PostPayloads {
         out.put("community_kind", row.communityKind);
         out.put("content", row.content);
         out.put("media_asset_id", row.mediaAssetId);
+        java.util.List<Long> mediaIds = row.mediaAssetIds != null ? row.mediaAssetIds
+                : (row.mediaAssetId == null ? null : java.util.List.of(row.mediaAssetId));
+        out.put("media_asset_ids", mediaIds);
+        out.put("mediaAssetIds", mediaIds);
         out.put("likes_count", row.likesCount);
         out.put("comments_count", row.commentsCount);
         out.put("share_count", row.shareCount);
