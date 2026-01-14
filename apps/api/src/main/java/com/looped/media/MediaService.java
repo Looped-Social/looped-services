@@ -8,6 +8,7 @@ import software.amazon.awssdk.services.s3.S3Configuration;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.presigner.model.PutObjectPresignRequest;
 import software.amazon.awssdk.services.s3.presigner.S3Presigner;
+import org.springframework.util.unit.DataSize;
 
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
@@ -24,22 +25,22 @@ public class MediaService {
     private final String bucket;
     private final Region region;
     private final S3Presigner presigner;
-    private final Long maxImageBytes;
-    private final Long maxVideoBytes;
+    private final long maxImageBytes;
+    private final long maxVideoBytes;
     private final String callbackSecret;
 
     public MediaService(
             @Value("${s3.bucket}") String bucket,
             @Value("${s3.region}") String region,
-            @Value("${media.maxImageBytes}") Long maxImageBytes,
-            @Value("${media.maxVideoBytes}") Long maxVideoBytes,
+            @Value("${media.maxImageSize}") DataSize maxImageSize,
+            @Value("${media.maxVideoSize}") DataSize maxVideoSize,
             @Value("${media.callbackSecret:}") String callbackSecret,
             S3Presigner presigner
     ) {
         this.bucket = bucket;
         this.region = Region.of(region);
-        this.maxImageBytes = maxImageBytes;
-        this.maxVideoBytes = maxVideoBytes;
+        this.maxImageBytes = maxImageSize.toBytes();
+        this.maxVideoBytes = maxVideoSize.toBytes();
         this.callbackSecret = callbackSecret;
         this.presigner = presigner;
     }

@@ -24,7 +24,8 @@ This guide lists all required configuration for local, staging, and production, 
   - `AWS_REGION` — e.g. `us-east-1`
   - `S3_BUCKET` — media bucket name
   - `CLOUDFRONT_DOMAIN` — CDN domain (e.g. `dxxxxx.cloudfront.net`)
-  - `MEDIA_MAX_IMAGE_BYTES`, `MEDIA_MAX_VIDEO_BYTES` (optional)
+  - `MEDIA_MAX_IMAGE_SIZE`, `MEDIA_MAX_VIDEO_SIZE` (optional, e.g. `20MB`, `256MB`)
+  - Backward compatible: `MEDIA_MAX_IMAGE_BYTES`, `MEDIA_MAX_VIDEO_BYTES`
   - `MEDIA_CALLBACK_SECRET` — HMAC for `/v1/media/callback`
 
 - Verification

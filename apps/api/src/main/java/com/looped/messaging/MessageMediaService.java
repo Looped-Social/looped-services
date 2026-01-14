@@ -3,6 +3,7 @@ package com.looped.messaging;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.util.unit.DataSize;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.presigner.S3Presigner;
@@ -20,23 +21,23 @@ public class MessageMediaService {
     private static final Set<String> ALLOWED_VIDEO = Set.of("video/mp4");
 
     private final String bucket;
-    private final Long maxImageBytes;
-    private final Long maxVideoBytes;
+    private final long maxImageBytes;
+    private final long maxVideoBytes;
     private final Duration presignPutTtl;
     private final Duration presignGetTtl;
     private final S3Presigner presigner;
 
     public MessageMediaService(
             @Value("${s3.messaging.bucket:}") String bucket,
-            @Value("${media.maxImageBytes}") Long maxImageBytes,
-            @Value("${media.maxVideoBytes}") Long maxVideoBytes,
+            @Value("${media.maxImageSize}") DataSize maxImageSize,
+            @Value("${media.maxVideoSize}") DataSize maxVideoSize,
             @Value("${messageMedia.presignPutTtl:PT15M}") Duration presignPutTtl,
             @Value("${messageMedia.presignGetTtl:PT5M}") Duration presignGetTtl,
             @Qualifier("messageMediaS3Presigner") S3Presigner presigner
     ) {
         this.bucket = bucket;
-        this.maxImageBytes = maxImageBytes;
-        this.maxVideoBytes = maxVideoBytes;
+        this.maxImageBytes = maxImageSize.toBytes();
+        this.maxVideoBytes = maxVideoSize.toBytes();
         this.presignPutTtl = presignPutTtl;
         this.presignGetTtl = presignGetTtl;
         this.presigner = presigner;
@@ -117,4 +118,3 @@ public class MessageMediaService {
 
     public enum Status { OK, BAD_REQUEST }
 }
-
