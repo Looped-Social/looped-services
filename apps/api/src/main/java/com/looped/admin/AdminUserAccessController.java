@@ -11,12 +11,16 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.time.OffsetDateTime;
 import java.util.Locale;
+import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 @RestController
@@ -46,6 +50,44 @@ public class AdminUserAccessController {
         this.specializationJoins = specializationJoins;
         this.specializationLimits = specializationLimits;
         this.audit = audit;
+    }
+
+    @GetMapping("/users/{id}/verified-communities")
+    public ResponseEntity<?> verifiedCommunities(@AuthenticationPrincipal Jwt jwt, @PathVariable("id") long userId) {
+        String email = jwt.getClaimAsString("email");
+        var authRes = auth.requirePermission(jwt.getSubject(), email, AdminPermissions.VERIFY_USERS);
+        if (authRes.status() != AdminAuthService.Status.OK) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "forbidden"));
+        }
+        if (users.findByIdIncludingDeleted(userId).isEmpty()) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "user_not_found"));
+        }
+        OffsetDateTime now = OffsetDateTime.now();
+        List<Map<String, Object>> items = communityVerifications.listForUser(userId).stream()
+                .filter(r -> r.verified && (r.expiresAt == null || r.expiresAt.isAfter(now)))
+                .map(r -> {
+                    Map<String, Object> m = new HashMap<>();
+                    m.put("community_id", r.communityId);
+                    m.put("community_name", r.communityName);
+                    m.put("community_kind", r.communityKind);
+                    m.put("method", r.method);
+                    m.put("verified_at", r.verifiedAt);
+                    m.put("expires_at", r.expiresAt);
+                    return m;
+                })
+                .toList();
+        return ResponseEntity.ok(Map.of(
+                "user_id", userId,
+                "items", items
+        ));
+    }
+
+    @PostMapping("/users/{id}/verified-communities/{communityId}/revoke")
+    public ResponseEntity<?> revokeVerifiedCommunityAlias(@AuthenticationPrincipal Jwt jwt,
+                                                          @PathVariable("id") long userId,
+                                                          @PathVariable("communityId") long communityId,
+                                                          @RequestBody(required = false) RevokeRequest body) {
+        return revokeCommunityVerification(jwt, userId, communityId, body);
     }
 
     @PostMapping("/users/{id}/community-verifications/{communityId}/revoke")
@@ -85,6 +127,36 @@ public class AdminUserAccessController {
         ));
     }
 
+    @PostMapping("/users/{id}/specializations/{specializationType}/reset-cooldown")
+    public ResponseEntity<?> resetSpecializationCooldownAlias(@AuthenticationPrincipal Jwt jwt,
+                                                              @PathVariable("id") long userId,
+                                                              @PathVariable("specializationType") String specializationType) {
+        String email = jwt.getClaimAsString("email");
+        var authRes = auth.requirePermission(jwt.getSubject(), email, AdminPermissions.VERIFY_USERS);
+        if (authRes.status() != AdminAuthService.Status.OK) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "forbidden"));
+        }
+        if (users.findByIdIncludingDeleted(userId).isEmpty()) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "user_not_found"));
+        }
+        String normalizedType = normalizeType(specializationType);
+        if (normalizedType == null || "all".equals(normalizedType)) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of(
+                    "error", "invalid_specialization_type",
+                    "message", "specializationType must be major or department"
+            ));
+        }
+        int clearedCooldowns = specializationLimits.deleteLastChange(userId, normalizedType, SPECIALIZATION_LIMIT_SCOPE) ? 1 : 0;
+        audit.log(authRes.admin().id, "specialization_join_limits.reset", "user", userId,
+                "specialization_type=" + normalizedType + " clear_joins=false");
+        return ResponseEntity.ok(Map.of(
+                "status", "reset",
+                "user_id", userId,
+                "specialization_type", normalizedType,
+                "cooldowns_cleared", clearedCooldowns
+        ));
+    }
+
     @PostMapping("/users/{id}/specializations/join-limits/reset")
     public ResponseEntity<?> resetSpecializationJoinLimits(@AuthenticationPrincipal Jwt jwt,
                                                            @PathVariable("id") long userId,
@@ -108,16 +180,7 @@ public class AdminUserAccessController {
         }
         boolean clearJoins = body != null && Boolean.TRUE.equals(body.clearJoins());
 
-        int clearedCooldowns = 0;
-        int removedJoins = 0;
-        if ("all".equals(normalizedType) || "major".equals(normalizedType)) {
-            if (specializationLimits.deleteLastChange(userId, "major", SPECIALIZATION_LIMIT_SCOPE)) clearedCooldowns++;
-            if (clearJoins) removedJoins += specializationJoins.deleteJoinedByType(userId, "major");
-        }
-        if ("all".equals(normalizedType) || "department".equals(normalizedType)) {
-            if (specializationLimits.deleteLastChange(userId, "department", SPECIALIZATION_LIMIT_SCOPE)) clearedCooldowns++;
-            if (clearJoins) removedJoins += specializationJoins.deleteJoinedByType(userId, "department");
-        }
+        var reset = resetJoinLimits(userId, normalizedType, clearJoins);
 
         audit.log(authRes.admin().id, "specialization_join_limits.reset", "user", userId,
                 "specialization_type=" + normalizedType + " clear_joins=" + clearJoins);
@@ -127,8 +190,8 @@ public class AdminUserAccessController {
                 "user_id", userId,
                 "specialization_type", normalizedType,
                 "clear_joins", clearJoins,
-                "cooldowns_cleared", clearedCooldowns,
-                "joins_removed", removedJoins
+                "cooldowns_cleared", reset.cooldownsCleared(),
+                "joins_removed", reset.joinsRemoved()
         ));
     }
 
@@ -143,6 +206,22 @@ public class AdminUserAccessController {
         };
     }
 
+    private ResetCounts resetJoinLimits(long userId, String normalizedType, boolean clearJoins) {
+        int clearedCooldowns = 0;
+        int removedJoins = 0;
+        if ("all".equals(normalizedType) || "major".equals(normalizedType)) {
+            if (specializationLimits.deleteLastChange(userId, "major", SPECIALIZATION_LIMIT_SCOPE)) clearedCooldowns++;
+            if (clearJoins) removedJoins += specializationJoins.deleteJoinedByType(userId, "major");
+        }
+        if ("all".equals(normalizedType) || "department".equals(normalizedType)) {
+            if (specializationLimits.deleteLastChange(userId, "department", SPECIALIZATION_LIMIT_SCOPE)) clearedCooldowns++;
+            if (clearJoins) removedJoins += specializationJoins.deleteJoinedByType(userId, "department");
+        }
+        return new ResetCounts(clearedCooldowns, removedJoins);
+    }
+
+    private record ResetCounts(int cooldownsCleared, int joinsRemoved) {}
+
     public record RevokeRequest(String reason) {}
 
     public record ResetJoinLimitsRequest(
@@ -150,4 +229,3 @@ public class AdminUserAccessController {
             @JsonProperty("clear_joins") Boolean clearJoins
     ) {}
 }
-
