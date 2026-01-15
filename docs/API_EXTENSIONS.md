@@ -64,7 +64,7 @@
   - Message media (private)
     - `POST /v1/message-media/presign` → `{ key, uploadUrl, headers }`
       - Use this for DM/channel attachments (uploads go to private messaging S3 bucket).
-      - Body: `{ "contentType": "image/jpeg|image/png|image/webp|video/mp4", "sizeBytes": <int> }`
+      - Body: `{ "contentType": "image/jpeg|image/png|image/webp|image/heic|image/heif|video/mp4", "sizeBytes": <int> }`
       - Response `key` is stored in `attachments` (must start with `dm/`).
     - `POST /v1/message-media/resolve` → `{ items: [{ key, downloadUrl, expires_in_seconds }] }`
       - Body: `{ "keys": ["dm/original/<uuid>", ...] }`

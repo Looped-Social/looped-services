@@ -46,13 +46,15 @@ public class MediaService {
     }
 
     private static final Set<String> ALLOWED_IMAGE = Set.of("image/jpeg", "image/png", "image/webp");
+    // iOS often captures in HEIF/HEIC; allow for MVP (iOS-first). Note: some non-iOS clients/browsers may not render these.
+    private static final Set<String> ALLOWED_IMAGE_HEIF = Set.of("image/heic", "image/heif");
     private static final Set<String> ALLOWED_VIDEO = Set.of("video/mp4");
 
     public PresignResult presign(String contentType, long sizeBytes) {
         if (contentType == null || contentType.isBlank()) {
             return PresignResult.badRequest("content_type_required");
         }
-        boolean isImage = ALLOWED_IMAGE.contains(contentType);
+        boolean isImage = ALLOWED_IMAGE.contains(contentType) || ALLOWED_IMAGE_HEIF.contains(contentType);
         boolean isVideo = ALLOWED_VIDEO.contains(contentType);
         if (!isImage && !isVideo) {
             return PresignResult.badRequest("unsupported_content_type");

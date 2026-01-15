@@ -17,7 +17,7 @@ import java.util.UUID;
 
 @Service
 public class MessageMediaService {
-    private static final Set<String> ALLOWED_IMAGE = Set.of("image/jpeg", "image/png", "image/webp");
+    private static final Set<String> ALLOWED_IMAGE = Set.of("image/jpeg", "image/png", "image/webp", "image/heic", "image/heif");
     private static final Set<String> ALLOWED_VIDEO = Set.of("video/mp4");
 
     private final String bucket;
