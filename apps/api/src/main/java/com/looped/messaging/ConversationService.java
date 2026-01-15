@@ -28,17 +28,20 @@ public class ConversationService {
     private final FollowsRepository follows;
     private final PrincipalRepository principals;
     private final MessageRequestRepository messageRequests;
+    private final MessagingPushService push;
 
     public ConversationService(ConversationRepository conversations,
                                UserRepository users,
                                FollowsRepository follows,
                                PrincipalRepository principals,
-                               MessageRequestRepository messageRequests) {
+                               MessageRequestRepository messageRequests,
+                               MessagingPushService push) {
         this.conversations = conversations;
         this.users = users;
         this.follows = follows;
         this.principals = principals;
         this.messageRequests = messageRequests;
+        this.push = push;
     }
 
     public ConversationListResult list(String firebaseUid, String cursor, int limit) {
@@ -145,7 +148,7 @@ public class ConversationService {
         }
         var rows = conversations.listMessages(conversationId, cTs, cId, limit);
         String next = null;
-        if (rows.size() == limit) {
+        if (!rows.isEmpty()) {
             var last = rows.get(rows.size() - 1);
             next = Pagination.encode(last.createdAt, last.id);
         }
@@ -174,6 +177,10 @@ public class ConversationService {
         if (row != null) {
             conversations.markRead(conversationId, actor.get().id, row.createdAt);
             maybeCreateMessageRequest(actor.get().id, conversationId, row.id);
+            try {
+                push.onConversationMessageCreated(conversationId, row);
+            } catch (Exception ignored) {
+            }
         }
         return SendResult.ok(row);
     }

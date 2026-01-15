@@ -6,6 +6,8 @@ import org.springframework.stereotype.Repository;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.HashSet;
 
 @Repository
 public class ChannelPreferencesRepository {
@@ -43,5 +45,13 @@ public class ChannelPreferencesRepository {
         for (var e : rows) out.put(e.getKey(), e.getValue());
         return out;
     }
-}
 
+    public Set<Long> mutedUserIdsForChannel(long channelId) {
+        var rows = jdbc.query(
+                "SELECT user_id FROM channel_preferences WHERE channel_id = ? AND muted = true",
+                (rs, rowNum) -> rs.getLong("user_id"),
+                channelId
+        );
+        return new HashSet<>(rows);
+    }
+}

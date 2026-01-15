@@ -143,8 +143,10 @@ public class ConversationRepository {
     public List<MessageRow> listMessages(long conversationId, OffsetDateTime cursorTs, Long cursorId, int limit) {
         if (cursorTs == null || cursorId == null) {
             return jdbc.query(
-                    "SELECT id, conversation_id, sender_id, content, attachments, created_at FROM conversation_messages " +
-                            "WHERE conversation_id = ? ORDER BY created_at ASC, id ASC LIMIT ?",
+                    "SELECT id, conversation_id, sender_id, content, attachments, created_at FROM (" +
+                            "SELECT id, conversation_id, sender_id, content, attachments, created_at FROM conversation_messages " +
+                            "WHERE conversation_id = ? ORDER BY created_at DESC, id DESC LIMIT ?" +
+                            ") latest ORDER BY created_at ASC, id ASC",
                     messageMapper, conversationId, limit
             );
         }

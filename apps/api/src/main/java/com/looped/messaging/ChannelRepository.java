@@ -124,11 +124,25 @@ public class ChannelRepository {
         return rows > 0;
     }
 
+    public List<Long> listMemberUserIds(long channelId, int limit) {
+        int lim = Math.max(1, Math.min(limit, 10_000));
+        return jdbc.query(
+                "SELECT cm.user_id FROM channel_members cm " +
+                        "JOIN users u ON u.id = cm.user_id AND u.deleted_at IS NULL " +
+                        "WHERE cm.channel_id = ? " +
+                        "ORDER BY cm.created_at ASC, cm.user_id ASC LIMIT ?",
+                (rs, rowNum) -> rs.getLong("user_id"),
+                channelId, lim
+        );
+    }
+
     public List<ChannelMessageRow> listMessages(long channelId, OffsetDateTime cursorTs, Long cursorId, int limit) {
         if (cursorTs == null || cursorId == null) {
             return jdbc.query(
-                    "SELECT id, channel_id, sender_id, content, attachments, created_at FROM channel_messages " +
-                            "WHERE channel_id = ? ORDER BY created_at ASC, id ASC LIMIT ?",
+                    "SELECT id, channel_id, sender_id, content, attachments, created_at FROM (" +
+                            "SELECT id, channel_id, sender_id, content, attachments, created_at FROM channel_messages " +
+                            "WHERE channel_id = ? ORDER BY created_at DESC, id DESC LIMIT ?" +
+                            ") latest ORDER BY created_at ASC, id ASC",
                     messageMapper, channelId, limit
             );
         }

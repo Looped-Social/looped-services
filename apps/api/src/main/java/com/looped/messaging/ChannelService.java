@@ -22,6 +22,7 @@ public class ChannelService {
     private final ChannelPreferencesRepository channelPreferences;
     private final MediaRepository media;
     private final String cloudfrontDomain;
+    private final MessagingPushService push;
 
     private static final Set<String> ALLOWED_CHANNEL_PHOTO = Set.of("image/jpeg", "image/png", "image/webp");
 
@@ -29,12 +30,14 @@ public class ChannelService {
                           UserRepository users,
                           ChannelPreferencesRepository channelPreferences,
                           MediaRepository media,
-                          @Value("${cloudfront.domain:}") String cloudfrontDomain) {
+                          @Value("${cloudfront.domain:}") String cloudfrontDomain,
+                          MessagingPushService push) {
         this.channels = channels;
         this.users = users;
         this.channelPreferences = channelPreferences;
         this.media = media;
         this.cloudfrontDomain = cloudfrontDomain == null ? "" : cloudfrontDomain.trim();
+        this.push = push;
     }
 
     public ChannelListResult list(String firebaseUid, String cursor, int limit) {
@@ -175,7 +178,7 @@ public class ChannelService {
         }
         var rows = channels.listMessages(channelId, cTs, cId, limit);
         String next = null;
-        if (rows.size() == limit) {
+        if (!rows.isEmpty()) {
             var last = rows.get(rows.size() - 1);
             next = Pagination.encode(last.createdAt, last.id);
         }
@@ -196,6 +199,12 @@ public class ChannelService {
         // Auto-join public channels on send
         channels.addMember(channelId, actor.get().id, false);
         var message = channels.insertMessage(channelId, actor.get().id, content, attachments);
+        if (message != null) {
+            try {
+                push.onChannelMessageCreated(channelId, message);
+            } catch (Exception ignored) {
+            }
+        }
         return SendResult.ok(message);
     }
 

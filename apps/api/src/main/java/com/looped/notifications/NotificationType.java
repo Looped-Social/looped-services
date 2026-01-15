@@ -8,6 +8,8 @@ public enum NotificationType {
     MENTION("mention"),
     POST_FROM_FOLLOWED("post_from_followed"),
     REPOST("repost"),
+    DM_MESSAGE("dm_message"),
+    CHANNEL_MESSAGE("channel_message"),
     ANNOUNCEMENT("announcement"),
     SYSTEM("system");
 

@@ -6,6 +6,7 @@ import com.eatthepath.pushy.apns.PushNotificationResponse;
 import com.eatthepath.pushy.apns.auth.ApnsSigningKey;
 import com.eatthepath.pushy.apns.util.SimpleApnsPushNotification;
 import com.eatthepath.pushy.apns.util.SimpleApnsPayloadBuilder;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider;
 import software.amazon.awssdk.regions.Region;
@@ -20,9 +21,18 @@ import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.Base64;
 import java.util.Map;
+import java.util.Set;
 
 public class NotifWorker {
     private static final ObjectMapper MAPPER = new ObjectMapper();
+    private static final TypeReference<Map<String, Object>> MAP_TYPE = new TypeReference<>() {};
+    private static final Set<String> RESERVED_KEYS = Set.of(
+            "type",
+            "apns_token",
+            "title",
+            "body",
+            "badge"
+    );
 
     public static void main(String[] args) throws Exception {
         String queueUrl = env("SQS_NOTIF_QUEUE_URL");
@@ -83,32 +93,40 @@ public class NotifWorker {
     }
 
     private static boolean handleMessage(ApnsClient apns, String bundleId, Message message) {
-        PushEvent event;
+        Map<String, Object> event;
         try {
-            event = MAPPER.readValue(message.body(), PushEvent.class);
+            event = MAPPER.readValue(message.body(), MAP_TYPE);
         } catch (Exception e) {
             System.out.println("failed to parse message: " + e.getMessage());
             return true;
         }
-        if (event == null || event.apns_token == null || event.apns_token.isBlank()) return true;
-        if (event.title == null || event.body == null) return true;
+        if (event == null || event.isEmpty()) return true;
+        String apnsToken = asString(event.get("apns_token"));
+        String title = asString(event.get("title"));
+        String body = asString(event.get("body"));
+        if (apnsToken == null || apnsToken.isBlank()) return true;
+        if (title == null || body == null) return true;
 
         SimpleApnsPayloadBuilder payloadBuilder = new SimpleApnsPayloadBuilder();
-        payloadBuilder.setAlertTitle(event.title);
-        payloadBuilder.setAlertBody(event.body);
+        payloadBuilder.setAlertTitle(title);
+        payloadBuilder.setAlertBody(body);
         payloadBuilder.setSound("default");
-        payloadBuilder.addCustomProperty("type", event.type != null ? event.type : "push");
-        if (event.deeplink != null && !event.deeplink.isBlank()) {
-            payloadBuilder.addCustomProperty("deeplink", event.deeplink);
+        String type = asString(event.get("type"));
+        payloadBuilder.addCustomProperty("type", type != null ? type : "push");
+        Integer badge = asInt(event.get("badge"));
+        if (badge != null && badge >= 0) {
+            payloadBuilder.setBadgeNumber(badge);
         }
-        if (event.notification_id != null) {
-            payloadBuilder.addCustomProperty("notification_id", event.notification_id);
+        for (var entry : event.entrySet()) {
+            if (entry.getKey() == null || entry.getKey().isBlank()) continue;
+            if (RESERVED_KEYS.contains(entry.getKey())) continue;
+            payloadBuilder.addCustomProperty(entry.getKey(), entry.getValue());
         }
         payloadBuilder.addCustomProperty("sent_at", Instant.now().toString());
         String payload = payloadBuilder.build();
 
         SimpleApnsPushNotification notification = new SimpleApnsPushNotification(
-                event.apns_token,
+                apnsToken,
                 bundleId,
                 payload
         );
@@ -161,15 +179,14 @@ public class NotifWorker {
         return val == null || val.isBlank() ? fallback : val;
     }
 
-    private static final class PushEvent {
-        public String type;
-        public Long user_id;
-        public Long notification_id;
-        public String apns_token;
-        public String title;
-        public String body;
-        public String deeplink;
-        public String collapse_id;
-        public String trace_id;
+    private static String asString(Object v) {
+        return v instanceof String s && !s.isBlank() ? s : null;
+    }
+
+    private static Integer asInt(Object v) {
+        if (v instanceof Integer i) return i;
+        if (v instanceof Long l) return l > Integer.MAX_VALUE ? Integer.MAX_VALUE : l.intValue();
+        if (v instanceof Number n) return n.intValue();
+        return null;
     }
 }
