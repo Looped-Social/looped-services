@@ -17,7 +17,7 @@ public class UserContentRepository {
     public List<ContentRefRow> list(long targetUserId, long viewerUserId, boolean hideAnonymousPosts,
                                     OffsetDateTime cursorTs, Long cursorSortId, int limit) {
         String postsQuery = """
-                SELECT 'post'::text AS type, p.id AS entity_id, p.created_at, (p.id * 2) AS sort_id
+                SELECT 'post'::text AS type, p.id AS entity_id, p.created_at, p.id AS sort_id
                 FROM posts p
                 JOIN users u ON u.id = p.author_id AND u.deleted_at IS NULL
                 WHERE p.author_id = ?
@@ -28,7 +28,7 @@ public class UserContentRepository {
         }
 
         String repliesQuery = """
-                SELECT 'reply'::text AS type, c.id AS entity_id, c.created_at, (c.id * 2 + 1) AS sort_id
+                SELECT 'reply'::text AS type, c.id AS entity_id, c.created_at, (c.id - 9223372036854775807) AS sort_id
                 FROM comments c
                 JOIN posts p ON p.id = c.post_id AND p.removed_at IS NULL
                 LEFT JOIN users u ON u.id = p.author_id AND u.deleted_at IS NULL
@@ -64,4 +64,3 @@ public class UserContentRepository {
 
     public record ContentRefRow(String type, long entityId, OffsetDateTime createdAt, long sortId) {}
 }
-

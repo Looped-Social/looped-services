@@ -29,6 +29,19 @@ class UserRepostsControllerTest {
     }
 
     @Test
+    void my_reposts_returns_401_when_jwt_missing() {
+        PostCollectionsService service = mock(PostCollectionsService.class);
+        PollsService polls = mock(PollsService.class);
+        var controller = new UserRepostsController(service, polls);
+
+        var res = controller.myReposts(null, null, 20);
+
+        assertEquals(HttpStatus.UNAUTHORIZED, res.getStatusCode());
+        Map<?, ?> body = assertInstanceOf(Map.class, res.getBody());
+        assertEquals("unauthorized", body.get("error"));
+    }
+
+    @Test
     void reposts_returns_503_when_db_unavailable() {
         PostCollectionsService service = mock(PostCollectionsService.class);
         PollsService polls = mock(PollsService.class);
@@ -49,4 +62,3 @@ class UserRepostsControllerTest {
         assertEquals("reposts_unavailable", body.get("error"));
     }
 }
-

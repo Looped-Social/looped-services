@@ -121,22 +121,30 @@ public class UsersService {
     }
 
     public ContentResult content(String firebaseUid, long targetUserId, String cursor, int limit) {
+        return content(firebaseUid, targetUserId, cursor, limit, false);
+    }
+
+    public ContentResult content(String firebaseUid, long targetUserId, String cursor, int limit, boolean includePostPreview) {
         var actor = requireProvisionedUser(firebaseUid);
         if (actor.isEmpty()) return ContentResult.userNotProvisioned();
 
         var target = users.findById(targetUserId);
         if (target.isEmpty()) return ContentResult.notFound();
         if (!actor.get().companyId.equals(target.get().companyId)) return ContentResult.forbidden();
-        return contentImpl(actor.get(), targetUserId, cursor, limit);
+        return contentImpl(actor.get(), targetUserId, cursor, limit, includePostPreview);
     }
 
     public ContentResult contentMe(String firebaseUid, String cursor, int limit) {
-        var actor = requireProvisionedUser(firebaseUid);
-        if (actor.isEmpty()) return ContentResult.userNotProvisioned();
-        return contentImpl(actor.get(), actor.get().id, cursor, limit);
+        return contentMe(firebaseUid, cursor, limit, false);
     }
 
-    private ContentResult contentImpl(UserRepository.UserRow actor, long targetUserId, String cursor, int limit) {
+    public ContentResult contentMe(String firebaseUid, String cursor, int limit, boolean includePostPreview) {
+        var actor = requireProvisionedUser(firebaseUid);
+        if (actor.isEmpty()) return ContentResult.userNotProvisioned();
+        return contentImpl(actor.get(), actor.get().id, cursor, limit, includePostPreview);
+    }
+
+    private ContentResult contentImpl(UserRepository.UserRow actor, long targetUserId, String cursor, int limit, boolean includePostPreview) {
         OffsetDateTime cTs = null;
         Long cSortId = null;
         if (cursor != null && !cursor.isBlank()) {
@@ -172,6 +180,21 @@ public class UsersService {
             for (var row : comments.findByIds(replyIds)) repliesById.put(row.id, row);
         }
 
+        java.util.Map<Long, PostRepository.PostRow> replyPostsById = java.util.Map.of();
+        if (includePostPreview && !repliesById.isEmpty()) {
+            java.util.Set<Long> replyPostIds = new java.util.HashSet<>();
+            for (var c : repliesById.values()) replyPostIds.add(c.postId);
+            replyPostIds.removeAll(postsById.keySet());
+            if (!replyPostIds.isEmpty()) {
+                var rows = posts.findByIds(replyPostIds.stream().toList());
+                var viewerPrincipal = principals.createForUser(actor.id);
+                postState.applyForPrincipal(viewerPrincipal.id, rows);
+                java.util.Map<Long, PostRepository.PostRow> tmp = new java.util.HashMap<>();
+                for (var p : rows) tmp.put(p.id, p);
+                replyPostsById = tmp;
+            }
+        }
+
         java.util.List<java.util.Map<String, Object>> items = new java.util.ArrayList<>();
         for (var ref : refs) {
             if ("post".equals(ref.type())) {
@@ -185,11 +208,16 @@ public class UsersService {
             } else if ("reply".equals(ref.type())) {
                 var c = repliesById.get(ref.entityId());
                 if (c == null) continue;
-                items.add(java.util.Map.of(
-                        "type", "reply",
-                        "created_at", ref.createdAt(),
-                        "reply", UserPayloads.comment(c)
-                ));
+                var payload = new java.util.HashMap<String, Object>();
+                payload.put("type", "reply");
+                payload.put("created_at", ref.createdAt());
+                payload.put("reply", UserPayloads.comment(c));
+                if (includePostPreview) {
+                    var host = postsById.get(c.postId);
+                    if (host == null) host = replyPostsById.get(c.postId);
+                    if (host != null) payload.put("post", com.looped.posts.PostPayloads.from(host));
+                }
+                items.add(payload);
             }
         }
 

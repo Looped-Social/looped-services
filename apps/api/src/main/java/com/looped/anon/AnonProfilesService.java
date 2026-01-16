@@ -289,6 +289,10 @@ public class AnonProfilesService {
     }
 
     public ContentResult content(String firebaseUid, long anonProfileId, String cursor, int limit) {
+        return content(firebaseUid, anonProfileId, cursor, limit, false);
+    }
+
+    public ContentResult content(String firebaseUid, long anonProfileId, String cursor, int limit, boolean includePostPreview) {
         var actor = users.findByFirebaseUid(firebaseUid);
         if (actor.isEmpty() || actor.get().companyId == null) return ContentResult.userNotProvisioned();
         var profile = profiles.findById(anonProfileId);
@@ -334,6 +338,20 @@ public class AnonProfilesService {
             for (var row : comments.findByIds(replyIds)) repliesById.put(row.id, row);
         }
 
+        java.util.Map<Long, PostRepository.PostRow> replyPostsById = java.util.Map.of();
+        if (includePostPreview && !repliesById.isEmpty()) {
+            java.util.Set<Long> replyPostIds = new java.util.HashSet<>();
+            for (var c : repliesById.values()) replyPostIds.add(c.postId);
+            replyPostIds.removeAll(postsById.keySet());
+            if (!replyPostIds.isEmpty()) {
+                var postRows = posts.findByIds(replyPostIds.stream().toList());
+                postState.applyForPrincipal(viewerPrincipal.id, postRows);
+                java.util.Map<Long, PostRepository.PostRow> tmp = new java.util.HashMap<>();
+                for (var p : postRows) tmp.put(p.id, p);
+                replyPostsById = tmp;
+            }
+        }
+
         java.util.List<java.util.Map<String, Object>> items = new java.util.ArrayList<>();
         for (var ref : refs) {
             if ("post".equals(ref.type())) {
@@ -347,11 +365,16 @@ public class AnonProfilesService {
             } else if ("reply".equals(ref.type())) {
                 var c = repliesById.get(ref.entityId());
                 if (c == null) continue;
-                items.add(java.util.Map.of(
-                        "type", "reply",
-                        "created_at", ref.createdAt(),
-                        "reply", UserPayloads.comment(c)
-                ));
+                var payload = new java.util.HashMap<String, Object>();
+                payload.put("type", "reply");
+                payload.put("created_at", ref.createdAt());
+                payload.put("reply", UserPayloads.comment(c));
+                if (includePostPreview) {
+                    var host = postsById.get(c.postId);
+                    if (host == null) host = replyPostsById.get(c.postId);
+                    if (host != null) payload.put("post", PostPayloads.from(host));
+                }
+                items.add(payload);
             }
         }
 

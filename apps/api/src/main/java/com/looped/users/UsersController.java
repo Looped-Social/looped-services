@@ -96,10 +96,11 @@ public class UsersController {
     public ResponseEntity<?> myContent(
             @AuthenticationPrincipal Jwt jwt,
             @RequestParam(value = "cursor", required = false) String cursor,
-            @RequestParam(value = "limit", required = false, defaultValue = "20") int limit
+            @RequestParam(value = "limit", required = false, defaultValue = "20") int limit,
+            @RequestParam(value = "include_post_preview", required = false, defaultValue = "false") boolean includePostPreview
     ) {
         int lim = Math.max(1, Math.min(limit, 100));
-        var res = service.contentMe(jwt.getSubject(), cursor, lim);
+        var res = service.contentMe(jwt.getSubject(), cursor, lim, includePostPreview);
         return switch (res.status()) {
             case USER_NOT_PROVISIONED -> ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
                     "error", "user_not_provisioned",
@@ -464,10 +465,11 @@ public class UsersController {
             @AuthenticationPrincipal Jwt jwt,
             @PathVariable("id") long id,
             @RequestParam(value = "cursor", required = false) String cursor,
-            @RequestParam(value = "limit", required = false, defaultValue = "20") int limit
+            @RequestParam(value = "limit", required = false, defaultValue = "20") int limit,
+            @RequestParam(value = "include_post_preview", required = false, defaultValue = "false") boolean includePostPreview
     ) {
         int lim = Math.max(1, Math.min(limit, 100));
-        var res = service.content(jwt.getSubject(), id, cursor, lim);
+        var res = service.content(jwt.getSubject(), id, cursor, lim, includePostPreview);
         return switch (res.status()) {
             case USER_NOT_PROVISIONED -> ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
                     "error", "user_not_provisioned",
