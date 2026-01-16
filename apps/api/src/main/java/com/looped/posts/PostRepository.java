@@ -43,7 +43,7 @@ public class PostRepository {
 
     private static final String BASE_SELECT =
             "SELECT p.id, p.author_id, p.author_principal_id, p.is_anon, p.anon_profile_id, p.anon_company_id, " +
-            "p.company_id, p.community_id, c.name AS community_name, c.kind AS community_kind, " +
+            "p.company_id, p.community_id, c.name AS community_name, c.short_name AS community_short_name, c.kind AS community_kind, " +
             "p.content, p.media_asset_id, p.likes_count, p.comments_count, p.share_count, p.repost_count, p.created_at, " +
             "COALESCE(pm.media_asset_ids, CASE WHEN p.media_asset_id IS NULL THEN NULL ELSE ARRAY[p.media_asset_id] END) AS media_asset_ids, " +
             "p.removed_at, p.removed_by, p.removed_reason, " +
@@ -54,10 +54,12 @@ public class PostRepository {
             "u.profile_image_url AS author_profile_image_url, " +
             "dc.id AS author_display_community_id, " +
             "dc.name AS author_display_community_name, " +
+            "dc.short_name AS author_display_community_short_name, " +
             "dc.kind AS author_display_community_kind, " +
             "dc.specialization_type AS author_display_community_specialization_type, " +
             "ds.id AS author_display_specialization_id, " +
             "ds.name AS author_display_specialization_name, " +
+            "ds.short_name AS author_display_specialization_short_name, " +
             "ds.kind AS author_display_specialization_kind, " +
             "ds.specialization_type AS author_display_specialization_type, " +
             "CASE WHEN p.is_anon THEN true ELSE COALESCE(u.is_anonymous, false) END AS author_is_anonymous " +
@@ -95,6 +97,7 @@ public class PostRepository {
             long community = rs.getLong("community_id");
             p.communityId = rs.wasNull() ? null : community;
             p.communityName = rs.getString("community_name");
+            p.communityShortName = rs.getString("community_short_name");
             p.communityKind = rs.getString("community_kind");
             p.content = rs.getString("content");
             long media = rs.getLong("media_asset_id");
@@ -117,11 +120,13 @@ public class PostRepository {
             long displayCommunityId = rs.getLong("author_display_community_id");
             p.authorDisplayCommunityId = rs.wasNull() ? null : displayCommunityId;
             p.authorDisplayCommunityName = rs.getString("author_display_community_name");
+            p.authorDisplayCommunityShortName = rs.getString("author_display_community_short_name");
             p.authorDisplayCommunityKind = rs.getString("author_display_community_kind");
             p.authorDisplayCommunitySpecializationType = rs.getString("author_display_community_specialization_type");
             long displaySpecializationId = rs.getLong("author_display_specialization_id");
             p.authorDisplaySpecializationId = rs.wasNull() ? null : displaySpecializationId;
             p.authorDisplaySpecializationName = rs.getString("author_display_specialization_name");
+            p.authorDisplaySpecializationShortName = rs.getString("author_display_specialization_short_name");
             p.authorDisplaySpecializationKind = rs.getString("author_display_specialization_kind");
             p.authorDisplaySpecializationType = rs.getString("author_display_specialization_type");
             p.authorIsAnonymous = rs.getBoolean("author_is_anonymous");
@@ -233,21 +238,21 @@ public class PostRepository {
                                                long viewerUserId, long viewerPrincipalId, boolean hideAnonymousPosts) {
         String scoreExpr = "((p.likes_count * 2 + p.comments_count + p.share_count) * 1000 - " +
                 "FLOOR(EXTRACT(EPOCH FROM (?::timestamptz - p.created_at)) / 3600))";
-        String base = "SELECT p.id, p.author_id, p.author_principal_id, p.is_anon, p.anon_profile_id, p.anon_company_id, " +
-                "p.company_id, p.community_id, c.name AS community_name, c.kind AS community_kind, " +
-                "p.content, p.media_asset_id, " +
-                "COALESCE(pm.media_asset_ids, CASE WHEN p.media_asset_id IS NULL THEN NULL ELSE ARRAY[p.media_asset_id] END) AS media_asset_ids, " +
-                "p.likes_count, p.comments_count, p.share_count, p.repost_count, p.created_at, " +
-                "p.removed_at, p.removed_by, p.removed_reason, " +
-                "COALESCE(u.handle, ap.handle) AS author_handle, u.display_name AS author_display_name, " +
-                "u.first_name AS author_first_name, u.last_name AS author_last_name, " +
-                "u.profile_image_url AS author_profile_image_url, " +
-                "dc.id AS author_display_community_id, dc.name AS author_display_community_name, " +
-                "dc.kind AS author_display_community_kind, dc.specialization_type AS author_display_community_specialization_type, " +
-                "ds.id AS author_display_specialization_id, ds.name AS author_display_specialization_name, " +
-                "ds.kind AS author_display_specialization_kind, ds.specialization_type AS author_display_specialization_type, " +
-                "CASE WHEN p.is_anon THEN true ELSE COALESCE(u.is_anonymous, false) END AS author_is_anonymous, " +
-                scoreExpr + " AS score FROM posts p " +
+	        String base = "SELECT p.id, p.author_id, p.author_principal_id, p.is_anon, p.anon_profile_id, p.anon_company_id, " +
+	                "p.company_id, p.community_id, c.name AS community_name, c.short_name AS community_short_name, c.kind AS community_kind, " +
+	                "p.content, p.media_asset_id, " +
+	                "COALESCE(pm.media_asset_ids, CASE WHEN p.media_asset_id IS NULL THEN NULL ELSE ARRAY[p.media_asset_id] END) AS media_asset_ids, " +
+	                "p.likes_count, p.comments_count, p.share_count, p.repost_count, p.created_at, " +
+	                "p.removed_at, p.removed_by, p.removed_reason, " +
+	                "COALESCE(u.handle, ap.handle) AS author_handle, u.display_name AS author_display_name, " +
+	                "u.first_name AS author_first_name, u.last_name AS author_last_name, " +
+	                "u.profile_image_url AS author_profile_image_url, " +
+	                "dc.id AS author_display_community_id, dc.name AS author_display_community_name, dc.short_name AS author_display_community_short_name, " +
+	                "dc.kind AS author_display_community_kind, dc.specialization_type AS author_display_community_specialization_type, " +
+	                "ds.id AS author_display_specialization_id, ds.name AS author_display_specialization_name, ds.short_name AS author_display_specialization_short_name, " +
+	                "ds.kind AS author_display_specialization_kind, ds.specialization_type AS author_display_specialization_type, " +
+	                "CASE WHEN p.is_anon THEN true ELSE COALESCE(u.is_anonymous, false) END AS author_is_anonymous, " +
+	                scoreExpr + " AS score FROM posts p " +
                 "LEFT JOIN communities c ON c.id = p.community_id " +
                 "LEFT JOIN users u ON u.id = p.author_id AND u.deleted_at IS NULL " +
                 "LEFT JOIN community_verifications cv ON cv.user_id = u.id AND cv.community_id = u.display_community_id " +
@@ -271,34 +276,34 @@ public class PostRepository {
         base += " " + communityBansFilter();
         if (cursorScore == null || cursorTs == null || cursorId == null) {
             return jdbc.query(
-                    "SELECT id, author_id, author_principal_id, is_anon, anon_profile_id, anon_company_id, company_id, community_id, " +
-                            "community_name, community_kind, content, media_asset_id, likes_count, comments_count, share_count, repost_count, created_at, " +
-                            "media_asset_ids, " +
-                            "removed_at, removed_by, removed_reason, " +
-                            "author_handle, author_display_name, author_first_name, author_last_name, author_profile_image_url, " +
-                            "author_display_community_id, author_display_community_name, author_display_community_kind, " +
-                            "author_display_community_specialization_type, " +
-                            "author_display_specialization_id, author_display_specialization_name, author_display_specialization_kind, " +
-                            "author_display_specialization_type, author_is_anonymous " +
-                    "FROM (" + base + ") s ORDER BY score DESC, created_at DESC, id DESC LIMIT ?",
+	                    "SELECT id, author_id, author_principal_id, is_anon, anon_profile_id, anon_company_id, company_id, community_id, " +
+	                            "community_name, community_short_name, community_kind, content, media_asset_id, likes_count, comments_count, share_count, repost_count, created_at, " +
+	                            "media_asset_ids, " +
+	                            "removed_at, removed_by, removed_reason, " +
+	                            "author_handle, author_display_name, author_first_name, author_last_name, author_profile_image_url, " +
+	                            "author_display_community_id, author_display_community_name, author_display_community_short_name, author_display_community_kind, " +
+	                            "author_display_community_specialization_type, " +
+	                            "author_display_specialization_id, author_display_specialization_name, author_display_specialization_short_name, author_display_specialization_kind, " +
+	                            "author_display_specialization_type, author_is_anonymous " +
+	                    "FROM (" + base + ") s ORDER BY score DESC, created_at DESC, id DESC LIMIT ?",
                     MAPPER,
                     hideAnonymousPosts
                             ? new Object[]{asOf, since, viewerUserId, viewerPrincipalId, viewerPrincipalId, viewerUserId, limit}
                             : new Object[]{asOf, since, viewerPrincipalId, viewerPrincipalId, viewerUserId, limit}
             );
         }
-        return jdbc.query(
-                "SELECT id, author_id, author_principal_id, is_anon, anon_profile_id, anon_company_id, company_id, community_id, " +
-                        "community_name, community_kind, content, media_asset_id, likes_count, comments_count, share_count, repost_count, created_at, " +
-                        "media_asset_ids, " +
-                        "removed_at, removed_by, removed_reason, " +
-                        "author_handle, author_display_name, author_first_name, author_last_name, author_profile_image_url, " +
-                        "author_display_community_id, author_display_community_name, author_display_community_kind, " +
-                        "author_display_community_specialization_type, " +
-                        "author_display_specialization_id, author_display_specialization_name, author_display_specialization_kind, " +
-                        "author_display_specialization_type, author_is_anonymous " +
-                        "FROM (" + base + ") s WHERE (score < ? OR (score = ? AND (created_at < ? OR (created_at = ? AND id < ?)))) " +
-                        "ORDER BY score DESC, created_at DESC, id DESC LIMIT ?",
+	        return jdbc.query(
+	                "SELECT id, author_id, author_principal_id, is_anon, anon_profile_id, anon_company_id, company_id, community_id, " +
+	                        "community_name, community_short_name, community_kind, content, media_asset_id, likes_count, comments_count, share_count, repost_count, created_at, " +
+	                        "media_asset_ids, " +
+	                        "removed_at, removed_by, removed_reason, " +
+	                        "author_handle, author_display_name, author_first_name, author_last_name, author_profile_image_url, " +
+	                        "author_display_community_id, author_display_community_name, author_display_community_short_name, author_display_community_kind, " +
+	                        "author_display_community_specialization_type, " +
+	                        "author_display_specialization_id, author_display_specialization_name, author_display_specialization_short_name, author_display_specialization_kind, " +
+	                        "author_display_specialization_type, author_is_anonymous " +
+	                        "FROM (" + base + ") s WHERE (score < ? OR (score = ? AND (created_at < ? OR (created_at = ? AND id < ?)))) " +
+	                        "ORDER BY score DESC, created_at DESC, id DESC LIMIT ?",
                 MAPPER,
                 hideAnonymousPosts
                         ? new Object[]{asOf, since, viewerUserId, viewerPrincipalId, viewerPrincipalId, viewerUserId, cursorScore, cursorScore, cursorTs, cursorTs, cursorId, limit}
@@ -311,21 +316,21 @@ public class PostRepository {
                                                           long viewerUserId, long viewerPrincipalId, boolean hideAnonymousPosts) {
         String scoreExpr = "((p.likes_count * 2 + p.comments_count + p.share_count) * 1000 - " +
                 "FLOOR(EXTRACT(EPOCH FROM (?::timestamptz - p.created_at)) / 3600))";
-        String base = "SELECT p.id, p.author_id, p.author_principal_id, p.is_anon, p.anon_profile_id, p.anon_company_id, " +
-                "p.company_id, p.community_id, c.name AS community_name, c.kind AS community_kind, " +
-                "p.content, p.media_asset_id, " +
-                "COALESCE(pm.media_asset_ids, CASE WHEN p.media_asset_id IS NULL THEN NULL ELSE ARRAY[p.media_asset_id] END) AS media_asset_ids, " +
-                "p.likes_count, p.comments_count, p.share_count, p.repost_count, p.created_at, " +
-                "p.removed_at, p.removed_by, p.removed_reason, " +
-                "COALESCE(u.handle, ap.handle) AS author_handle, u.display_name AS author_display_name, " +
-                "u.first_name AS author_first_name, u.last_name AS author_last_name, " +
-                "u.profile_image_url AS author_profile_image_url, " +
-                "dc.id AS author_display_community_id, dc.name AS author_display_community_name, " +
-                "dc.kind AS author_display_community_kind, dc.specialization_type AS author_display_community_specialization_type, " +
-                "ds.id AS author_display_specialization_id, ds.name AS author_display_specialization_name, " +
-                "ds.kind AS author_display_specialization_kind, ds.specialization_type AS author_display_specialization_type, " +
-                "CASE WHEN p.is_anon THEN true ELSE COALESCE(u.is_anonymous, false) END AS author_is_anonymous, " +
-                scoreExpr + " AS score FROM posts p " +
+	        String base = "SELECT p.id, p.author_id, p.author_principal_id, p.is_anon, p.anon_profile_id, p.anon_company_id, " +
+	                "p.company_id, p.community_id, c.name AS community_name, c.short_name AS community_short_name, c.kind AS community_kind, " +
+	                "p.content, p.media_asset_id, " +
+	                "COALESCE(pm.media_asset_ids, CASE WHEN p.media_asset_id IS NULL THEN NULL ELSE ARRAY[p.media_asset_id] END) AS media_asset_ids, " +
+	                "p.likes_count, p.comments_count, p.share_count, p.repost_count, p.created_at, " +
+	                "p.removed_at, p.removed_by, p.removed_reason, " +
+	                "COALESCE(u.handle, ap.handle) AS author_handle, u.display_name AS author_display_name, " +
+	                "u.first_name AS author_first_name, u.last_name AS author_last_name, " +
+	                "u.profile_image_url AS author_profile_image_url, " +
+	                "dc.id AS author_display_community_id, dc.name AS author_display_community_name, dc.short_name AS author_display_community_short_name, " +
+	                "dc.kind AS author_display_community_kind, dc.specialization_type AS author_display_community_specialization_type, " +
+	                "ds.id AS author_display_specialization_id, ds.name AS author_display_specialization_name, ds.short_name AS author_display_specialization_short_name, " +
+	                "ds.kind AS author_display_specialization_kind, ds.specialization_type AS author_display_specialization_type, " +
+	                "CASE WHEN p.is_anon THEN true ELSE COALESCE(u.is_anonymous, false) END AS author_is_anonymous, " +
+	                scoreExpr + " AS score FROM posts p " +
                 "LEFT JOIN communities c ON c.id = p.community_id " +
                 "LEFT JOIN users u ON u.id = p.author_id AND u.deleted_at IS NULL " +
                 "LEFT JOIN community_verifications cv ON cv.user_id = u.id AND cv.community_id = u.display_community_id " +
@@ -350,34 +355,34 @@ public class PostRepository {
         base += " " + communityBansFilter();
         if (cursorScore == null || cursorTs == null || cursorId == null) {
             return jdbc.query(
-                    "SELECT id, author_id, author_principal_id, is_anon, anon_profile_id, anon_company_id, company_id, community_id, " +
-                            "community_name, community_kind, content, media_asset_id, likes_count, comments_count, share_count, repost_count, created_at, " +
-                            "media_asset_ids, " +
-                            "removed_at, removed_by, removed_reason, " +
-                            "author_handle, author_display_name, author_first_name, author_last_name, author_profile_image_url, " +
-                            "author_display_community_id, author_display_community_name, author_display_community_kind, " +
-                            "author_display_community_specialization_type, " +
-                            "author_display_specialization_id, author_display_specialization_name, author_display_specialization_kind, " +
-                            "author_display_specialization_type, author_is_anonymous " +
-                    "FROM (" + base + ") s ORDER BY score DESC, created_at DESC, id DESC LIMIT ?",
+	                    "SELECT id, author_id, author_principal_id, is_anon, anon_profile_id, anon_company_id, company_id, community_id, " +
+	                            "community_name, community_short_name, community_kind, content, media_asset_id, likes_count, comments_count, share_count, repost_count, created_at, " +
+	                            "media_asset_ids, " +
+	                            "removed_at, removed_by, removed_reason, " +
+	                            "author_handle, author_display_name, author_first_name, author_last_name, author_profile_image_url, " +
+	                            "author_display_community_id, author_display_community_name, author_display_community_short_name, author_display_community_kind, " +
+	                            "author_display_community_specialization_type, " +
+	                            "author_display_specialization_id, author_display_specialization_name, author_display_specialization_short_name, author_display_specialization_kind, " +
+	                            "author_display_specialization_type, author_is_anonymous " +
+	                    "FROM (" + base + ") s ORDER BY score DESC, created_at DESC, id DESC LIMIT ?",
                     MAPPER,
                     hideAnonymousPosts
                             ? new Object[]{asOf, since, communityId, viewerUserId, viewerPrincipalId, viewerPrincipalId, viewerUserId, limit}
                             : new Object[]{asOf, since, communityId, viewerPrincipalId, viewerPrincipalId, viewerUserId, limit}
             );
         }
-        return jdbc.query(
-                "SELECT id, author_id, author_principal_id, is_anon, anon_profile_id, anon_company_id, company_id, community_id, " +
-                        "community_name, community_kind, content, media_asset_id, likes_count, comments_count, share_count, repost_count, created_at, " +
-                        "media_asset_ids, " +
-                        "removed_at, removed_by, removed_reason, " +
-                        "author_handle, author_display_name, author_first_name, author_last_name, author_profile_image_url, " +
-                        "author_display_community_id, author_display_community_name, author_display_community_kind, " +
-                        "author_display_community_specialization_type, " +
-                        "author_display_specialization_id, author_display_specialization_name, author_display_specialization_kind, " +
-                        "author_display_specialization_type, author_is_anonymous " +
-                        "FROM (" + base + ") s WHERE (score < ? OR (score = ? AND (created_at < ? OR (created_at = ? AND id < ?)))) " +
-                        "ORDER BY score DESC, created_at DESC, id DESC LIMIT ?",
+	        return jdbc.query(
+	                "SELECT id, author_id, author_principal_id, is_anon, anon_profile_id, anon_company_id, company_id, community_id, " +
+	                        "community_name, community_short_name, community_kind, content, media_asset_id, likes_count, comments_count, share_count, repost_count, created_at, " +
+	                        "media_asset_ids, " +
+	                        "removed_at, removed_by, removed_reason, " +
+	                        "author_handle, author_display_name, author_first_name, author_last_name, author_profile_image_url, " +
+	                        "author_display_community_id, author_display_community_name, author_display_community_short_name, author_display_community_kind, " +
+	                        "author_display_community_specialization_type, " +
+	                        "author_display_specialization_id, author_display_specialization_name, author_display_specialization_short_name, author_display_specialization_kind, " +
+	                        "author_display_specialization_type, author_is_anonymous " +
+	                        "FROM (" + base + ") s WHERE (score < ? OR (score = ? AND (created_at < ? OR (created_at = ? AND id < ?)))) " +
+	                        "ORDER BY score DESC, created_at DESC, id DESC LIMIT ?",
                 MAPPER,
                 hideAnonymousPosts
                         ? new Object[]{asOf, since, communityId, viewerUserId, viewerPrincipalId, viewerPrincipalId, viewerUserId, cursorScore, cursorScore, cursorTs, cursorTs, cursorId, limit}
@@ -461,13 +466,13 @@ public class PostRepository {
                 "COALESCE(u.handle, ap.handle) AS author_handle, u.display_name AS author_display_name, " +
                 "u.first_name AS author_first_name, u.last_name AS author_last_name, " +
                 "u.profile_image_url AS author_profile_image_url, " +
-                "dc.id AS author_display_community_id, dc.name AS author_display_community_name, " +
-                "dc.kind AS author_display_community_kind, dc.specialization_type AS author_display_community_specialization_type, " +
-                "ds.id AS author_display_specialization_id, ds.name AS author_display_specialization_name, " +
-                "ds.kind AS author_display_specialization_kind, ds.specialization_type AS author_display_specialization_type, " +
-                "CASE WHEN p.is_anon THEN true ELSE COALESCE(u.is_anonymous, false) END AS author_is_anonymous, " +
-                "c.name AS community_name, c.kind AS community_kind, " +
-                scoreExpr + " AS score FROM posts p " +
+	                "dc.id AS author_display_community_id, dc.name AS author_display_community_name, dc.short_name AS author_display_community_short_name, " +
+	                "dc.kind AS author_display_community_kind, dc.specialization_type AS author_display_community_specialization_type, " +
+	                "ds.id AS author_display_specialization_id, ds.name AS author_display_specialization_name, ds.short_name AS author_display_specialization_short_name, " +
+	                "ds.kind AS author_display_specialization_kind, ds.specialization_type AS author_display_specialization_type, " +
+	                "CASE WHEN p.is_anon THEN true ELSE COALESCE(u.is_anonymous, false) END AS author_is_anonymous, " +
+	                "c.name AS community_name, c.short_name AS community_short_name, c.kind AS community_kind, " +
+	                scoreExpr + " AS score FROM posts p " +
                 "JOIN communities c ON c.id = p.community_id " +
                 "LEFT JOIN users u ON u.id = p.author_id AND u.deleted_at IS NULL " +
                 "LEFT JOIN community_verifications cv ON cv.user_id = u.id AND cv.community_id = u.display_community_id " +
@@ -525,27 +530,29 @@ public class PostRepository {
                 "WITH q AS (" +
                         "SELECT websearch_to_tsquery('english', ?) AS q_web, " +
                         "to_tsquery('simple', NULLIF(?, '')) AS q_prefix" +
-                        ") " +
-                        "SELECT p.id, p.author_id, p.author_principal_id, p.is_anon, p.anon_profile_id, p.anon_company_id, " +
-                        "p.company_id, p.community_id, c.name AS community_name, c.kind AS community_kind, " +
-                        "p.content, p.media_asset_id, p.likes_count, p.comments_count, p.share_count, p.repost_count, p.created_at, " +
-                        "COALESCE(pm.media_asset_ids, CASE WHEN p.media_asset_id IS NULL THEN NULL ELSE ARRAY[p.media_asset_id] END) AS media_asset_ids, " +
-                        "p.removed_at, p.removed_by, p.removed_reason, " +
+	                        ") " +
+	                        "SELECT p.id, p.author_id, p.author_principal_id, p.is_anon, p.anon_profile_id, p.anon_company_id, " +
+	                        "p.company_id, p.community_id, c.name AS community_name, c.short_name AS community_short_name, c.kind AS community_kind, " +
+	                        "p.content, p.media_asset_id, p.likes_count, p.comments_count, p.share_count, p.repost_count, p.created_at, " +
+	                        "COALESCE(pm.media_asset_ids, CASE WHEN p.media_asset_id IS NULL THEN NULL ELSE ARRAY[p.media_asset_id] END) AS media_asset_ids, " +
+	                        "p.removed_at, p.removed_by, p.removed_reason, " +
                         "COALESCE(u.handle, ap.handle) AS author_handle, " +
                         "u.display_name AS author_display_name, " +
                         "u.first_name AS author_first_name, " +
                         "u.last_name AS author_last_name, " +
-                        "u.profile_image_url AS author_profile_image_url, " +
-                        "dc.id AS author_display_community_id, " +
-                        "dc.name AS author_display_community_name, " +
-                        "dc.kind AS author_display_community_kind, " +
-                        "dc.specialization_type AS author_display_community_specialization_type, " +
-                        "ds.id AS author_display_specialization_id, " +
-                        "ds.name AS author_display_specialization_name, " +
-                        "ds.kind AS author_display_specialization_kind, " +
-                        "ds.specialization_type AS author_display_specialization_type, " +
-                        "CASE WHEN p.is_anon THEN true ELSE COALESCE(u.is_anonymous, false) END AS author_is_anonymous, " +
-                        scoreExpr + " AS score " +
+	                        "u.profile_image_url AS author_profile_image_url, " +
+	                        "dc.id AS author_display_community_id, " +
+	                        "dc.name AS author_display_community_name, " +
+	                        "dc.short_name AS author_display_community_short_name, " +
+	                        "dc.kind AS author_display_community_kind, " +
+	                        "dc.specialization_type AS author_display_community_specialization_type, " +
+	                        "ds.id AS author_display_specialization_id, " +
+	                        "ds.name AS author_display_specialization_name, " +
+	                        "ds.short_name AS author_display_specialization_short_name, " +
+	                        "ds.kind AS author_display_specialization_kind, " +
+	                        "ds.specialization_type AS author_display_specialization_type, " +
+	                        "CASE WHEN p.is_anon THEN true ELSE COALESCE(u.is_anonymous, false) END AS author_is_anonymous, " +
+	                        scoreExpr + " AS score " +
                         "FROM posts p " +
                         "LEFT JOIN communities c ON c.id = p.community_id " +
                         "LEFT JOIN users u ON u.id = p.author_id AND u.deleted_at IS NULL " +
@@ -633,6 +640,7 @@ public class PostRepository {
         public long companyId;
         public Long communityId;
         public String communityName;
+        public String communityShortName;
         public String communityKind;
         public String content;
         public Long mediaAssetId;
@@ -652,10 +660,12 @@ public class PostRepository {
         public String authorProfileImageUrl;
         public Long authorDisplayCommunityId;
         public String authorDisplayCommunityName;
+        public String authorDisplayCommunityShortName;
         public String authorDisplayCommunityKind;
         public String authorDisplayCommunitySpecializationType;
         public Long authorDisplaySpecializationId;
         public String authorDisplaySpecializationName;
+        public String authorDisplaySpecializationShortName;
         public String authorDisplaySpecializationKind;
         public String authorDisplaySpecializationType;
         public boolean authorIsAnonymous;
@@ -694,6 +704,7 @@ public class PostRepository {
             long community = rs.getLong("community_id");
             p.communityId = rs.wasNull() ? null : community;
             p.communityName = rs.getString("community_name");
+            p.communityShortName = rs.getString("community_short_name");
             p.communityKind = rs.getString("community_kind");
             p.content = rs.getString("content");
             long media = rs.getLong("media_asset_id");
@@ -716,11 +727,13 @@ public class PostRepository {
             long displayCommunityId = rs.getLong("author_display_community_id");
             p.authorDisplayCommunityId = rs.wasNull() ? null : displayCommunityId;
             p.authorDisplayCommunityName = rs.getString("author_display_community_name");
+            p.authorDisplayCommunityShortName = rs.getString("author_display_community_short_name");
             p.authorDisplayCommunityKind = rs.getString("author_display_community_kind");
             p.authorDisplayCommunitySpecializationType = rs.getString("author_display_community_specialization_type");
             long displaySpecializationId = rs.getLong("author_display_specialization_id");
             p.authorDisplaySpecializationId = rs.wasNull() ? null : displaySpecializationId;
             p.authorDisplaySpecializationName = rs.getString("author_display_specialization_name");
+            p.authorDisplaySpecializationShortName = rs.getString("author_display_specialization_short_name");
             p.authorDisplaySpecializationKind = rs.getString("author_display_specialization_kind");
             p.authorDisplaySpecializationType = rs.getString("author_display_specialization_type");
             p.authorIsAnonymous = rs.getBoolean("author_is_anonymous");
@@ -762,15 +775,18 @@ public class PostRepository {
             long displayCommunityId = rs.getLong("author_display_community_id");
             p.authorDisplayCommunityId = rs.wasNull() ? null : displayCommunityId;
             p.authorDisplayCommunityName = rs.getString("author_display_community_name");
+            p.authorDisplayCommunityShortName = rs.getString("author_display_community_short_name");
             p.authorDisplayCommunityKind = rs.getString("author_display_community_kind");
             p.authorDisplayCommunitySpecializationType = rs.getString("author_display_community_specialization_type");
             long displaySpecializationId = rs.getLong("author_display_specialization_id");
             p.authorDisplaySpecializationId = rs.wasNull() ? null : displaySpecializationId;
             p.authorDisplaySpecializationName = rs.getString("author_display_specialization_name");
+            p.authorDisplaySpecializationShortName = rs.getString("author_display_specialization_short_name");
             p.authorDisplaySpecializationKind = rs.getString("author_display_specialization_kind");
             p.authorDisplaySpecializationType = rs.getString("author_display_specialization_type");
             p.authorIsAnonymous = rs.getBoolean("author_is_anonymous");
             p.communityName = rs.getString("community_name");
+            p.communityShortName = rs.getString("community_short_name");
             p.communityKind = rs.getString("community_kind");
             return p;
         }

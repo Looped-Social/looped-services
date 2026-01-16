@@ -108,6 +108,9 @@ public class CommunityFollowsController {
         Map<String, Object> map = new HashMap<>();
         map.put("id", row.communityId);
         map.put("name", row.name);
+        if (row.shortName != null && !row.shortName.isBlank()) {
+            map.put("short_name", row.shortName);
+        }
         map.put("kind", row.kind);
         if (row.specializationType != null) map.put("specialization_type", row.specializationType);
         map.put("member_count", memberCounts.getOrDefault(row.communityId, 0));

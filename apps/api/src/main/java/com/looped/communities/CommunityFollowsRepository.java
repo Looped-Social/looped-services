@@ -26,6 +26,7 @@ public class CommunityFollowsRepository {
             row.followId = rs.getLong("follow_id");
             row.communityId = rs.getLong("community_id");
             row.name = rs.getString("name");
+            row.shortName = rs.getString("short_name");
             row.kind = rs.getString("kind");
             row.specializationType = rs.getString("specialization_type");
             row.memberCount = rs.getInt("member_count");
@@ -43,7 +44,7 @@ public class CommunityFollowsRepository {
     public List<FollowRow> findFollowed(long userId, OffsetDateTime cursorTs, Long cursorId, int limit) {
         String base = """
                 SELECT cf.id AS follow_id, cf.community_id, cf.is_pinned, cf.sort_order, cf.created_at AS followed_at,
-                       c.name, c.kind, c.specialization_type, c.member_count,
+                       c.name, c.short_name AS short_name, c.kind, c.specialization_type, c.member_count,
                        cf.created_at AS last_activity,
                        CASE
                            WHEN c.kind = 'specialization' THEN true
@@ -72,7 +73,7 @@ public class CommunityFollowsRepository {
         String base = """
                 WITH rows AS (
                     SELECT cf.id AS follow_id, cf.community_id, cf.is_pinned, cf.sort_order, cf.created_at AS followed_at,
-                           c.name, c.kind, c.specialization_type, c.member_count,
+                           c.name, c.short_name AS short_name, c.kind, c.specialization_type, c.member_count,
                            COALESCE(lp.last_post_at, cf.created_at) AS last_activity,
                            CASE
                                WHEN c.kind = 'specialization' THEN true
@@ -181,6 +182,7 @@ public class CommunityFollowsRepository {
         public long followId;
         public long communityId;
         public String name;
+        public String shortName;
         public String kind;
         public String specializationType;
         public int memberCount;

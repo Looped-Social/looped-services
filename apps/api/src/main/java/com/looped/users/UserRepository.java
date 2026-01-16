@@ -150,7 +150,7 @@ public class UserRepository {
 
     public java.util.Optional<DisplayCommunityRow> findDisplayCommunityForUser(long userId) {
         var list = jdbcTemplate.query(
-                "SELECT c.id, c.name, c.kind, c.specialization_type " +
+                "SELECT c.id, c.name, c.short_name, c.kind, c.specialization_type " +
                         "FROM users u " +
                         "JOIN community_verifications cv ON cv.user_id = u.id AND cv.community_id = u.display_community_id " +
                         "JOIN communities c ON c.id = cv.community_id " +
@@ -160,6 +160,7 @@ public class UserRepository {
                     DisplayCommunityRow row = new DisplayCommunityRow();
                     row.id = rs.getLong("id");
                     row.name = rs.getString("name");
+                    row.shortName = rs.getString("short_name");
                     row.kind = rs.getString("kind");
                     row.specializationType = rs.getString("specialization_type");
                     return row;
@@ -171,7 +172,7 @@ public class UserRepository {
 
     public java.util.Optional<DisplaySpecializationRow> findDisplaySpecializationForUser(long userId) {
         var list = jdbcTemplate.query(
-                "SELECT c.id, c.name, c.kind, c.specialization_type " +
+                "SELECT c.id, c.name, c.short_name, c.kind, c.specialization_type " +
                         "FROM users u " +
                         "JOIN communities c ON c.id = u.display_specialization_id " +
                         "WHERE u.id = ? AND c.kind = 'specialization' " +
@@ -180,6 +181,7 @@ public class UserRepository {
                     DisplaySpecializationRow row = new DisplaySpecializationRow();
                     row.id = rs.getLong("id");
                     row.name = rs.getString("name");
+                    row.shortName = rs.getString("short_name");
                     row.kind = rs.getString("kind");
                     row.specializationType = rs.getString("specialization_type");
                     return row;
@@ -588,6 +590,7 @@ public class UserRepository {
     public static class DisplayCommunityRow {
         public long id;
         public String name;
+        public String shortName;
         public String kind;
         public String specializationType;
     }
@@ -595,6 +598,7 @@ public class UserRepository {
     public static class DisplaySpecializationRow {
         public long id;
         public String name;
+        public String shortName;
         public String kind;
         public String specializationType;
     }

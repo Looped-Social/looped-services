@@ -76,7 +76,7 @@ public class SavedPostsRepository {
 
     private static final String BASE_QUERY = "SELECT " +
             "p.id AS post_id, p.author_id, p.author_principal_id, p.is_anon, p.anon_profile_id, p.anon_company_id, " +
-            "p.company_id, p.community_id, c.name AS community_name, c.kind AS community_kind, " +
+            "p.company_id, p.community_id, c.name AS community_name, c.short_name AS community_short_name, c.kind AS community_kind, " +
             "p.content, p.media_asset_id, " +
             "COALESCE(pm.media_asset_ids, CASE WHEN p.media_asset_id IS NULL THEN NULL ELSE ARRAY[p.media_asset_id] END) AS media_asset_ids, " +
             "p.likes_count, p.comments_count, p.share_count, p.repost_count, " +
@@ -88,10 +88,12 @@ public class SavedPostsRepository {
             "u.profile_image_url AS author_profile_image_url, " +
             "dc.id AS author_display_community_id, " +
             "dc.name AS author_display_community_name, " +
+            "dc.short_name AS author_display_community_short_name, " +
             "dc.kind AS author_display_community_kind, " +
             "dc.specialization_type AS author_display_community_specialization_type, " +
             "ds.id AS author_display_specialization_id, " +
             "ds.name AS author_display_specialization_name, " +
+            "ds.short_name AS author_display_specialization_short_name, " +
             "ds.kind AS author_display_specialization_kind, " +
             "ds.specialization_type AS author_display_specialization_type, " +
             "CASE WHEN p.is_anon THEN true ELSE COALESCE(u.is_anonymous, false) END AS author_is_anonymous, " +
@@ -130,6 +132,7 @@ public class SavedPostsRepository {
             long community = rs.getLong("community_id");
             post.communityId = rs.wasNull() ? null : community;
             post.communityName = rs.getString("community_name");
+            post.communityShortName = rs.getString("community_short_name");
             post.communityKind = rs.getString("community_kind");
             post.content = rs.getString("content");
             long media = rs.getLong("media_asset_id");
@@ -148,11 +151,13 @@ public class SavedPostsRepository {
             long displayCommunityId = rs.getLong("author_display_community_id");
             post.authorDisplayCommunityId = rs.wasNull() ? null : displayCommunityId;
             post.authorDisplayCommunityName = rs.getString("author_display_community_name");
+            post.authorDisplayCommunityShortName = rs.getString("author_display_community_short_name");
             post.authorDisplayCommunityKind = rs.getString("author_display_community_kind");
             post.authorDisplayCommunitySpecializationType = rs.getString("author_display_community_specialization_type");
             long displaySpecializationId = rs.getLong("author_display_specialization_id");
             post.authorDisplaySpecializationId = rs.wasNull() ? null : displaySpecializationId;
             post.authorDisplaySpecializationName = rs.getString("author_display_specialization_name");
+            post.authorDisplaySpecializationShortName = rs.getString("author_display_specialization_short_name");
             post.authorDisplaySpecializationKind = rs.getString("author_display_specialization_kind");
             post.authorDisplaySpecializationType = rs.getString("author_display_specialization_type");
             post.authorIsAnonymous = rs.getBoolean("author_is_anonymous");

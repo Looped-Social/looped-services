@@ -46,6 +46,9 @@ public final class UserPayloads {
             Map<String, Object> display = new HashMap<>();
             display.put("id", profile.displayCommunity().id());
             display.put("name", profile.displayCommunity().name());
+            if (profile.displayCommunity().shortName() != null && !profile.displayCommunity().shortName().isBlank()) {
+                display.put("short_name", profile.displayCommunity().shortName());
+            }
             display.put("kind", profile.displayCommunity().kind());
             if (profile.displayCommunity().specializationType() != null) {
                 display.put("specialization_type", profile.displayCommunity().specializationType());
@@ -56,6 +59,9 @@ public final class UserPayloads {
             Map<String, Object> display = new HashMap<>();
             display.put("id", profile.displaySpecialization().id());
             display.put("name", profile.displaySpecialization().name());
+            if (profile.displaySpecialization().shortName() != null && !profile.displaySpecialization().shortName().isBlank()) {
+                display.put("short_name", profile.displaySpecialization().shortName());
+            }
             display.put("kind", profile.displaySpecialization().kind());
             if (profile.displaySpecialization().specializationType() != null) {
                 display.put("specialization_type", profile.displaySpecialization().specializationType());

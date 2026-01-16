@@ -351,7 +351,7 @@ public class CommunitiesRepository {
 
     public List<RecommendedRow> recommended(Long userId, String kind, String specializationType, int limit) {
         StringBuilder sql = new StringBuilder(
-                "SELECT c.id, c.kind, c.name, c.description, c.member_count, c.image_url, c.specialization_type, c.verification_ttl_days, " +
+                "SELECT c.id, c.kind, c.name, c.short_name, c.description, c.member_count, c.image_url, c.specialization_type, c.verification_ttl_days, " +
                         "CASE WHEN cf.user_id IS NULL THEN false ELSE true END AS is_following, " +
                         "CASE WHEN sj.user_id IS NULL THEN false ELSE true END AS is_joined " +
                         "FROM communities c " +
@@ -381,6 +381,7 @@ public class CommunitiesRepository {
                     row.id = rs.getLong("id");
                     row.kind = rs.getString("kind");
                     row.name = rs.getString("name");
+                    row.shortName = rs.getString("short_name");
                     row.description = rs.getString("description");
                     row.memberCount = rs.getInt("member_count");
                     row.imageUrl = rs.getString("image_url");
@@ -447,6 +448,7 @@ public class CommunitiesRepository {
         public long id;
         public String kind;
         public String name;
+        public String shortName;
         public String description;
         public int memberCount;
         public String imageUrl;

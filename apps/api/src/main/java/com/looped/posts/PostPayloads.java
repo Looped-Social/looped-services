@@ -27,6 +27,9 @@ public final class PostPayloads {
             Map<String, Object> display = new HashMap<>();
             display.put("id", row.authorDisplayCommunityId);
             display.put("name", row.authorDisplayCommunityName);
+            if (row.authorDisplayCommunityShortName != null && !row.authorDisplayCommunityShortName.isBlank()) {
+                display.put("short_name", row.authorDisplayCommunityShortName);
+            }
             display.put("kind", row.authorDisplayCommunityKind);
             if (row.authorDisplayCommunitySpecializationType != null) {
                 display.put("specialization_type", row.authorDisplayCommunitySpecializationType);
@@ -37,6 +40,9 @@ public final class PostPayloads {
             Map<String, Object> display = new HashMap<>();
             display.put("id", row.authorDisplaySpecializationId);
             display.put("name", row.authorDisplaySpecializationName);
+            if (row.authorDisplaySpecializationShortName != null && !row.authorDisplaySpecializationShortName.isBlank()) {
+                display.put("short_name", row.authorDisplaySpecializationShortName);
+            }
             display.put("kind", row.authorDisplaySpecializationKind);
             if (row.authorDisplaySpecializationType != null) {
                 display.put("specialization_type", row.authorDisplaySpecializationType);
@@ -47,6 +53,9 @@ public final class PostPayloads {
         out.put("company_id", row.companyId);
         out.put("community_id", row.communityId);
         out.put("community_name", row.communityName);
+        if (row.communityShortName != null && !row.communityShortName.isBlank()) {
+            out.put("community_short_name", row.communityShortName);
+        }
         out.put("community_kind", row.communityKind);
         out.put("content", row.content);
         out.put("media_asset_id", row.mediaAssetId);
@@ -96,6 +105,9 @@ public final class PostPayloads {
     public static Map<String, Object> trending(PostRepository.TrendingRow row) {
         Map<String, Object> out = from(row);
         out.put("community_name", row.communityName);
+        if (row.communityShortName != null && !row.communityShortName.isBlank()) {
+            out.put("community_short_name", row.communityShortName);
+        }
         out.put("community_kind", row.communityKind);
         out.put("title", titleFromContent(row.content));
         return out;

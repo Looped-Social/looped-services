@@ -216,6 +216,9 @@ public class SpecializationsController {
         out.put("id", row.specializationId());
         out.put("kind", row.kind());
         out.put("name", row.name());
+        if (row.shortName() != null && !row.shortName().isBlank()) {
+            out.put("short_name", row.shortName());
+        }
         out.put("member_count", memberCounts.getOrDefault(row.specializationId(), 0));
         if (row.specializationType() != null) out.put("specialization_type", row.specializationType());
         out.put("joined_at", row.createdAt());

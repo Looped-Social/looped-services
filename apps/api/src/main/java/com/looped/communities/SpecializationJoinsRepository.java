@@ -69,7 +69,7 @@ public class SpecializationJoinsRepository {
     public List<JoinRow> listJoined(long userId, String specializationType, OffsetDateTime cursorTs, Long cursorId, int limit) {
         String base = """
                 SELECT j.id AS join_id, j.specialization_id, j.created_at,
-                       c.name, c.kind, c.specialization_type, c.member_count
+                       c.name, c.short_name, c.kind, c.specialization_type, c.member_count
                 FROM specialization_joins j
                 JOIN communities c ON c.id = j.specialization_id
                 WHERE j.user_id = ? AND c.kind = 'specialization'
@@ -105,7 +105,7 @@ public class SpecializationJoinsRepository {
         return Set.copyOf(rows);
     }
 
-    public record JoinRow(long joinId, long specializationId, String name, String kind,
+    public record JoinRow(long joinId, long specializationId, String name, String shortName, String kind,
                           String specializationType, int memberCount, OffsetDateTime createdAt) {}
 
     private static final RowMapper<JoinRow> JOIN_MAPPER = new RowMapper<>() {
@@ -115,6 +115,7 @@ public class SpecializationJoinsRepository {
                     rs.getLong("join_id"),
                     rs.getLong("specialization_id"),
                     rs.getString("name"),
+                    rs.getString("short_name"),
                     rs.getString("kind"),
                     rs.getString("specialization_type"),
                     rs.getInt("member_count"),

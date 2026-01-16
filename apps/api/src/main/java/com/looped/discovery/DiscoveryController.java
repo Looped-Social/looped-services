@@ -298,6 +298,9 @@ public class DiscoveryController {
         map.put("id", row.id);
         map.put("kind", row.kind);
         map.put("name", row.name);
+        if (row.shortName != null && !row.shortName.isBlank()) {
+            map.put("short_name", row.shortName);
+        }
         map.put("description", row.description);
         map.put("member_count", memberCount);
         map.put("is_following", isFollowing);
@@ -327,6 +330,9 @@ public class DiscoveryController {
         map.put("id", row.id);
         map.put("kind", row.kind);
         map.put("name", row.name);
+        if (row.shortName != null && !row.shortName.isBlank()) {
+            map.put("short_name", row.shortName);
+        }
         map.put("description", row.description);
         map.put("member_count", memberCount);
         map.put("is_following", row.isFollowing);

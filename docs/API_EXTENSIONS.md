@@ -174,11 +174,11 @@
     - `anon_display_community` (target: anon_profile_id)
 - **Profile stats & DTO extensions**
   - User DTO now includes `stats` block with follower/following/posts/comments counts; display/bio/anonymity fields included across `/v1/me`, `/v1/users/{id}`, and update alias responses.
-  - User DTO may include `display_community` `{ id, name, kind, specialization_type? }` when the user has a verified display community selected.
-  - User DTO may include `display_specialization` `{ id, name, kind, specialization_type }` when the user has a highlighted major/department selected.
-  - Post DTOs include `comments_count`, `share_count`, `community_name`, `community_kind`, `author_first_name`, `author_last_name`, `is_anonymous`, and `is_saved`.
-  - Post DTOs may include `author_display_community` `{ id, name, kind, specialization_type? }` when the author has a verified display community selected.
-  - Post DTOs may include `author_display_specialization` `{ id, name, kind, specialization_type }` when the author has a highlighted major/department selected.
+  - User DTO may include `display_community` `{ id, name, short_name?, kind, specialization_type? }` when the user has a verified display community selected.
+  - User DTO may include `display_specialization` `{ id, name, short_name?, kind, specialization_type }` when the user has a highlighted major/department selected.
+  - Post DTOs include `comments_count`, `share_count`, `community_name`, `community_short_name?`, `community_kind`, `author_first_name`, `author_last_name`, `is_anonymous`, and `is_saved`.
+  - Post DTOs may include `author_display_community` `{ id, name, short_name?, kind, specialization_type? }` when the author has a verified display community selected.
+  - Post DTOs may include `author_display_specialization` `{ id, name, short_name?, kind, specialization_type }` when the author has a highlighted major/department selected.
 - **Comments history**
   - `GET /v1/users/{id}/comments?cursor=&limit=` → `{ items: [{ id, post_id, content, created_at, parent_id? }], next_cursor }`
 - **Community permissions**

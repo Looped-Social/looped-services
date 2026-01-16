@@ -591,10 +591,10 @@ public class UsersService {
     private UserProfile buildProfile(UserRepository.UserRow row, VerificationRepository.Row verification) {
         var verificationData = verification == null ? null : new Verification(verification.method, verification.verified, verification.verifiedAt);
         var displayCommunity = users.findDisplayCommunityForUser(row.id)
-                .map(dc -> new DisplayCommunity(dc.id, dc.name, dc.kind, dc.specializationType))
+                .map(dc -> new DisplayCommunity(dc.id, dc.name, dc.shortName, dc.kind, dc.specializationType))
                 .orElse(null);
         var displaySpecialization = users.findDisplaySpecializationForUser(row.id)
-                .map(ds -> new DisplaySpecialization(ds.id, ds.name, ds.kind, ds.specializationType))
+                .map(ds -> new DisplaySpecialization(ds.id, ds.name, ds.shortName, ds.kind, ds.specializationType))
                 .orElse(null);
         var stats = new ProfileStats(
                 users.countFollowers(row.id),
@@ -764,9 +764,9 @@ public class UsersService {
                               Verification verification, DisplayCommunity displayCommunity,
                               DisplaySpecialization displaySpecialization, ProfileStats stats) {}
 
-    public record DisplayCommunity(long id, String name, String kind, String specializationType) {}
+    public record DisplayCommunity(long id, String name, String shortName, String kind, String specializationType) {}
 
-    public record DisplaySpecialization(long id, String name, String kind, String specializationType) {}
+    public record DisplaySpecialization(long id, String name, String shortName, String kind, String specializationType) {}
 
     public record ProfileStats(int followerCount, int followingCount, int postsCount, int commentsCount) {}
 

@@ -124,28 +124,30 @@ public class RepostsRepository {
         String hideAnonymousFilter = hideAnonymousPosts
                 ? "AND (NOT (p.is_anon OR COALESCE(u.is_anonymous, false)) OR p.author_id = ?) "
                 : "";
-        Object[] params;
-        String sqlBase = "SELECT r.id AS repost_id, r.created_at AS repost_created_at, " +
-                "p.id AS post_id, p.author_id, p.author_principal_id, p.is_anon, p.anon_profile_id, p.anon_company_id, " +
-                "p.company_id, p.community_id, c.name AS community_name, c.kind AS community_kind, " +
-                "p.content, p.media_asset_id, " +
-                "COALESCE(pm.media_asset_ids, CASE WHEN p.media_asset_id IS NULL THEN NULL ELSE ARRAY[p.media_asset_id] END) AS media_asset_ids, " +
-                "p.likes_count, p.comments_count, p.share_count, p.repost_count, " +
-                "p.created_at AS post_created_at, " +
+	        Object[] params;
+	        String sqlBase = "SELECT r.id AS repost_id, r.created_at AS repost_created_at, " +
+	                "p.id AS post_id, p.author_id, p.author_principal_id, p.is_anon, p.anon_profile_id, p.anon_company_id, " +
+	                "p.company_id, p.community_id, c.name AS community_name, c.short_name AS community_short_name, c.kind AS community_kind, " +
+	                "p.content, p.media_asset_id, " +
+	                "COALESCE(pm.media_asset_ids, CASE WHEN p.media_asset_id IS NULL THEN NULL ELSE ARRAY[p.media_asset_id] END) AS media_asset_ids, " +
+	                "p.likes_count, p.comments_count, p.share_count, p.repost_count, " +
+	                "p.created_at AS post_created_at, " +
                 "COALESCE(u.handle, ap.handle) AS author_handle, " +
                 "u.display_name AS author_display_name, " +
                 "u.first_name AS author_first_name, " +
                 "u.last_name AS author_last_name, " +
-                "u.profile_image_url AS author_profile_image_url, " +
-                "dc.id AS author_display_community_id, " +
-                "dc.name AS author_display_community_name, " +
-                "dc.kind AS author_display_community_kind, " +
-                "dc.specialization_type AS author_display_community_specialization_type, " +
-                "ds.id AS author_display_specialization_id, " +
-                "ds.name AS author_display_specialization_name, " +
-                "ds.kind AS author_display_specialization_kind, " +
-                "ds.specialization_type AS author_display_specialization_type, " +
-                "CASE WHEN p.is_anon THEN true ELSE COALESCE(u.is_anonymous, false) END AS author_is_anonymous " +
+	                "u.profile_image_url AS author_profile_image_url, " +
+	                "dc.id AS author_display_community_id, " +
+	                "dc.name AS author_display_community_name, " +
+	                "dc.short_name AS author_display_community_short_name, " +
+	                "dc.kind AS author_display_community_kind, " +
+	                "dc.specialization_type AS author_display_community_specialization_type, " +
+	                "ds.id AS author_display_specialization_id, " +
+	                "ds.name AS author_display_specialization_name, " +
+	                "ds.short_name AS author_display_specialization_short_name, " +
+	                "ds.kind AS author_display_specialization_kind, " +
+	                "ds.specialization_type AS author_display_specialization_type, " +
+	                "CASE WHEN p.is_anon THEN true ELSE COALESCE(u.is_anonymous, false) END AS author_is_anonymous " +
                 "FROM post_reposts r " +
                 "JOIN posts p ON p.id = r.post_id " +
                 "LEFT JOIN communities c ON c.id = p.community_id " +
@@ -190,12 +192,13 @@ public class RepostsRepository {
             post.anonProfileId = rs.wasNull() ? null : anonProfile;
             long anonCompany = rs.getLong("anon_company_id");
             post.anonCompanyId = rs.wasNull() ? null : anonCompany;
-            post.companyId = rs.getLong("company_id");
-            long community = rs.getLong("community_id");
-            post.communityId = rs.wasNull() ? null : community;
-            post.communityName = rs.getString("community_name");
-            post.communityKind = rs.getString("community_kind");
-            post.content = rs.getString("content");
+	            post.companyId = rs.getLong("company_id");
+	            long community = rs.getLong("community_id");
+	            post.communityId = rs.wasNull() ? null : community;
+	            post.communityName = rs.getString("community_name");
+	            post.communityShortName = rs.getString("community_short_name");
+	            post.communityKind = rs.getString("community_kind");
+	            post.content = rs.getString("content");
             long media = rs.getLong("media_asset_id");
             post.mediaAssetId = rs.wasNull() ? null : media;
             post.mediaAssetIds = PostRepository.readMediaAssetIds(rs);
@@ -209,17 +212,19 @@ public class RepostsRepository {
             post.authorFirstName = rs.getString("author_first_name");
             post.authorLastName = rs.getString("author_last_name");
             post.authorProfileImageUrl = rs.getString("author_profile_image_url");
-            long displayCommunityId = rs.getLong("author_display_community_id");
-            post.authorDisplayCommunityId = rs.wasNull() ? null : displayCommunityId;
-            post.authorDisplayCommunityName = rs.getString("author_display_community_name");
-            post.authorDisplayCommunityKind = rs.getString("author_display_community_kind");
-            post.authorDisplayCommunitySpecializationType = rs.getString("author_display_community_specialization_type");
-            long displaySpecializationId = rs.getLong("author_display_specialization_id");
-            post.authorDisplaySpecializationId = rs.wasNull() ? null : displaySpecializationId;
-            post.authorDisplaySpecializationName = rs.getString("author_display_specialization_name");
-            post.authorDisplaySpecializationKind = rs.getString("author_display_specialization_kind");
-            post.authorDisplaySpecializationType = rs.getString("author_display_specialization_type");
-            post.authorIsAnonymous = rs.getBoolean("author_is_anonymous");
+	            long displayCommunityId = rs.getLong("author_display_community_id");
+	            post.authorDisplayCommunityId = rs.wasNull() ? null : displayCommunityId;
+	            post.authorDisplayCommunityName = rs.getString("author_display_community_name");
+	            post.authorDisplayCommunityShortName = rs.getString("author_display_community_short_name");
+	            post.authorDisplayCommunityKind = rs.getString("author_display_community_kind");
+	            post.authorDisplayCommunitySpecializationType = rs.getString("author_display_community_specialization_type");
+	            long displaySpecializationId = rs.getLong("author_display_specialization_id");
+	            post.authorDisplaySpecializationId = rs.wasNull() ? null : displaySpecializationId;
+	            post.authorDisplaySpecializationName = rs.getString("author_display_specialization_name");
+	            post.authorDisplaySpecializationShortName = rs.getString("author_display_specialization_short_name");
+	            post.authorDisplaySpecializationKind = rs.getString("author_display_specialization_kind");
+	            post.authorDisplaySpecializationType = rs.getString("author_display_specialization_type");
+	            post.authorIsAnonymous = rs.getBoolean("author_is_anonymous");
 
             return new RepostedPostRow(
                     rs.getLong("repost_id"),
