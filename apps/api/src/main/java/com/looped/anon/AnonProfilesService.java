@@ -76,13 +76,15 @@ public class AnonProfilesService {
                 stats.countPosts(principal.id)
         );
         DisplayCommunity displayCommunity = resolveDisplayCommunity(profile.get());
+        DisplaySpecialization displaySpecialization = resolveDisplaySpecialization(profile.get());
         return ProfileResult.ok(new AnonProfile(
                 profile.get().id,
                 profile.get().handle,
                 profile.get().companyId,
                 profile.get().createdAt,
                 statsBlock,
-                displayCommunity
+                displayCommunity,
+                displaySpecialization
         ));
     }
 
@@ -110,6 +112,7 @@ public class AnonProfilesService {
         var updated = profiles.findById(anonProfileId).orElseThrow();
         var principal = principals.createForAnon(anonProfileId);
         DisplayCommunity displayCommunity = resolveDisplayCommunity(updated);
+        DisplaySpecialization displaySpecialization = resolveDisplaySpecialization(updated);
         var statsBlock = new ProfileStats(
                 stats.countFollowers(principal.id),
                 stats.countFollowing(principal.id),
@@ -121,7 +124,8 @@ public class AnonProfilesService {
                 updated.companyId,
                 updated.createdAt,
                 statsBlock,
-                displayCommunity
+                displayCommunity,
+                displaySpecialization
         ));
     }
 
@@ -143,6 +147,90 @@ public class AnonProfilesService {
                 community.get().kind,
                 community.get().specializationType
         );
+    }
+
+    public UpdateDisplaySpecializationResult updateDisplaySpecialization(long anonProfileId, Long specializationId,
+                                                                         AnonProofService.AnonActionProof anonProof) {
+        var profile = profiles.findById(anonProfileId);
+        if (profile.isEmpty()) return UpdateDisplaySpecializationResult.notFound();
+        if (anonProof == null || anonProof.anonProfileId() == null) return UpdateDisplaySpecializationResult.invalidAnonProof();
+        if (!anonProfileIdEquals(anonProfileId, anonProof.anonProfileId())) {
+            return UpdateDisplaySpecializationResult.invalidAnonProof();
+        }
+
+        if (specializationId != null) {
+            var community = communities.findById(specializationId);
+            if (community.isEmpty()) return UpdateDisplaySpecializationResult.specializationNotFound();
+            var row = community.get();
+            if (!"specialization".equalsIgnoreCase(row.kind)) {
+                return UpdateDisplaySpecializationResult.invalidSpecialization();
+            }
+            String specializationType = normalizeSpecializationType(row.specializationType);
+            if (specializationType == null) {
+                return UpdateDisplaySpecializationResult.invalidSpecialization();
+            }
+            var verified = proofs.verifyActionScoped(anonProof, "anon_display_specialization", anonProfileId, specializationId);
+            if (verified.status() == AnonProofService.Status.INVALID_CERT) {
+                return UpdateDisplaySpecializationResult.specializationNotJoined();
+            }
+            if (verified.status() != AnonProofService.Status.OK) {
+                return UpdateDisplaySpecializationResult.invalidAnonProof();
+            }
+            profiles.updateDisplaySpecialization(anonProfileId, specializationId, anonProof.anonCertKid());
+        } else {
+            var verified = proofs.verifyAction(anonProof, "anon_display_specialization", anonProfileId);
+            if (verified.status() != AnonProofService.Status.OK) return UpdateDisplaySpecializationResult.invalidAnonProof();
+            profiles.updateDisplaySpecialization(anonProfileId, null, null);
+        }
+
+        var updated = profiles.findById(anonProfileId).orElseThrow();
+        var principal = principals.createForAnon(anonProfileId);
+        DisplayCommunity displayCommunity = resolveDisplayCommunity(updated);
+        DisplaySpecialization displaySpecialization = resolveDisplaySpecialization(updated);
+        var statsBlock = new ProfileStats(
+                stats.countFollowers(principal.id),
+                stats.countFollowing(principal.id),
+                stats.countPosts(principal.id)
+        );
+        return UpdateDisplaySpecializationResult.ok(new AnonProfile(
+                updated.id,
+                updated.handle,
+                updated.companyId,
+                updated.createdAt,
+                statsBlock,
+                displayCommunity,
+                displaySpecialization
+        ));
+    }
+
+    private DisplaySpecialization resolveDisplaySpecialization(AnonymousProfilesRepository.AnonymousProfileRow profile) {
+        if (profile.displaySpecializationId == null || profile.displaySpecializationCertKid == null) return null;
+        var issuer = issuers.findByKid(profile.displaySpecializationCertKid);
+        if (issuer.isEmpty()) return null;
+        var issuerRow = issuer.get();
+        if (issuerRow.expiresAt != null && issuerRow.expiresAt.isBefore(OffsetDateTime.now())) return null;
+        if (!"community".equals(issuerRow.scopeKind) || issuerRow.scopeId == null
+                || !issuerRow.scopeId.equals(profile.displaySpecializationId)) {
+            return null;
+        }
+        var community = communities.findById(profile.displaySpecializationId);
+        if (community.isEmpty()) return null;
+        var row = community.get();
+        if (!"specialization".equalsIgnoreCase(row.kind)) return null;
+        String specializationType = normalizeSpecializationType(row.specializationType);
+        if (specializationType == null) return null;
+        return new DisplaySpecialization(
+                row.id,
+                row.name,
+                row.kind,
+                specializationType
+        );
+    }
+
+    private String normalizeSpecializationType(String specializationType) {
+        if (specializationType == null) return null;
+        String v = specializationType.trim().toLowerCase(java.util.Locale.ROOT);
+        return (v.equals("major") || v.equals("department")) ? v : null;
     }
 
     private boolean anonProfileIdEquals(long expected, long provided) {
@@ -343,6 +431,27 @@ public class AnonProfilesService {
         }
     }
 
+    public record UpdateDisplaySpecializationResult(UpdateDisplaySpecializationStatus status, AnonProfile profile) {
+        static UpdateDisplaySpecializationResult ok(AnonProfile profile) {
+            return new UpdateDisplaySpecializationResult(UpdateDisplaySpecializationStatus.OK, profile);
+        }
+        static UpdateDisplaySpecializationResult notFound() {
+            return new UpdateDisplaySpecializationResult(UpdateDisplaySpecializationStatus.NOT_FOUND, null);
+        }
+        static UpdateDisplaySpecializationResult invalidAnonProof() {
+            return new UpdateDisplaySpecializationResult(UpdateDisplaySpecializationStatus.INVALID_ANON_PROOF, null);
+        }
+        static UpdateDisplaySpecializationResult specializationNotFound() {
+            return new UpdateDisplaySpecializationResult(UpdateDisplaySpecializationStatus.SPECIALIZATION_NOT_FOUND, null);
+        }
+        static UpdateDisplaySpecializationResult invalidSpecialization() {
+            return new UpdateDisplaySpecializationResult(UpdateDisplaySpecializationStatus.INVALID_SPECIALIZATION, null);
+        }
+        static UpdateDisplaySpecializationResult specializationNotJoined() {
+            return new UpdateDisplaySpecializationResult(UpdateDisplaySpecializationStatus.SPECIALIZATION_NOT_JOINED, null);
+        }
+    }
+
     public record PostsResult(Status status, List<PostRepository.PostRow> posts, String nextCursor) {
         static PostsResult ok(List<PostRepository.PostRow> posts, String next) { return new PostsResult(Status.OK, posts, next); }
         static PostsResult userNotProvisioned() { return new PostsResult(Status.USER_NOT_PROVISIONED, List.of(), null); }
@@ -375,13 +484,19 @@ public class AnonProfilesService {
     }
 
     public record AnonProfile(long id, String handle, Long companyId, OffsetDateTime createdAt,
-                              ProfileStats stats, DisplayCommunity displayCommunity) {}
+                              ProfileStats stats, DisplayCommunity displayCommunity, DisplaySpecialization displaySpecialization) {}
 
     public record DisplayCommunity(long id, String name, String kind, String specializationType) {}
+
+    public record DisplaySpecialization(long id, String name, String kind, String specializationType) {}
 
     public record ProfileStats(int followerCount, int followingCount, int postsCount) {}
 
     public enum UpdateDisplayCommunityStatus { OK, NOT_FOUND, INVALID_ANON_PROOF, COMMUNITY_NOT_FOUND }
+
+    public enum UpdateDisplaySpecializationStatus {
+        OK, NOT_FOUND, INVALID_ANON_PROOF, SPECIALIZATION_NOT_FOUND, INVALID_SPECIALIZATION, SPECIALIZATION_NOT_JOINED
+    }
 
     public enum AnonStatus { OK, INVALID_ANON_PROOF }
 

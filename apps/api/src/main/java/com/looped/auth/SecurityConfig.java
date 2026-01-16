@@ -75,6 +75,7 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.PUT, "/v1/comments/*").permitAll()
                 .requestMatchers(HttpMethod.DELETE, "/v1/comments/*").permitAll()
                 .requestMatchers(HttpMethod.PUT, "/v1/anon/*/display-community").permitAll()
+                .requestMatchers(HttpMethod.PUT, "/v1/anon/*/display-specialization").permitAll()
                 .requestMatchers(HttpMethod.GET, "/v1/anon/*/posts/liked").permitAll()
                 .requestMatchers(HttpMethod.GET, "/v1/anon/*/posts/saved").permitAll()
                 .requestMatchers(HttpMethod.GET, "/v1/anon/*/replies").permitAll()

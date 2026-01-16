@@ -102,9 +102,12 @@ public class SavedPostsRepository {
             "LEFT JOIN community_verifications cv ON cv.user_id = u.id AND cv.community_id = u.display_community_id " +
             "AND cv.verified = true AND (cv.expires_at IS NULL OR cv.expires_at > now()) " +
             "LEFT JOIN communities dc ON dc.id = cv.community_id " +
-            "LEFT JOIN communities ds ON ds.id = u.display_specialization_id " +
-            "AND ds.kind = 'specialization' AND ds.specialization_type IN ('major','department') " +
             "LEFT JOIN anonymous_profiles ap ON ap.id = p.anon_profile_id " +
+            "LEFT JOIN anon_issuers asi ON asi.kid = ap.display_specialization_cert_kid " +
+            "AND asi.scope_kind = 'community' AND asi.scope_id = ap.display_specialization_id " +
+            "AND (asi.expires_at IS NULL OR asi.expires_at > now()) " +
+            "LEFT JOIN communities ds ON ds.id = COALESCE(u.display_specialization_id, CASE WHEN asi.id IS NULL THEN NULL ELSE ap.display_specialization_id END) " +
+            "AND ds.kind = 'specialization' AND ds.specialization_type IN ('major','department') " +
             "LEFT JOIN LATERAL (" +
             "  SELECT ARRAY_AGG(pma.media_asset_id ORDER BY pma.sort_order) AS media_asset_ids " +
             "  FROM post_media_assets pma WHERE pma.post_id = p.id" +

@@ -7,12 +7,16 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+
+import com.fasterxml.jackson.annotation.JsonAlias;
 
 import java.util.HashMap;
 import java.util.List;
@@ -63,6 +67,45 @@ public class AnonProfilesController {
         return switch (res.status()) {
             case NOT_FOUND -> ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "not_found"));
             case COMMUNITY_NOT_FOUND -> ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "community_not_found"));
+            case INVALID_ANON_PROOF -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
+                    "error", "invalid_anon_proof",
+                    "message", "Invalid anonymous proof"
+            ));
+            case OK -> ResponseEntity.ok(toAnonProfilePayload(res.profile()));
+        };
+    }
+
+    @PutMapping("/{id}/display-specialization")
+    public ResponseEntity<?> updateDisplaySpecialization(
+            @AuthenticationPrincipal Jwt jwt,
+            @RequestHeader(value = "X-Actor", required = false) String actor,
+            @PathVariable("id") long id,
+            @RequestBody DisplaySpecializationRequest body
+    ) {
+        if (jwt != null) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of(
+                    "error", "anon_jwt_not_allowed",
+                    "message", "Do not send Authorization for anonymous actions"
+            ));
+        }
+        if (actor == null || !actor.equalsIgnoreCase("anon")) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of(
+                    "error", "invalid_actor",
+                    "message", "X-Actor: anon is required for this endpoint"
+            ));
+        }
+        if (body == null || !body.hasAnonProof()) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
+                    "error", "invalid_anon_proof",
+                    "message", "Invalid anonymous proof"
+            ));
+        }
+        var res = service.updateDisplaySpecialization(id, body.specializationId(), body.toAnonProof());
+        return switch (res.status()) {
+            case NOT_FOUND -> ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "not_found"));
+            case SPECIALIZATION_NOT_FOUND -> ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "specialization_not_found"));
+            case INVALID_SPECIALIZATION -> ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of("error", "invalid_specialization"));
+            case SPECIALIZATION_NOT_JOINED -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "specialization_not_joined"));
             case INVALID_ANON_PROOF -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
                     "error", "invalid_anon_proof",
                     "message", "Invalid anonymous proof"
@@ -318,6 +361,18 @@ public class AnonProfilesController {
         } else {
             body.put("display_community", null);
         }
+        if (profile.displaySpecialization() != null) {
+            Map<String, Object> display = new HashMap<>();
+            display.put("id", profile.displaySpecialization().id());
+            display.put("name", profile.displaySpecialization().name());
+            display.put("kind", profile.displaySpecialization().kind());
+            if (profile.displaySpecialization().specializationType() != null) {
+                display.put("specialization_type", profile.displaySpecialization().specializationType());
+            }
+            body.put("display_specialization", display);
+        } else {
+            body.put("display_specialization", null);
+        }
         Map<String, Object> stats = new HashMap<>();
         stats.put("follower_count", profile.stats().followerCount());
         stats.put("following_count", profile.stats().followingCount());
@@ -328,6 +383,27 @@ public class AnonProfilesController {
 
     public record DisplayCommunityRequest(Long communityId, Boolean asAnon, Long anonProfileId,
                                           String anonCert, String anonCertKid, String anonSig) {
+        AnonProofService.AnonActionProof toAnonProof() {
+            return new AnonProofService.AnonActionProof(anonProfileId, anonCert, anonCertKid, anonSig);
+        }
+
+        boolean hasAnonProof() {
+            return anonProfileId != null
+                    && anonCert != null && !anonCert.isBlank()
+                    && anonCertKid != null && !anonCertKid.isBlank()
+                    && anonSig != null && !anonSig.isBlank()
+                    && Boolean.TRUE.equals(asAnon);
+        }
+    }
+
+    public record DisplaySpecializationRequest(
+            @JsonAlias("specialization_id") Long specializationId,
+            @JsonAlias("as_anon") Boolean asAnon,
+            @JsonAlias("anon_profile_id") Long anonProfileId,
+            @JsonAlias("anon_cert") String anonCert,
+            @JsonAlias("anon_cert_kid") String anonCertKid,
+            @JsonAlias("anon_sig") String anonSig
+    ) {
         AnonProofService.AnonActionProof toAnonProof() {
             return new AnonProofService.AnonActionProof(anonProfileId, anonCert, anonCertKid, anonSig);
         }

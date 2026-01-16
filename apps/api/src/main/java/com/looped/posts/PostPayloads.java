@@ -33,7 +33,7 @@ public final class PostPayloads {
             }
             out.put("author_display_community", display);
         }
-        if (!row.authorIsAnonymous && row.authorDisplaySpecializationId != null) {
+        if ((row.isAnon || !row.authorIsAnonymous) && row.authorDisplaySpecializationId != null) {
             Map<String, Object> display = new HashMap<>();
             display.put("id", row.authorDisplaySpecializationId);
             display.put("name", row.authorDisplaySpecializationName);

@@ -29,6 +29,9 @@ public class AnonymousProfilesRepository {
             long displayCommunityId = rs.getLong("display_community_id");
             row.displayCommunityId = rs.wasNull() ? null : displayCommunityId;
             row.displayCommunityCertKid = rs.getString("display_community_cert_kid");
+            long displaySpecializationId = rs.getLong("display_specialization_id");
+            row.displaySpecializationId = rs.wasNull() ? null : displaySpecializationId;
+            row.displaySpecializationCertKid = rs.getString("display_specialization_cert_kid");
             row.createdAt = rs.getObject("created_at", OffsetDateTime.class);
             return row;
         }
@@ -36,7 +39,10 @@ public class AnonymousProfilesRepository {
 
     public Optional<AnonymousProfileRow> findById(long id) {
         var rows = jdbc.query(
-                "SELECT id, company_id, public_key, handle, display_community_id, display_community_cert_kid, created_at " +
+                "SELECT id, company_id, public_key, handle, " +
+                        "display_community_id, display_community_cert_kid, " +
+                        "display_specialization_id, display_specialization_cert_kid, " +
+                        "created_at " +
                         "FROM anonymous_profiles WHERE id = ?",
                 MAPPER, id
         );
@@ -45,7 +51,10 @@ public class AnonymousProfilesRepository {
 
     public Optional<AnonymousProfileRow> findByPublicKey(byte[] publicKey) {
         var rows = jdbc.query(
-                "SELECT id, company_id, public_key, handle, display_community_id, display_community_cert_kid, created_at " +
+                "SELECT id, company_id, public_key, handle, " +
+                        "display_community_id, display_community_cert_kid, " +
+                        "display_specialization_id, display_specialization_cert_kid, " +
+                        "created_at " +
                         "FROM anonymous_profiles WHERE public_key = ?",
                 MAPPER, publicKey
         );
@@ -72,6 +81,14 @@ public class AnonymousProfilesRepository {
         return rows > 0;
     }
 
+    public boolean updateDisplaySpecialization(long anonProfileId, Long specializationId, String certKid) {
+        int rows = jdbc.update(
+                "UPDATE anonymous_profiles SET display_specialization_id = ?, display_specialization_cert_kid = ? WHERE id = ?",
+                specializationId, certKid, anonProfileId
+        );
+        return rows > 0;
+    }
+
     public static class AnonymousProfileRow {
         public long id;
         public Long companyId;
@@ -79,6 +96,8 @@ public class AnonymousProfilesRepository {
         public String handle;
         public Long displayCommunityId;
         public String displayCommunityCertKid;
+        public Long displaySpecializationId;
+        public String displaySpecializationCertKid;
         public OffsetDateTime createdAt;
     }
 }
