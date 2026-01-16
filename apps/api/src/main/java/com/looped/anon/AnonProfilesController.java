@@ -134,6 +134,51 @@ public class AnonProfilesController {
         };
     }
 
+    @GetMapping("/{id}/content")
+    public ResponseEntity<?> content(
+            @AuthenticationPrincipal Jwt jwt,
+            @PathVariable("id") long id,
+            @RequestParam(value = "cursor", required = false) String cursor,
+            @RequestParam(value = "limit", required = false, defaultValue = "20") int limit
+    ) {
+        if (jwt == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("error", "unauthorized"));
+        }
+        int lim = Math.max(1, Math.min(limit, 100));
+        var res = service.content(jwt.getSubject(), id, cursor, lim);
+        return switch (res.status()) {
+            case USER_NOT_PROVISIONED -> ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "user_not_provisioned"));
+            case NOT_FOUND -> ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "not_found"));
+            case FORBIDDEN -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "forbidden"));
+            case OK -> {
+                Map<String, Object> body = new HashMap<>();
+                body.put("items", res.items());
+                if (res.nextCursor() != null) body.put("next_cursor", res.nextCursor());
+                yield ResponseEntity.ok(body);
+            }
+        };
+    }
+
+    @GetMapping("/{id}/reposts")
+    public ResponseEntity<?> reposts(
+            @AuthenticationPrincipal Jwt jwt,
+            @PathVariable("id") long id,
+            @RequestParam(value = "cursor", required = false) String cursor,
+            @RequestParam(value = "limit", required = false, defaultValue = "20") int limit
+    ) {
+        if (jwt == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("error", "unauthorized"));
+        }
+        int lim = Math.max(1, Math.min(limit, 100));
+        var res = service.reposts(jwt.getSubject(), id, cursor, lim);
+        return switch (res.status()) {
+            case USER_NOT_PROVISIONED -> ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "user_not_provisioned"));
+            case NOT_FOUND -> ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "not_found"));
+            case FORBIDDEN -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "forbidden"));
+            case OK -> ResponseEntity.ok(toPostListPayload(res.posts(), res.nextCursor()));
+        };
+    }
+
     @GetMapping("/{id}/posts/liked")
     public ResponseEntity<?> likedPosts(
             @AuthenticationPrincipal Jwt jwt,

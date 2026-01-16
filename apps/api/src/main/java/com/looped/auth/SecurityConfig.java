@@ -63,6 +63,8 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.POST, "/v1/posts").permitAll()
                 .requestMatchers(HttpMethod.PUT, "/v1/posts/*").permitAll()
                 .requestMatchers(HttpMethod.DELETE, "/v1/posts/*").permitAll()
+                .requestMatchers(HttpMethod.PUT, "/v1/posts/*/repost").permitAll()
+                .requestMatchers(HttpMethod.DELETE, "/v1/posts/*/repost").permitAll()
                 .requestMatchers(HttpMethod.POST, "/v1/posts/*/like").permitAll()
                 .requestMatchers(HttpMethod.DELETE, "/v1/posts/*/like").permitAll()
                 .requestMatchers(HttpMethod.POST, "/v1/posts/*/save").permitAll()

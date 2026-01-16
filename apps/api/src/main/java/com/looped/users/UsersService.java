@@ -127,7 +127,16 @@ public class UsersService {
         var target = users.findById(targetUserId);
         if (target.isEmpty()) return ContentResult.notFound();
         if (!actor.get().companyId.equals(target.get().companyId)) return ContentResult.forbidden();
+        return contentImpl(actor.get(), targetUserId, cursor, limit);
+    }
 
+    public ContentResult contentMe(String firebaseUid, String cursor, int limit) {
+        var actor = requireProvisionedUser(firebaseUid);
+        if (actor.isEmpty()) return ContentResult.userNotProvisioned();
+        return contentImpl(actor.get(), actor.get().id, cursor, limit);
+    }
+
+    private ContentResult contentImpl(UserRepository.UserRow actor, long targetUserId, String cursor, int limit) {
         OffsetDateTime cTs = null;
         Long cSortId = null;
         if (cursor != null && !cursor.isBlank()) {
@@ -138,7 +147,7 @@ public class UsersService {
             } catch (IllegalArgumentException ignored) {}
         }
 
-        var refs = content.list(targetUserId, actor.get().id, actor.get().hideAnonymousPosts, cTs, cSortId, limit);
+        var refs = content.list(targetUserId, actor.id, actor.hideAnonymousPosts, cTs, cSortId, limit);
         if (refs.isEmpty()) return ContentResult.ok(java.util.List.of(), null);
 
         java.util.List<Long> postIds = refs.stream()
@@ -153,7 +162,7 @@ public class UsersService {
         java.util.Map<Long, PostRepository.PostRow> postsById = new java.util.HashMap<>();
         if (!postIds.isEmpty()) {
             var postRows = posts.findByIds(postIds);
-            var viewerPrincipal = principals.createForUser(actor.get().id);
+            var viewerPrincipal = principals.createForUser(actor.id);
             postState.applyForPrincipal(viewerPrincipal.id, postRows);
             for (var p : postRows) postsById.put(p.id, p);
         }

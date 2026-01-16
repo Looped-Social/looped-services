@@ -92,6 +92,37 @@ public class UsersController {
         };
     }
 
+    @GetMapping("/me/content")
+    public ResponseEntity<?> myContent(
+            @AuthenticationPrincipal Jwt jwt,
+            @RequestParam(value = "cursor", required = false) String cursor,
+            @RequestParam(value = "limit", required = false, defaultValue = "20") int limit
+    ) {
+        int lim = Math.max(1, Math.min(limit, 100));
+        var res = service.contentMe(jwt.getSubject(), cursor, lim);
+        return switch (res.status()) {
+            case USER_NOT_PROVISIONED -> ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
+                    "error", "user_not_provisioned",
+                    "message", "Complete onboarding before viewing content"
+            ));
+            case OK -> {
+                Map<String, Object> body = new HashMap<>();
+                body.put("items", res.items());
+                if (res.nextCursor() != null) body.put("next_cursor", res.nextCursor());
+                yield ResponseEntity.ok(body);
+            }
+            case NOT_FOUND -> ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of(
+                    "error", "not_found",
+                    "message", "User not found"
+            ));
+            case FORBIDDEN -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
+                    "error", "forbidden",
+                    "message", "Cross-company access denied"
+            ));
+            default -> ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        };
+    }
+
     @PutMapping("/me/display-community")
     public ResponseEntity<?> updateDisplayCommunity(
             @AuthenticationPrincipal Jwt jwt,

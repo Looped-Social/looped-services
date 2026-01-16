@@ -3,13 +3,16 @@ package com.looped.anon;
 import com.looped.communities.CommunitiesRepository;
 import com.looped.comments.CommentsRepository;
 import com.looped.posts.LikesRepository;
+import com.looped.posts.PostPayloads;
 import com.looped.posts.PostRepository;
 import com.looped.posts.PostStateService;
+import com.looped.posts.RepostsRepository;
 import com.looped.posts.SavedPostsRepository;
 import com.looped.principals.PrincipalProfilesRepository;
 import com.looped.principals.PrincipalRepository;
 import com.looped.principals.PrincipalStatsRepository;
 import com.looped.shared.Pagination;
+import com.looped.users.UserPayloads;
 import com.looped.users.UserRepository;
 import org.springframework.stereotype.Service;
 
@@ -27,8 +30,10 @@ public class AnonProfilesService {
     private final PrincipalProfilesRepository follows;
     private final LikesRepository likes;
     private final SavedPostsRepository savedPosts;
+    private final RepostsRepository reposts;
     private final PostStateService postState;
     private final CommentsRepository comments;
+    private final AnonContentRepository content;
     private final CommunitiesRepository communities;
     private final AnonIssuerRepository issuers;
     private final AnonProofService proofs;
@@ -41,8 +46,10 @@ public class AnonProfilesService {
                                PrincipalProfilesRepository follows,
                                LikesRepository likes,
                                SavedPostsRepository savedPosts,
+                               RepostsRepository reposts,
                                PostStateService postState,
                                CommentsRepository comments,
+                               AnonContentRepository content,
                                CommunitiesRepository communities,
                                AnonIssuerRepository issuers,
                                AnonProofService proofs) {
@@ -54,8 +61,10 @@ public class AnonProfilesService {
         this.follows = follows;
         this.likes = likes;
         this.savedPosts = savedPosts;
+        this.reposts = reposts;
         this.postState = postState;
         this.comments = comments;
+        this.content = content;
         this.communities = communities;
         this.issuers = issuers;
         this.proofs = proofs;
@@ -279,6 +288,114 @@ public class AnonProfilesService {
         return PostsResult.ok(rows, next);
     }
 
+    public ContentResult content(String firebaseUid, long anonProfileId, String cursor, int limit) {
+        var actor = users.findByFirebaseUid(firebaseUid);
+        if (actor.isEmpty() || actor.get().companyId == null) return ContentResult.userNotProvisioned();
+        var profile = profiles.findById(anonProfileId);
+        if (profile.isEmpty()) return ContentResult.notFound();
+        if (profile.get().companyId != null && !actor.get().companyId.equals(profile.get().companyId)) {
+            return ContentResult.forbidden();
+        }
+
+        var targetPrincipal = principals.createForAnon(anonProfileId);
+        var viewerPrincipal = principals.createForUser(actor.get().id);
+
+        OffsetDateTime cTs = null;
+        Long cSortId = null;
+        if (cursor != null && !cursor.isBlank()) {
+            try {
+                var decoded = Pagination.decode(cursor);
+                cTs = decoded.timestamp();
+                cSortId = decoded.id();
+            } catch (IllegalArgumentException ignored) {}
+        }
+
+        var refs = content.list(targetPrincipal.id, cTs, cSortId, limit);
+        if (refs.isEmpty()) return ContentResult.ok(List.of(), null);
+
+        List<Long> postIds = refs.stream()
+                .filter(r -> "post".equals(r.type()))
+                .map(AnonContentRepository.ContentRefRow::entityId)
+                .toList();
+        List<Long> replyIds = refs.stream()
+                .filter(r -> "reply".equals(r.type()))
+                .map(AnonContentRepository.ContentRefRow::entityId)
+                .toList();
+
+        java.util.Map<Long, PostRepository.PostRow> postsById = new java.util.HashMap<>();
+        if (!postIds.isEmpty()) {
+            var postRows = posts.findByIds(postIds);
+            postState.applyForPrincipal(viewerPrincipal.id, postRows);
+            for (var p : postRows) postsById.put(p.id, p);
+        }
+
+        java.util.Map<Long, CommentsRepository.CommentRow> repliesById = new java.util.HashMap<>();
+        if (!replyIds.isEmpty()) {
+            for (var row : comments.findByIds(replyIds)) repliesById.put(row.id, row);
+        }
+
+        java.util.List<java.util.Map<String, Object>> items = new java.util.ArrayList<>();
+        for (var ref : refs) {
+            if ("post".equals(ref.type())) {
+                var p = postsById.get(ref.entityId());
+                if (p == null) continue;
+                items.add(java.util.Map.of(
+                        "type", "post",
+                        "created_at", ref.createdAt(),
+                        "post", PostPayloads.from(p)
+                ));
+            } else if ("reply".equals(ref.type())) {
+                var c = repliesById.get(ref.entityId());
+                if (c == null) continue;
+                items.add(java.util.Map.of(
+                        "type", "reply",
+                        "created_at", ref.createdAt(),
+                        "reply", UserPayloads.comment(c)
+                ));
+            }
+        }
+
+        String next = null;
+        if (refs.size() == limit) {
+            var last = refs.get(refs.size() - 1);
+            next = Pagination.encode(last.createdAt(), last.sortId());
+        }
+        return ContentResult.ok(items, next);
+    }
+
+    public RepostsResult reposts(String firebaseUid, long anonProfileId, String cursor, int limit) {
+        var actor = users.findByFirebaseUid(firebaseUid);
+        if (actor.isEmpty() || actor.get().companyId == null) return RepostsResult.userNotProvisioned();
+        var profile = profiles.findById(anonProfileId);
+        if (profile.isEmpty()) return RepostsResult.notFound();
+        if (profile.get().companyId != null && !actor.get().companyId.equals(profile.get().companyId)) {
+            return RepostsResult.forbidden();
+        }
+
+        var targetPrincipal = principals.createForAnon(anonProfileId);
+        var viewerPrincipal = principals.createForUser(actor.get().id);
+
+        OffsetDateTime cTs = null;
+        Long cId = null;
+        if (cursor != null && !cursor.isBlank()) {
+            try {
+                var decoded = Pagination.decode(cursor);
+                cTs = decoded.timestamp();
+                cId = decoded.id();
+            } catch (IllegalArgumentException ignored) {}
+        }
+
+        var rows = reposts.repostedPosts(targetPrincipal.id, cTs, cId, limit, actor.get().id, actor.get().hideAnonymousPosts);
+        String next = null;
+        if (rows.size() == limit) {
+            var last = rows.get(rows.size() - 1);
+            next = Pagination.encode(last.repostedAt(), last.repostId());
+        }
+        var posts = rows.stream().map(RepostsRepository.RepostedPostRow::post).toList();
+        postState.applyForPrincipal(viewerPrincipal.id, posts);
+        return RepostsResult.ok(posts, next);
+    }
+
     public AnonPostListResult likedPosts(long anonProfileId, String cursor, int limit, AnonProofService.AnonActionProof anonProof) {
         if (anonProof == null || anonProof.anonProfileId() == null) return AnonPostListResult.invalidAnonProof();
         if (!anonProfileIdEquals(anonProfileId, anonProof.anonProfileId())) return AnonPostListResult.invalidAnonProof();
@@ -408,6 +525,20 @@ public class AnonProfilesService {
     }
 
     public enum Status { OK, USER_NOT_PROVISIONED, NOT_FOUND, FORBIDDEN }
+
+    public record ContentResult(Status status, List<java.util.Map<String, Object>> items, String nextCursor) {
+        static ContentResult ok(List<java.util.Map<String, Object>> items, String next) { return new ContentResult(Status.OK, items, next); }
+        static ContentResult userNotProvisioned() { return new ContentResult(Status.USER_NOT_PROVISIONED, List.of(), null); }
+        static ContentResult notFound() { return new ContentResult(Status.NOT_FOUND, List.of(), null); }
+        static ContentResult forbidden() { return new ContentResult(Status.FORBIDDEN, List.of(), null); }
+    }
+
+    public record RepostsResult(Status status, List<PostRepository.PostRow> posts, String nextCursor) {
+        static RepostsResult ok(List<PostRepository.PostRow> posts, String next) { return new RepostsResult(Status.OK, posts, next); }
+        static RepostsResult userNotProvisioned() { return new RepostsResult(Status.USER_NOT_PROVISIONED, List.of(), null); }
+        static RepostsResult notFound() { return new RepostsResult(Status.NOT_FOUND, List.of(), null); }
+        static RepostsResult forbidden() { return new RepostsResult(Status.FORBIDDEN, List.of(), null); }
+    }
 
     public record ProfileResult(Status status, AnonProfile profile) {
         static ProfileResult ok(AnonProfile profile) { return new ProfileResult(Status.OK, profile); }
