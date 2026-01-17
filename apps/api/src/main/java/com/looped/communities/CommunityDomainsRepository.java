@@ -48,7 +48,9 @@ public class CommunityDomainsRepository {
 
     public Optional<String> firstDomain(long communityId) {
         var rows = jdbc.query(
-                "SELECT domain FROM community_domains WHERE community_id = ? ORDER BY domain ASC LIMIT 1",
+                "SELECT domain FROM community_domains WHERE community_id = ? " +
+                        "ORDER BY (length(domain) - length(replace(domain, '.', ''))) ASC, length(domain) ASC, domain ASC " +
+                        "LIMIT 1",
                 (rs, rowNum) -> rs.getString("domain"),
                 communityId
         );
@@ -61,7 +63,8 @@ public class CommunityDomainsRepository {
         Object[] params = communityIds.toArray();
         var rows = jdbc.query(
                 "SELECT community_id, domain FROM community_domains WHERE community_id IN (" + placeholders + ") " +
-                        "ORDER BY community_id ASC, domain ASC",
+                        "ORDER BY community_id ASC, " +
+                        "(length(domain) - length(replace(domain, '.', ''))) ASC, length(domain) ASC, domain ASC",
                 (rs, rowNum) -> Map.entry(rs.getLong("community_id"), rs.getString("domain")),
                 params
         );
@@ -91,7 +94,16 @@ public class CommunityDomainsRepository {
                 communityId,
                 normalized
         );
-        return rows > 0;
+        if (rows > 0) {
+            jdbc.update(
+                    "UPDATE communities SET short_name = split_part(?, '.', 1) " +
+                            "WHERE id = ? AND (short_name IS NULL OR btrim(short_name) = '')",
+                    normalized,
+                    communityId
+            );
+            return true;
+        }
+        return false;
     }
 
     public boolean delete(long communityId, String domain) {
