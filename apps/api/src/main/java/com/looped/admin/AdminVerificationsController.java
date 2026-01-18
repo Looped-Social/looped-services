@@ -8,6 +8,7 @@ import com.looped.verification.VerificationProperties;
 import com.looped.verification.VerificationRepository;
 import com.looped.verification.VerificationPrivateMediaService;
 import com.looped.verification.VerificationRequestsRepository;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -195,8 +196,20 @@ public class AdminVerificationsController {
         }
         if (req.get().communityId != null) {
             var community = communities.findById(req.get().communityId).orElseThrow();
-            communityVerifications.markVerified(req.get().userId, req.get().communityId, req.get().method,
-                    resolveExpiry(community));
+            String method = req.get().method;
+            String requestEmail = "email".equalsIgnoreCase(method) ? req.get().email : null;
+            try {
+                communityVerifications.markVerified(
+                        req.get().userId,
+                        req.get().communityId,
+                        method,
+                        resolveExpiry(community),
+                        requestEmail
+                );
+            } catch (DataIntegrityViolationException ex) {
+                requests.updateStatus(id, "rejected", authRes.admin().id, "email_in_use");
+                return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "email_in_use"));
+            }
         } else {
             verifications.markVerified(req.get().userId, req.get().method);
         }

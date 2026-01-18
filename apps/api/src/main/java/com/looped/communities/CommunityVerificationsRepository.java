@@ -9,6 +9,7 @@ import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 @Repository
 public class CommunityVerificationsRepository {
@@ -84,23 +85,65 @@ public class CommunityVerificationsRepository {
     }
 
     public void markVerified(long userId, long communityId, String method, OffsetDateTime expiresAt) {
+        markVerified(userId, communityId, method, expiresAt, null);
+    }
+
+    public void markVerified(long userId, long communityId, String method, OffsetDateTime expiresAt, String email) {
         jdbc.update(
-                "INSERT INTO community_verifications(user_id, community_id, method, verified, verified_at, expires_at) " +
-                        "VALUES (?,?,?, true, now(), ?) " +
+                "INSERT INTO community_verifications(user_id, community_id, method, verified, verified_at, expires_at, email) " +
+                        "VALUES (?,?,?, true, now(), ?, ?) " +
                         "ON CONFLICT (user_id, community_id) DO UPDATE SET method=EXCLUDED.method, verified=true, " +
-                        "verified_at=now(), expires_at=EXCLUDED.expires_at",
-                userId, communityId, method, expiresAt
+                        "verified_at=now(), expires_at=EXCLUDED.expires_at, email=EXCLUDED.email",
+                userId, communityId, method, expiresAt, email
         );
     }
 
     public void markUnverified(long userId, long communityId, String method) {
         jdbc.update(
-                "INSERT INTO community_verifications(user_id, community_id, method, verified, verified_at, expires_at) " +
-                        "VALUES (?,?,?, false, NULL, NULL) " +
+                "INSERT INTO community_verifications(user_id, community_id, method, verified, verified_at, expires_at, email) " +
+                        "VALUES (?,?,?, false, NULL, NULL, NULL) " +
                         "ON CONFLICT (user_id, community_id) DO UPDATE SET method=EXCLUDED.method, verified=false, " +
-                        "verified_at=NULL, expires_at=NULL",
+                        "verified_at=NULL, expires_at=NULL, email=NULL",
                 userId, communityId, method
         );
+    }
+
+    public boolean unverifyAndReleaseEmail(long userId, long communityId) {
+        int rows = jdbc.update(
+                "UPDATE community_verifications " +
+                        "SET verified=false, verified_at=NULL, expires_at=NULL, email=NULL " +
+                        "WHERE user_id=? AND community_id=?",
+                userId, communityId
+        );
+        return rows > 0;
+    }
+
+    public int expireAllExpiredNow() {
+        return jdbc.update(
+                "UPDATE community_verifications " +
+                        "SET verified=false, email=NULL " +
+                        "WHERE verified=true AND expires_at IS NOT NULL AND expires_at <= now()"
+        );
+    }
+
+    public int expireExpiredForEmailNow(long communityId, String email) {
+        return jdbc.update(
+                "UPDATE community_verifications " +
+                        "SET verified=false, email=NULL " +
+                        "WHERE community_id=? AND email=? AND verified=true AND expires_at IS NOT NULL AND expires_at <= now()",
+                communityId, email
+        );
+    }
+
+    public Optional<Long> findActiveOwnerUserId(long communityId, String email) {
+        Long userId = jdbc.query(
+                "SELECT user_id FROM community_verifications " +
+                        "WHERE community_id=? AND email=? AND verified=true AND (expires_at IS NULL OR expires_at > now()) " +
+                        "LIMIT 1",
+                rs -> rs.next() ? rs.getLong(1) : null,
+                communityId, email
+        );
+        return Optional.ofNullable(userId);
     }
 
     public List<UserVerificationRow> listForUser(long userId) {

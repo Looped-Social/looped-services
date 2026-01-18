@@ -8,6 +8,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.validation.annotation.Validated;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -52,6 +53,9 @@ public class CommunityVerificationController {
         if (res.status() == CommunityVerificationService.Status.BAD_REQUEST) {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of("error", res.error()));
         }
+        if (res.status() == CommunityVerificationService.Status.CONFLICT) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", res.error()));
+        }
         if (res.status() == CommunityVerificationService.Status.SEND_FAILED) {
             return ResponseEntity.status(HttpStatus.BAD_GATEWAY).body(Map.of("error", res.error()));
         }
@@ -84,6 +88,9 @@ public class CommunityVerificationController {
         }
         if (res.status() == CommunityVerificationService.Status.INVALID_CODE) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "invalid_code"));
+        }
+        if (res.status() == CommunityVerificationService.Status.CONFLICT) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", res.error()));
         }
         boolean verified = res.verified() != null && res.verified();
         Map<String, Object> out = new HashMap<>();
@@ -133,6 +140,23 @@ public class CommunityVerificationController {
                 "can_post", canPost,
                 "requires_verification", requiresVerification
         ));
+    }
+
+    @DeleteMapping("/{communityId}/verification")
+    public ResponseEntity<?> unverify(@AuthenticationPrincipal Jwt jwt,
+                                      @PathVariable("communityId") long communityId) {
+        var actor = users.findByFirebaseUid(jwt.getSubject());
+        if (actor.isEmpty() || actor.get().companyId == null) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "user_not_provisioned"));
+        }
+        if (communities.findById(communityId).isEmpty()) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "community_not_found"));
+        }
+        verifications.unverifyAndReleaseEmail(actor.get().id, communityId);
+        if (actor.get().displayCommunityId != null && actor.get().displayCommunityId == communityId) {
+            users.updateDisplayCommunity(actor.get().id, null);
+        }
+        return ResponseEntity.ok(Map.of("status", "unverified"));
     }
 
     public record StartRequest(@NotBlank String method, String email) {}

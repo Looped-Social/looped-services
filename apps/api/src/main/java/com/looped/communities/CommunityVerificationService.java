@@ -5,6 +5,7 @@ import com.looped.verification.ThirdPartyVerifier;
 import com.looped.verification.VerificationProperties;
 import com.looped.verification.VerificationRequestsRepository;
 import com.looped.users.UserRepository;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
@@ -16,7 +17,7 @@ import java.util.UUID;
 @Service
 public class CommunityVerificationService {
     public enum Method { email, video, thirdparty }
-    public enum Status { OK, USER_NOT_PROVISIONED, COMMUNITY_NOT_FOUND, BAD_REQUEST, INVALID_CODE, SEND_FAILED }
+    public enum Status { OK, USER_NOT_PROVISIONED, COMMUNITY_NOT_FOUND, BAD_REQUEST, INVALID_CODE, SEND_FAILED, CONFLICT }
 
     private final UserRepository users;
     private final CommunitiesRepository communities;
@@ -75,6 +76,11 @@ public class CommunityVerificationService {
                 if (domain == null) return StartResult.badRequest("invalid_email");
                 if (!hasEffectiveDomains(community.get())) return StartResult.badRequest("domains_not_configured");
                 if (!isDomainAllowed(community.get(), domain)) return StartResult.badRequest("email_domain_not_allowed");
+                communityVerifications.expireExpiredForEmailNow(communityId, normalizedEmail);
+                var owner = communityVerifications.findActiveOwnerUserId(communityId, normalizedEmail);
+                if (owner.isPresent() && owner.get() != u.get().id) {
+                    return StartResult.conflict("email_in_use");
+                }
                 String code = generateCode6();
                 String key = keyEmail(u.get().id, communityId);
                 redis.opsForValue().set(key, code, Duration.ofSeconds(props.getCodeTtlSeconds()));
@@ -152,12 +158,30 @@ public class CommunityVerificationService {
             }
         }
         String status = (method == Method.video) ? "pending" : "approved";
-        requests.insert(u.get().id, communityId, resolvedEmail, method.name(), status, mediaKey, null);
         if ("approved".equals(status)) {
             OffsetDateTime expiresAt = resolveExpiry(community.get());
-            communityVerifications.markVerified(u.get().id, communityId, method.name(), expiresAt);
+            if (method == Method.email) {
+                communityVerifications.expireExpiredForEmailNow(communityId, resolvedEmail);
+                var owner = communityVerifications.findActiveOwnerUserId(communityId, resolvedEmail);
+                if (owner.isPresent() && owner.get() != u.get().id) {
+                    return FinishResult.conflict("email_in_use");
+                }
+            }
+            try {
+                communityVerifications.markVerified(
+                        u.get().id,
+                        communityId,
+                        method.name(),
+                        expiresAt,
+                        method == Method.email ? resolvedEmail : null
+                );
+            } catch (DataIntegrityViolationException ex) {
+                return FinishResult.conflict("email_in_use");
+            }
+            requests.insert(u.get().id, communityId, resolvedEmail, method.name(), status, mediaKey, null);
             return FinishResult.ok(true, expiresAt);
         }
+        requests.insert(u.get().id, communityId, resolvedEmail, method.name(), status, mediaKey, null);
         communityVerifications.markUnverified(u.get().id, communityId, method.name());
         return FinishResult.ok(false, null);
     }
@@ -231,6 +255,7 @@ public class CommunityVerificationService {
         static StartResult communityNotFound() { return new StartResult(Status.COMMUNITY_NOT_FOUND, null, null, null, null, null); }
         static StartResult badRequest(String err) { return new StartResult(Status.BAD_REQUEST, null, null, null, null, err); }
         static StartResult sendFailed() { return new StartResult(Status.SEND_FAILED, null, null, null, null, "email_send_failed"); }
+        static StartResult conflict(String err) { return new StartResult(Status.CONFLICT, null, null, null, null, err); }
     }
 
     public record FinishResult(Status status, Boolean verified, OffsetDateTime expiresAt, String error) {
@@ -239,5 +264,6 @@ public class CommunityVerificationService {
         static FinishResult communityNotFound() { return new FinishResult(Status.COMMUNITY_NOT_FOUND, null, null, null); }
         static FinishResult badRequest(String err) { return new FinishResult(Status.BAD_REQUEST, null, null, err); }
         static FinishResult invalidCode() { return new FinishResult(Status.INVALID_CODE, null, null, "invalid_code"); }
+        static FinishResult conflict(String err) { return new FinishResult(Status.CONFLICT, null, null, err); }
     }
 }
