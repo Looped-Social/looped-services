@@ -557,6 +557,18 @@ public class UserRepository {
         return count == null ? 0 : count;
     }
 
+    public long countLikesReceived(long userId) {
+        Long val = jdbcTemplate.queryForObject(
+                "SELECT " +
+                        "COALESCE((SELECT SUM(p.likes_count) FROM posts p WHERE p.author_id = ? AND p.removed_at IS NULL), 0) " +
+                        "+ COALESCE((SELECT SUM(c.likes_count) FROM comments c WHERE c.user_id = ? AND c.deleted_at IS NULL), 0)",
+                Long.class,
+                userId,
+                userId
+        );
+        return val == null ? 0 : val;
+    }
+
     public static class UserRow {
         public Long id;
         public String firebaseUid;

@@ -76,6 +76,7 @@ public final class UserPayloads {
             }
             stats.put("posts_count", profile.stats().postsCount());
             stats.put("comments_count", profile.stats().commentsCount());
+            stats.put("likes_received_count", profile.stats().likesReceivedCount());
             map.put("stats", stats);
         }
         return map;

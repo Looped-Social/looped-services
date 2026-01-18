@@ -600,7 +600,8 @@ public class UsersService {
                 users.countFollowers(row.id),
                 users.countFollowing(row.id),
                 users.countPosts(row.id),
-                users.countComments(row.id)
+                users.countComments(row.id),
+                users.countLikesReceived(row.id)
         );
         return new UserProfile(
                 row.id,
@@ -768,7 +769,7 @@ public class UsersService {
 
     public record DisplaySpecialization(long id, String name, String shortName, String kind, String specializationType) {}
 
-    public record ProfileStats(int followerCount, int followingCount, int postsCount, int commentsCount) {}
+    public record ProfileStats(int followerCount, int followingCount, int postsCount, int commentsCount, long likesReceivedCount) {}
 
     public record Verification(String method, boolean verified, OffsetDateTime verifiedAt) {}
 

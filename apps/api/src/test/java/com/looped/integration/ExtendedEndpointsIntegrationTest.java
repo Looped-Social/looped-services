@@ -67,9 +67,13 @@ class ExtendedEndpointsIntegrationTest extends PostgresTestBase {
         jdbc.update("INSERT INTO principal_follows(follower_principal_id, followee_principal_id) VALUES (?,?)", followerPrincipal, userPrincipal);
         long post1 = jdbc.queryForObject("INSERT INTO posts(author_id, author_principal_id, company_id, content) VALUES (?,?,?,?) RETURNING id",
                 Long.class, userId, userPrincipal, companyId, "first");
-        jdbc.update("INSERT INTO posts(author_id, author_principal_id, company_id, content) VALUES (?,?,?,?)", userId, userPrincipal, companyId, "second");
-        jdbc.update("INSERT INTO comments(post_id, user_id, author_principal_id, company_id, content) VALUES (?,?,?,?,?)",
-                post1, userId, userPrincipal, companyId, "first-comment");
+        long post2 = jdbc.queryForObject("INSERT INTO posts(author_id, author_principal_id, company_id, content) VALUES (?,?,?,?) RETURNING id",
+                Long.class, userId, userPrincipal, companyId, "second");
+        long commentId = jdbc.queryForObject("INSERT INTO comments(post_id, user_id, author_principal_id, company_id, content) VALUES (?,?,?,?,?) RETURNING id",
+                Long.class, post1, userId, userPrincipal, companyId, "first-comment");
+        jdbc.update("UPDATE posts SET likes_count = 3 WHERE id = ?", post1);
+        jdbc.update("UPDATE posts SET likes_count = 4 WHERE id = ?", post2);
+        jdbc.update("UPDATE comments SET likes_count = 2 WHERE id = ?", commentId);
 
         String auth = "Bearer " + token("uid-profile");
 
@@ -81,7 +85,8 @@ class ExtendedEndpointsIntegrationTest extends PostgresTestBase {
                 .andExpect(jsonPath("$.display_name").value("New Name"))
                 .andExpect(jsonPath("$.stats.posts_count").value(2))
                 .andExpect(jsonPath("$.stats.follower_count").value(1))
-                .andExpect(jsonPath("$.stats.comments_count").value(1));
+                .andExpect(jsonPath("$.stats.comments_count").value(1))
+                .andExpect(jsonPath("$.stats.likes_received_count").value(9));
 
         mockMvc.perform(put("/users/me")
                         .header("Authorization", auth)
