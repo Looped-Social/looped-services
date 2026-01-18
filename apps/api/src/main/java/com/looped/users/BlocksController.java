@@ -1,6 +1,7 @@
 package com.looped.users;
 
 import com.looped.principals.PrincipalPayloads;
+import com.looped.settings.AppConfigService;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -22,9 +23,11 @@ import java.util.Map;
 @RequestMapping("/v1/users")
 public class BlocksController {
     private final BlocksService service;
+    private final AppConfigService appConfig;
 
-    public BlocksController(BlocksService service) {
+    public BlocksController(BlocksService service, AppConfigService appConfig) {
         this.service = service;
+        this.appConfig = appConfig;
     }
 
     @GetMapping("/blocked")
@@ -41,7 +44,10 @@ public class BlocksController {
                     "message", "Complete onboarding before viewing blocked users"
             ));
             case OK -> {
-                List<Map<String, Object>> items = res.users().stream().map(PrincipalPayloads::directory).toList();
+                String defaultProfileImageUrl = appConfig.defaultProfileImageUrl();
+                List<Map<String, Object>> items = res.users().stream()
+                        .map(row -> PrincipalPayloads.directory(row, defaultProfileImageUrl))
+                        .toList();
                 Map<String, Object> body = new HashMap<>();
                 body.put("items", items);
                 if (res.nextCursor() != null) body.put("next_cursor", res.nextCursor());

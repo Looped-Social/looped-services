@@ -8,6 +8,7 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
+import com.looped.settings.AppConfigService;
 
 import java.util.HashMap;
 import java.util.List;
@@ -17,9 +18,11 @@ import java.util.Map;
 @RequestMapping("/v1")
 public class CommentsController {
     private final CommentsService service;
+    private final AppConfigService appConfig;
 
-    public CommentsController(CommentsService service) {
+    public CommentsController(CommentsService service, AppConfigService appConfig) {
         this.service = service;
+        this.appConfig = appConfig;
     }
 
     @GetMapping("/posts/{postId}/comments")
@@ -73,7 +76,10 @@ public class CommentsController {
                     "message", "Invalid anonymous proof"
             ));
             case OK -> {
-                List<Map<String, Object>> items = res.comments().stream().map(CommentPayloads::from).toList();
+                String defaultProfileImageUrl = appConfig.defaultProfileImageUrl();
+                List<Map<String, Object>> items = res.comments().stream()
+                        .map(row -> CommentPayloads.from(row, defaultProfileImageUrl))
+                        .toList();
                 Map<String, Object> body = new HashMap<>();
                 body.put("items", items);
                 if (res.nextCursor() != null) body.put("next_cursor", res.nextCursor());
@@ -150,7 +156,7 @@ public class CommentsController {
                     "error", "anon_media_invalid",
                     "message", "Anonymous media assets must not be user-owned"
             ));
-            case OK -> ResponseEntity.status(HttpStatus.CREATED).body(CommentPayloads.from(res.comment()));
+            case OK -> ResponseEntity.status(HttpStatus.CREATED).body(CommentPayloads.from(res.comment(), appConfig.defaultProfileImageUrl()));
         };
     }
 
@@ -200,7 +206,7 @@ public class CommentsController {
                     "error", "invalid_anon_proof",
                     "message", "Invalid anonymous proof"
             ));
-            case OK -> ResponseEntity.ok(CommentPayloads.from(res.comment()));
+            case OK -> ResponseEntity.ok(CommentPayloads.from(res.comment(), appConfig.defaultProfileImageUrl()));
         };
     }
 
@@ -307,7 +313,10 @@ public class CommentsController {
                     "message", "Invalid anonymous proof"
             ));
             case OK -> {
-                List<Map<String, Object>> items = res.comments().stream().map(CommentPayloads::from).toList();
+                String defaultProfileImageUrl = appConfig.defaultProfileImageUrl();
+                List<Map<String, Object>> items = res.comments().stream()
+                        .map(row -> CommentPayloads.from(row, defaultProfileImageUrl))
+                        .toList();
                 Map<String, Object> body = new HashMap<>();
                 body.put("items", items);
                 if (res.nextCursor() != null) body.put("next_cursor", res.nextCursor());

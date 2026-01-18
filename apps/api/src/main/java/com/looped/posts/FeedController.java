@@ -2,6 +2,7 @@ package com.looped.posts;
 
 import com.looped.polls.PollPayloads;
 import com.looped.polls.PollsService;
+import com.looped.settings.AppConfigService;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -19,10 +20,12 @@ import java.util.Map;
 public class FeedController {
     private final FeedService feedService;
     private final PollsService pollsService;
+    private final AppConfigService appConfig;
 
-    public FeedController(FeedService feedService, PollsService pollsService) {
+    public FeedController(FeedService feedService, PollsService pollsService, AppConfigService appConfig) {
         this.feedService = feedService;
         this.pollsService = pollsService;
+        this.appConfig = appConfig;
     }
 
     @GetMapping
@@ -61,10 +64,11 @@ public class FeedController {
             ));
         }
         Long viewerPrincipalId = pollsService.viewerPrincipalId(jwt.getSubject());
+        String defaultProfileImageUrl = appConfig.defaultProfileImageUrl();
         List<Long> postIds = res.items().stream().map(p -> p.id).toList();
         var pollsByPostId = pollsService.viewsByPostId(viewerPrincipalId, postIds);
         List<Map<String, Object>> items = res.items().stream().map(row -> {
-            Map<String, Object> payload = PostPayloads.from(row);
+            Map<String, Object> payload = PostPayloads.from(row, defaultProfileImageUrl);
             var poll = pollsByPostId.get(row.id);
             if (poll != null) payload.put("poll", PollPayloads.from(poll));
             return payload;
@@ -106,10 +110,11 @@ public class FeedController {
             ));
         }
         Long viewerPrincipalId = pollsService.viewerPrincipalId(jwt.getSubject());
+        String defaultProfileImageUrl = appConfig.defaultProfileImageUrl();
         List<Long> postIds = res.items().stream().map(p -> p.id).toList();
         var pollsByPostId = pollsService.viewsByPostId(viewerPrincipalId, postIds);
         List<Map<String, Object>> items = res.items().stream().map(row -> {
-            Map<String, Object> payload = PostPayloads.trending(row);
+            Map<String, Object> payload = PostPayloads.trending(row, defaultProfileImageUrl);
             var poll = pollsByPostId.get(row.id);
             if (poll != null) payload.put("poll", PollPayloads.from(poll));
             return payload;

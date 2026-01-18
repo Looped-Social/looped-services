@@ -1,6 +1,7 @@
 package com.looped.messaging;
 
 import com.looped.shared.Pagination;
+import com.looped.settings.AppConfigService;
 import com.looped.users.UserPayloads;
 import com.looped.users.UserRepository;
 import org.springframework.stereotype.Service;
@@ -19,10 +20,12 @@ public class MessageRequestService {
 
     private final MessageRequestRepository requests;
     private final UserRepository users;
+    private final AppConfigService appConfig;
 
-    public MessageRequestService(MessageRequestRepository requests, UserRepository users) {
+    public MessageRequestService(MessageRequestRepository requests, UserRepository users, AppConfigService appConfig) {
         this.requests = requests;
         this.users = users;
+        this.appConfig = appConfig;
     }
 
     public ListResult list(String firebaseUid, String cursor, int limit) {
@@ -44,6 +47,7 @@ public class MessageRequestService {
             var last = rows.get(rows.size() - 1);
             next = Pagination.encode(last.updatedAt, last.id);
         }
+        String defaultProfileImageUrl = appConfig.defaultProfileImageUrl();
         List<Map<String, Object>> items = rows.stream().map(row -> {
             Map<String, Object> map = new HashMap<>();
             map.put("id", row.id);
@@ -58,7 +62,7 @@ public class MessageRequestService {
             message.put("attachments", row.messageAttachments);
             message.put("created_at", row.messageCreatedAt);
             map.put("message", message);
-            users.findById(row.requesterId).ifPresent(u -> map.put("requester_profile", UserPayloads.directory(u)));
+            users.findById(row.requesterId).ifPresent(u -> map.put("requester_profile", UserPayloads.directory(u, defaultProfileImageUrl)));
             return map;
         }).toList();
         return ListResult.ok(items, next);

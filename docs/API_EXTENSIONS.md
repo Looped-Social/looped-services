@@ -11,6 +11,12 @@
     - `403 { "error": "media_asset_forbidden" }`
     - `422 { "error": "invalid_profile_image" }`
     - `503 { "error": "cdn_not_configured" }` (when `cloudfront.domain` is unset/blank)
+- **App config**
+  - `GET /v1/app-config` (no auth)
+  - Response (200): `{ "default_profile_image_url": "https://cdn.example.com/media/defaults/profile.png" }` (value may be `null` if not configured)
+  - Semantics:
+    - When `default_profile_image_url` is set (via admin settings), API payloads that include a profile image URL will return that default when the underlying user has not set `profile_image_url`.
+    - When unset, profile image URL fields may be `null` as before.
 - **Account management**
   - Deactivate (soft delete): `POST /v1/users/me/deactivate` → `204`
   - Delete (hard delete): `POST /v1/users/me/delete` → `200`

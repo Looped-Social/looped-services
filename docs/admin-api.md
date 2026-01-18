@@ -158,6 +158,58 @@ Available permissions:
 - `view_reports`, `resolve_reports`, `verify_users`, `delete_media`, `view_feedback`
 - `send_announcements`
 
+## Settings
+
+### GET /v1/admin/settings/profile
+Get app-wide profile settings.
+
+Auth
+- Header: `Authorization: Bearer <ID_TOKEN>`
+- Permission: requires `create_community` (same as other admin settings)
+
+Response (200)
+```json
+{
+  "default_profile_image_url": "https://cdn.example.com/media/defaults/profile.png"
+}
+```
+
+### PATCH /v1/admin/settings/profile
+Set/clear the app-wide default profile picture.
+
+Auth
+- Header: `Authorization: Bearer <ID_TOKEN>`
+- Permission: requires `create_community`
+
+Request (choose one)
+```json
+{ "defaultProfileImageUrl": "https://cdn.example.com/media/defaults/profile.png" }
+```
+```json
+{ "profileMediaAssetId": 123 }
+```
+```json
+{ "clearDefaultProfileImage": true }
+```
+
+Notes
+- `defaultProfileImageUrl` must be a valid `https://` URL (`http://` is allowed only for localhost).
+- `profileMediaAssetId` must point to an image `media_assets` row; the backend converts it to `https://{cloudfront.domain}/{s3_key}`.
+
+Response (200)
+```json
+{
+  "default_profile_image_url": "https://cdn.example.com/media/defaults/profile.png"
+}
+```
+
+Errors
+- `401` no/invalid token
+- `403 { "error": "forbidden" }` missing permission/not an admin
+- `404 { "error": "media_asset_not_found" }` (when using `profileMediaAssetId`)
+- `422 { "error": "invalid_default_profile_image_url" }` or `422 { "error": "invalid_profile_image" }`
+- `503 { "error": "cdn_not_configured" }` (when using `profileMediaAssetId` and `cloudfront.domain` is unset)
+
 ## Moderation endpoints
 
 ### GET /v1/admin/users

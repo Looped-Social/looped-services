@@ -7,6 +7,10 @@ public final class PostPayloads {
     private PostPayloads() {}
 
     public static Map<String, Object> from(PostRepository.PostRow row) {
+        return from(row, null);
+    }
+
+    public static Map<String, Object> from(PostRepository.PostRow row, String defaultProfileImageUrl) {
         Map<String, Object> out = new HashMap<>();
         out.put("id", row.id);
         out.put("author_id", row.authorId);
@@ -20,7 +24,7 @@ public final class PostPayloads {
             out.put("author_first_name", row.authorFirstName);
             out.put("author_last_name", row.authorLastName);
         }
-        out.put("author_profile_image_url", row.authorProfileImageUrl);
+        out.put("author_profile_image_url", com.looped.users.ProfileImageUrls.resolve(row.authorProfileImageUrl, defaultProfileImageUrl));
         out.put("author_is_anonymous", row.authorIsAnonymous);
         out.put("is_anonymous", row.authorIsAnonymous);
         if (!row.authorIsAnonymous && row.authorDisplayCommunityId != null) {
@@ -91,19 +95,31 @@ public final class PostPayloads {
     }
 
     public static Map<String, Object> search(PostRepository.PostRow row) {
-        Map<String, Object> out = from(row);
+        return search(row, null);
+    }
+
+    public static Map<String, Object> search(PostRepository.PostRow row, String defaultProfileImageUrl) {
+        Map<String, Object> out = from(row, defaultProfileImageUrl);
         out.put("title", titleFromContent(row.content));
         return out;
     }
 
     public static Map<String, Object> fromSaved(PostRepository.PostRow row, boolean isSaved) {
-        Map<String, Object> out = from(row);
+        return fromSaved(row, isSaved, null);
+    }
+
+    public static Map<String, Object> fromSaved(PostRepository.PostRow row, boolean isSaved, String defaultProfileImageUrl) {
+        Map<String, Object> out = from(row, defaultProfileImageUrl);
         out.put("is_saved", isSaved);
         return out;
     }
 
     public static Map<String, Object> trending(PostRepository.TrendingRow row) {
-        Map<String, Object> out = from(row);
+        return trending(row, null);
+    }
+
+    public static Map<String, Object> trending(PostRepository.TrendingRow row, String defaultProfileImageUrl) {
+        Map<String, Object> out = from(row, defaultProfileImageUrl);
         out.put("community_name", row.communityName);
         if (row.communityShortName != null && !row.communityShortName.isBlank()) {
             out.put("community_short_name", row.communityShortName);

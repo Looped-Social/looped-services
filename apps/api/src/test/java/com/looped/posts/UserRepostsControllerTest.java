@@ -1,6 +1,7 @@
 package com.looped.posts;
 
 import com.looped.polls.PollsService;
+import com.looped.settings.AppConfigService;
 import org.junit.jupiter.api.Test;
 import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.http.HttpStatus;
@@ -19,7 +20,8 @@ class UserRepostsControllerTest {
     void reposts_returns_401_when_jwt_missing() {
         PostCollectionsService service = mock(PostCollectionsService.class);
         PollsService polls = mock(PollsService.class);
-        var controller = new UserRepostsController(service, polls);
+        AppConfigService appConfig = mock(AppConfigService.class);
+        var controller = new UserRepostsController(service, polls, appConfig);
 
         var res = controller.reposts(null, 123L, null, 20);
 
@@ -32,7 +34,8 @@ class UserRepostsControllerTest {
     void my_reposts_returns_401_when_jwt_missing() {
         PostCollectionsService service = mock(PostCollectionsService.class);
         PollsService polls = mock(PollsService.class);
-        var controller = new UserRepostsController(service, polls);
+        AppConfigService appConfig = mock(AppConfigService.class);
+        var controller = new UserRepostsController(service, polls, appConfig);
 
         var res = controller.myReposts(null, null, 20);
 
@@ -45,7 +48,9 @@ class UserRepostsControllerTest {
     void reposts_returns_503_when_db_unavailable() {
         PostCollectionsService service = mock(PostCollectionsService.class);
         PollsService polls = mock(PollsService.class);
-        var controller = new UserRepostsController(service, polls);
+        AppConfigService appConfig = mock(AppConfigService.class);
+        when(appConfig.defaultProfileImageUrl()).thenReturn(null);
+        var controller = new UserRepostsController(service, polls, appConfig);
 
         Jwt jwt = Jwt.withTokenValue("t")
                 .header("alg", "none")

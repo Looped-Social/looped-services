@@ -9,14 +9,18 @@ public final class UserPayloads {
     private UserPayloads() {}
 
     public static Map<String, Object> fromProfile(UsersService.UserProfile profile) {
-        return fromProfile(profile, true, false);
+        return fromProfile(profile, true, false, null);
     }
 
     public static Map<String, Object> fromProfile(UsersService.UserProfile profile, boolean includeFollowerCounts) {
-        return fromProfile(profile, includeFollowerCounts, false);
+        return fromProfile(profile, includeFollowerCounts, false, null);
     }
 
     public static Map<String, Object> fromProfile(UsersService.UserProfile profile, boolean includeFollowerCounts, boolean includePrivatePreferences) {
+        return fromProfile(profile, includeFollowerCounts, includePrivatePreferences, null);
+    }
+
+    public static Map<String, Object> fromProfile(UsersService.UserProfile profile, boolean includeFollowerCounts, boolean includePrivatePreferences, String defaultProfileImageUrl) {
         Map<String, Object> map = new HashMap<>();
         map.put("id", profile.id());
         map.put("handle", profile.handle());
@@ -34,7 +38,7 @@ public final class UserPayloads {
         }
         map.put("company_id", profile.companyId());
         map.put("created_at", profile.createdAt());
-        map.put("profile_image_url", profile.profileImageUrl());
+        map.put("profile_image_url", ProfileImageUrls.resolve(profile.profileImageUrl(), defaultProfileImageUrl));
         if (profile.verification() != null) {
             Map<String, Object> verification = new HashMap<>();
             verification.put("method", profile.verification().method());
@@ -83,6 +87,10 @@ public final class UserPayloads {
     }
 
     public static Map<String, Object> directory(UserRepository.UserRow row) {
+        return directory(row, null);
+    }
+
+    public static Map<String, Object> directory(UserRepository.UserRow row, String defaultProfileImageUrl) {
         Map<String, Object> map = new HashMap<>();
         map.put("id", row.id);
         map.put("handle", row.handle);
@@ -90,7 +98,7 @@ public final class UserPayloads {
         map.put("display_name", row.displayName);
         map.put("bio", row.bio);
         map.put("company_id", row.companyId);
-        map.put("profile_image_url", row.profileImageUrl);
+        map.put("profile_image_url", ProfileImageUrls.resolve(row.profileImageUrl, defaultProfileImageUrl));
         return map;
     }
 

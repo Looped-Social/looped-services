@@ -3,6 +3,7 @@ package com.looped.anon;
 import com.looped.posts.PostPayloads;
 import com.looped.principals.PrincipalPayloads;
 import com.looped.comments.CommentPayloads;
+import com.looped.settings.AppConfigService;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -26,9 +27,11 @@ import java.util.Map;
 @RequestMapping("/v1/anon")
 public class AnonProfilesController {
     private final AnonProfilesService service;
+    private final AppConfigService appConfig;
 
-    public AnonProfilesController(AnonProfilesService service) {
+    public AnonProfilesController(AnonProfilesService service, AppConfigService appConfig) {
         this.service = service;
+        this.appConfig = appConfig;
     }
 
     @GetMapping("/{id}")
@@ -298,7 +301,10 @@ public class AnonProfilesController {
                         "message", "Invalid anonymous proof"
                 ));
                 case OK -> {
-                    List<Map<String, Object>> items = res.comments().stream().map(CommentPayloads::from).toList();
+                    String defaultProfileImageUrl = appConfig.defaultProfileImageUrl();
+                    List<Map<String, Object>> items = res.comments().stream()
+                            .map(row -> CommentPayloads.from(row, defaultProfileImageUrl))
+                            .toList();
                     Map<String, Object> body = new HashMap<>();
                     body.put("items", items);
                     if (res.nextCursor() != null) body.put("next_cursor", res.nextCursor());
@@ -324,7 +330,10 @@ public class AnonProfilesController {
                     "error", "forbidden"
             ));
             case OK -> {
-                List<Map<String, Object>> items = res.comments().stream().map(CommentPayloads::from).toList();
+                String defaultProfileImageUrl = appConfig.defaultProfileImageUrl();
+                List<Map<String, Object>> items = res.comments().stream()
+                        .map(row -> CommentPayloads.from(row, defaultProfileImageUrl))
+                        .toList();
                 Map<String, Object> body = new HashMap<>();
                 body.put("items", items);
                 if (res.nextCursor() != null) body.put("next_cursor", res.nextCursor());
@@ -374,7 +383,8 @@ public class AnonProfilesController {
     }
 
     private Map<String, Object> toPostListPayload(List<com.looped.posts.PostRepository.PostRow> posts, String nextCursor) {
-        List<Map<String, Object>> items = posts.stream().map(PostPayloads::from).toList();
+        String defaultProfileImageUrl = appConfig.defaultProfileImageUrl();
+        List<Map<String, Object>> items = posts.stream().map(row -> PostPayloads.from(row, defaultProfileImageUrl)).toList();
         Map<String, Object> body = new HashMap<>();
         body.put("items", items);
         if (nextCursor != null) body.put("next_cursor", nextCursor);
@@ -382,7 +392,8 @@ public class AnonProfilesController {
     }
 
     private Map<String, Object> toPrincipalListPayload(List<com.looped.principals.PrincipalProfilesRepository.PrincipalProfileRow> principals, String nextCursor) {
-        List<Map<String, Object>> items = principals.stream().map(PrincipalPayloads::directory).toList();
+        String defaultProfileImageUrl = appConfig.defaultProfileImageUrl();
+        List<Map<String, Object>> items = principals.stream().map(row -> PrincipalPayloads.directory(row, defaultProfileImageUrl)).toList();
         Map<String, Object> body = new HashMap<>();
         body.put("items", items);
         if (nextCursor != null) body.put("next_cursor", nextCursor);

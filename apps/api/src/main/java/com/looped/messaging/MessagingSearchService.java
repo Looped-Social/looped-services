@@ -1,6 +1,8 @@
 package com.looped.messaging;
 
 import com.looped.shared.RankPagination;
+import com.looped.settings.AppConfigService;
+import com.looped.users.ProfileImageUrls;
 import com.looped.users.UserRepository;
 import org.springframework.stereotype.Service;
 
@@ -14,10 +16,12 @@ import java.util.Optional;
 public class MessagingSearchService {
     private final UserRepository users;
     private final MessagingSearchRepository search;
+    private final AppConfigService appConfig;
 
-    public MessagingSearchService(UserRepository users, MessagingSearchRepository search) {
+    public MessagingSearchService(UserRepository users, MessagingSearchRepository search, AppConfigService appConfig) {
         this.users = users;
         this.search = search;
+        this.appConfig = appConfig;
     }
 
     public SearchResult search(String firebaseUid, String query, String cursor, int limit) {
@@ -49,7 +53,8 @@ public class MessagingSearchService {
                 limit
         );
 
-        List<Map<String, Object>> items = rows.stream().map(this::toPayload).toList();
+        String defaultProfileImageUrl = appConfig.defaultProfileImageUrl();
+        List<Map<String, Object>> items = rows.stream().map(row -> toPayload(row, defaultProfileImageUrl)).toList();
 
         String next = null;
         if (rows.size() == limit) {
@@ -59,7 +64,7 @@ public class MessagingSearchService {
         return SearchResult.ok(items, next);
     }
 
-    private Map<String, Object> toPayload(MessagingSearchRepository.SearchRow row) {
+    private Map<String, Object> toPayload(MessagingSearchRepository.SearchRow row, String defaultProfileImageUrl) {
         Map<String, Object> out = new HashMap<>();
         out.put("type", row.type);
 
@@ -75,7 +80,7 @@ public class MessagingSearchService {
                 profile.put("display_name", row.otherUserDisplayName);
                 profile.put("bio", row.otherUserBio);
                 profile.put("company_id", row.otherUserCompanyId);
-                profile.put("profile_image_url", row.otherUserProfileImageUrl);
+                profile.put("profile_image_url", ProfileImageUrls.resolve(row.otherUserProfileImageUrl, defaultProfileImageUrl));
                 out.put("other_user_profile", profile);
             }
         } else if ("channel".equals(row.type)) {

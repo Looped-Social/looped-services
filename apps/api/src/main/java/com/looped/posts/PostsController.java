@@ -3,6 +3,7 @@ package com.looped.posts;
 import com.looped.polls.PollPayloads;
 import com.looped.polls.PollRequests;
 import com.looped.polls.PollsService;
+import com.looped.settings.AppConfigService;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 import org.springframework.http.HttpStatus;
@@ -22,11 +23,13 @@ public class PostsController {
     private final PostsService postsService;
     private final PostSearchService postSearchService;
     private final PollsService pollsService;
+    private final AppConfigService appConfig;
 
-    public PostsController(PostsService postsService, PostSearchService postSearchService, PollsService pollsService) {
+    public PostsController(PostsService postsService, PostSearchService postSearchService, PollsService pollsService, AppConfigService appConfig) {
         this.postsService = postsService;
         this.postSearchService = postSearchService;
         this.pollsService = pollsService;
+        this.appConfig = appConfig;
     }
 
     @GetMapping("/search")
@@ -50,10 +53,11 @@ public class PostsController {
             ));
             case OK -> {
                 Long viewerPrincipalId = pollsService.viewerPrincipalId(jwt.getSubject());
+                String defaultProfileImageUrl = appConfig.defaultProfileImageUrl();
                 List<Long> postIds = res.posts().stream().map(p -> p.id).toList();
                 var pollsByPostId = pollsService.viewsByPostId(viewerPrincipalId, postIds);
                 List<Map<String, Object>> items = res.posts().stream().map(row -> {
-                    Map<String, Object> payload = PostPayloads.search(row);
+                    Map<String, Object> payload = PostPayloads.search(row, defaultProfileImageUrl);
                     var poll = pollsByPostId.get(row.id);
                     if (poll != null) payload.put("poll", PollPayloads.from(poll));
                     return payload;
@@ -169,7 +173,8 @@ public class PostsController {
                     "message", "Anonymous media assets must not be user-owned"
             ));
             case OK -> {
-                var payload = PostPayloads.from(res.post());
+                String defaultProfileImageUrl = appConfig.defaultProfileImageUrl();
+                var payload = PostPayloads.from(res.post(), defaultProfileImageUrl);
                 Long viewerPrincipalId = jwt == null ? null : pollsService.viewerPrincipalId(jwt.getSubject());
                 var poll = pollsService.viewsByPostId(viewerPrincipalId, List.of(res.post().id)).get(res.post().id);
                 if (poll != null) payload.put("poll", PollPayloads.from(poll));
@@ -191,7 +196,8 @@ public class PostsController {
             case FORBIDDEN -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "forbidden"));
             case COMMUNITY_BANNED -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "community_banned"));
             case OK -> {
-                var payload = PostPayloads.from(res.post());
+                String defaultProfileImageUrl = appConfig.defaultProfileImageUrl();
+                var payload = PostPayloads.from(res.post(), defaultProfileImageUrl);
                 Long viewerPrincipalId = pollsService.viewerPrincipalId(jwt.getSubject());
                 var poll = pollsService.viewsByPostId(viewerPrincipalId, List.of(res.post().id)).get(res.post().id);
                 if (poll != null) payload.put("poll", PollPayloads.from(poll));
@@ -250,7 +256,7 @@ public class PostsController {
                     "error", "post_removed",
                     "message", "Post has been removed"
             ));
-            case OK -> ResponseEntity.ok(PostPayloads.from(res.post()));
+            case OK -> ResponseEntity.ok(PostPayloads.from(res.post(), appConfig.defaultProfileImageUrl()));
         };
     }
 

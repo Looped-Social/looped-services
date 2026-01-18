@@ -12,6 +12,8 @@ import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.looped.settings.AppConfigService;
+
 import java.util.HashMap;
 import java.util.Map;
 
@@ -20,10 +22,12 @@ import java.util.Map;
 public class UserAliasController {
     private final UsersService users;
     private final VerificationService verificationService;
+    private final AppConfigService appConfig;
 
-    public UserAliasController(UsersService users, VerificationService verificationService) {
+    public UserAliasController(UsersService users, VerificationService verificationService, AppConfigService appConfig) {
         this.users = users;
         this.verificationService = verificationService;
+        this.appConfig = appConfig;
     }
 
     @PutMapping("/users/me")
@@ -54,7 +58,7 @@ public class UserAliasController {
             case CDN_NOT_CONFIGURED -> ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(Map.of(
                     "error", "cdn_not_configured"
             ));
-            case OK -> ResponseEntity.ok(UserPayloads.fromProfile(res.profile(), true, true));
+            case OK -> ResponseEntity.ok(UserPayloads.fromProfile(res.profile(), true, true, appConfig.defaultProfileImageUrl()));
             default -> ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         };
     }

@@ -2,6 +2,8 @@ package com.looped.admin;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.looped.shared.Pagination;
+import com.looped.settings.AppConfigService;
+import com.looped.users.ProfileImageUrls;
 import com.looped.users.UserBanRepository;
 import com.looped.users.UserRepository;
 import org.springframework.http.HttpStatus;
@@ -31,14 +33,16 @@ public class AdminUsersController {
     private final UserBanRepository bans;
     private final AdminUserStatsRepository stats;
     private final AdminAuditRepository audit;
+    private final AppConfigService appConfig;
 
     public AdminUsersController(AdminAuthService auth, UserRepository users, UserBanRepository bans,
-                                AdminUserStatsRepository stats, AdminAuditRepository audit) {
+                                AdminUserStatsRepository stats, AdminAuditRepository audit, AppConfigService appConfig) {
         this.auth = auth;
         this.users = users;
         this.bans = bans;
         this.stats = stats;
         this.audit = audit;
+        this.appConfig = appConfig;
     }
 
     @GetMapping("/users")
@@ -111,7 +115,7 @@ public class AdminUsersController {
         body.put("company_id", user.companyId);
         body.put("display_name", user.displayName);
         body.put("bio", user.bio);
-        body.put("profile_image_url", user.profileImageUrl);
+        body.put("profile_image_url", ProfileImageUrls.resolve(user.profileImageUrl, appConfig.defaultProfileImageUrl()));
         body.put("created_at", user.createdAt);
         body.put("deleted_at", user.deletedAt);
         body.put("deleted_by", user.deletedBy);

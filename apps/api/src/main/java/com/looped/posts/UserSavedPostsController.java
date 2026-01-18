@@ -2,6 +2,7 @@ package com.looped.posts;
 
 import com.looped.polls.PollPayloads;
 import com.looped.polls.PollsService;
+import com.looped.settings.AppConfigService;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -19,10 +20,12 @@ import java.util.Map;
 public class UserSavedPostsController {
     private final PostCollectionsService service;
     private final PollsService pollsService;
+    private final AppConfigService appConfig;
 
-    public UserSavedPostsController(PostCollectionsService service, PollsService pollsService) {
+    public UserSavedPostsController(PostCollectionsService service, PollsService pollsService, AppConfigService appConfig) {
         this.service = service;
         this.pollsService = pollsService;
+        this.appConfig = appConfig;
     }
 
     @GetMapping("/v1/users/{id}/posts/saved")
@@ -44,10 +47,11 @@ public class UserSavedPostsController {
             ));
             case OK -> {
                 Long viewerPrincipalId = pollsService.viewerPrincipalId(jwt.getSubject());
+                String defaultProfileImageUrl = appConfig.defaultProfileImageUrl();
                 List<Long> postIds = res.posts().stream().map(p -> p.id).toList();
                 var pollsByPostId = pollsService.viewsByPostId(viewerPrincipalId, postIds);
                 List<Map<String, Object>> items = res.posts().stream().map(row -> {
-                    Map<String, Object> payload = PostPayloads.from(row);
+                    Map<String, Object> payload = PostPayloads.from(row, defaultProfileImageUrl);
                     var poll = pollsByPostId.get(row.id);
                     if (poll != null) payload.put("poll", PollPayloads.from(poll));
                     return payload;

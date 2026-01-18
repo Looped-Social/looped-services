@@ -1,6 +1,7 @@
 package com.looped.posts;
 
 import com.looped.polls.PollsService;
+import com.looped.settings.AppConfigService;
 import org.junit.jupiter.api.Test;
 import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.http.HttpStatus;
@@ -19,7 +20,8 @@ class PostCollectionsControllerTest {
     void reposted_returns_401_when_jwt_missing() {
         PostCollectionsService service = mock(PostCollectionsService.class);
         PollsService polls = mock(PollsService.class);
-        var controller = new PostCollectionsController(service, polls);
+        AppConfigService appConfig = mock(AppConfigService.class);
+        var controller = new PostCollectionsController(service, polls, appConfig);
 
         var res = controller.reposted(null, null, 20);
 
@@ -32,7 +34,9 @@ class PostCollectionsControllerTest {
     void reposted_returns_503_when_db_unavailable() {
         PostCollectionsService service = mock(PostCollectionsService.class);
         PollsService polls = mock(PollsService.class);
-        var controller = new PostCollectionsController(service, polls);
+        AppConfigService appConfig = mock(AppConfigService.class);
+        when(appConfig.defaultProfileImageUrl()).thenReturn(null);
+        var controller = new PostCollectionsController(service, polls, appConfig);
 
         Jwt jwt = Jwt.withTokenValue("t")
                 .header("alg", "none")
@@ -49,4 +53,3 @@ class PostCollectionsControllerTest {
         assertEquals("reposts_unavailable", body.get("error"));
     }
 }
-

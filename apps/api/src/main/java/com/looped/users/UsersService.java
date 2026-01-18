@@ -10,6 +10,7 @@ import com.looped.media.MediaRepository;
 import com.looped.posts.PostRepository;
 import com.looped.posts.PostStateService;
 import com.looped.principals.PrincipalRepository;
+import com.looped.settings.AppConfigService;
 import com.looped.shared.Pagination;
 import com.looped.shared.RankPagination;
 import com.looped.verification.VerificationRepository;
@@ -38,6 +39,7 @@ public class UsersService {
     private final SpecializationJoinsRepository specializationJoins;
     private final MediaRepository media;
     private final FirebaseAdminService firebaseAdmin;
+    private final AppConfigService appConfig;
     private final int deactivatedRetentionDays;
     private final int usernameTombstoneDays;
     private final String defaultCompanyDomain;
@@ -56,6 +58,7 @@ public class UsersService {
                         SpecializationJoinsRepository specializationJoins,
                         MediaRepository media,
                         FirebaseAdminService firebaseAdmin,
+                        AppConfigService appConfig,
                         @Value("${retention.deactivated-days:90}") int deactivatedRetentionDays,
                         @Value("${retention.username-tombstone-days:14}") int usernameTombstoneDays,
                         @Value("${onboarding.default-company-domain:looped.global}") String defaultCompanyDomain,
@@ -73,6 +76,7 @@ public class UsersService {
         this.specializationJoins = specializationJoins;
         this.media = media;
         this.firebaseAdmin = firebaseAdmin;
+        this.appConfig = appConfig;
         this.deactivatedRetentionDays = Math.max(1, deactivatedRetentionDays);
         this.usernameTombstoneDays = Math.max(1, usernameTombstoneDays);
         this.defaultCompanyDomain = defaultCompanyDomain == null ? "" : defaultCompanyDomain.trim().toLowerCase(Locale.ROOT);
@@ -195,6 +199,7 @@ public class UsersService {
             }
         }
 
+        String defaultProfileImageUrl = appConfig.defaultProfileImageUrl();
         java.util.List<java.util.Map<String, Object>> items = new java.util.ArrayList<>();
         for (var ref : refs) {
             if ("post".equals(ref.type())) {
@@ -203,7 +208,7 @@ public class UsersService {
                 items.add(java.util.Map.of(
                         "type", "post",
                         "created_at", ref.createdAt(),
-                        "post", com.looped.posts.PostPayloads.from(p)
+                        "post", com.looped.posts.PostPayloads.from(p, defaultProfileImageUrl)
                 ));
             } else if ("reply".equals(ref.type())) {
                 var c = repliesById.get(ref.entityId());
@@ -215,7 +220,7 @@ public class UsersService {
                 if (includePostPreview) {
                     var host = postsById.get(c.postId);
                     if (host == null) host = replyPostsById.get(c.postId);
-                    if (host != null) payload.put("post", com.looped.posts.PostPayloads.from(host));
+                    if (host != null) payload.put("post", com.looped.posts.PostPayloads.from(host, defaultProfileImageUrl));
                 }
                 items.add(payload);
             }

@@ -2,6 +2,7 @@ package com.looped.posts;
 
 import com.looped.polls.PollPayloads;
 import com.looped.polls.PollsService;
+import com.looped.settings.AppConfigService;
 import org.springframework.dao.DataAccessException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -27,10 +28,12 @@ public class PostCollectionsController {
 
     private final PostCollectionsService service;
     private final PollsService pollsService;
+    private final AppConfigService appConfig;
 
-    public PostCollectionsController(PostCollectionsService service, PollsService pollsService) {
+    public PostCollectionsController(PostCollectionsService service, PollsService pollsService, AppConfigService appConfig) {
         this.service = service;
         this.pollsService = pollsService;
+        this.appConfig = appConfig;
     }
 
     @GetMapping("/liked")
@@ -219,10 +222,11 @@ public class PostCollectionsController {
     }
 
     private Map<String, Object> toListPayload(List<PostRepository.PostRow> posts, String nextCursor, Long viewerPrincipalId) {
+        String defaultProfileImageUrl = appConfig.defaultProfileImageUrl();
         List<Long> postIds = posts == null ? List.of() : posts.stream().map(p -> p.id).toList();
         var pollsByPostId = pollsService.viewsByPostId(viewerPrincipalId, postIds);
         List<Map<String, Object>> items = posts.stream().map(row -> {
-            Map<String, Object> payload = PostPayloads.from(row);
+            Map<String, Object> payload = PostPayloads.from(row, defaultProfileImageUrl);
             var poll = pollsByPostId.get(row.id);
             if (poll != null) payload.put("poll", PollPayloads.from(poll));
             return payload;

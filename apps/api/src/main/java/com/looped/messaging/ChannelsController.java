@@ -1,6 +1,8 @@
 package com.looped.messaging;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.looped.settings.AppConfigService;
+import com.looped.users.ProfileImageUrls;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
@@ -19,9 +21,11 @@ import java.util.Map;
 @RequestMapping("/v1/channels")
 public class ChannelsController {
     private final ChannelService service;
+    private final AppConfigService appConfig;
 
-    public ChannelsController(ChannelService service) {
+    public ChannelsController(ChannelService service, AppConfigService appConfig) {
         this.service = service;
+        this.appConfig = appConfig;
     }
 
     @GetMapping
@@ -158,12 +162,13 @@ public class ChannelsController {
         if (res.status() == ChannelService.Status.FORBIDDEN) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "forbidden"));
         }
+        String defaultProfileImageUrl = appConfig.defaultProfileImageUrl();
         List<Map<String, Object>> items = res.members().stream().map(member -> {
             Map<String, Object> map = new HashMap<>();
             map.put("user_id", member.userId);
             map.put("handle", member.handle);
             map.put("display_name", member.displayName);
-            map.put("profile_image_url", member.profileImageUrl);
+            map.put("profile_image_url", ProfileImageUrls.resolve(member.profileImageUrl, defaultProfileImageUrl));
             map.put("company_id", member.companyId);
             map.put("can_manage_members", member.canManageMembers);
             map.put("created_at", member.createdAt);

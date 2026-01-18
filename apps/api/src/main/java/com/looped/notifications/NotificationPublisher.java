@@ -4,6 +4,8 @@ import com.looped.comments.CommentsRepository;
 import com.looped.devices.DeviceRepository;
 import com.looped.principals.PrincipalRepository;
 import com.looped.posts.PostRepository;
+import com.looped.settings.AppConfigService;
+import com.looped.users.ProfileImageUrls;
 import com.looped.users.UserRepository;
 import org.springframework.stereotype.Service;
 
@@ -21,19 +23,22 @@ public class NotificationPublisher {
     private final DeviceRepository devices;
     private final PushQueuePublisher pushQueue;
     private final UserRepository users;
+    private final AppConfigService appConfig;
 
     public NotificationPublisher(NotificationRepository notifications,
                                  NotificationPreferencesService preferences,
                                  PrincipalRepository principals,
                                  DeviceRepository devices,
                                  PushQueuePublisher pushQueue,
-                                 UserRepository users) {
+                                 UserRepository users,
+                                 AppConfigService appConfig) {
         this.notifications = notifications;
         this.preferences = preferences;
         this.principals = principals;
         this.devices = devices;
         this.pushQueue = pushQueue;
         this.users = users;
+        this.appConfig = appConfig;
     }
 
     public void notifyFollow(long targetUserId, long actorPrincipalId) {
@@ -340,6 +345,7 @@ public class NotificationPublisher {
             if (principal.userId != null) {
                 payload.put("actor_user_id", principal.userId);
                 if (!isAnon) {
+                    String defaultProfileImageUrl = appConfig.defaultProfileImageUrl();
                     users.findById(principal.userId).ifPresent(user -> {
                         String displayName = user.displayName;
                         if (displayName == null || displayName.isBlank()) {
@@ -348,9 +354,8 @@ public class NotificationPublisher {
                         if (displayName != null && !displayName.isBlank()) {
                             payload.put("actor_display_name", displayName);
                         }
-                        if (user.profileImageUrl != null && !user.profileImageUrl.isBlank()) {
-                            payload.put("actor_profile_image_url", user.profileImageUrl);
-                        }
+                        String profileImageUrl = ProfileImageUrls.resolve(user.profileImageUrl, defaultProfileImageUrl);
+                        if (profileImageUrl != null && !profileImageUrl.isBlank()) payload.put("actor_profile_image_url", profileImageUrl);
                     });
                 }
             }

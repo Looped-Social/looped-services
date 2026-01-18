@@ -2,7 +2,9 @@ package com.looped.messaging;
 
 import com.looped.shared.Pagination;
 import com.looped.principals.PrincipalRepository;
+import com.looped.settings.AppConfigService;
 import com.looped.users.FollowsRepository;
+import com.looped.users.ProfileImageUrls;
 import com.looped.users.UserPayloads;
 import com.looped.users.UserRepository;
 import org.springframework.stereotype.Service;
@@ -29,19 +31,22 @@ public class ConversationService {
     private final PrincipalRepository principals;
     private final MessageRequestRepository messageRequests;
     private final MessagingPushService push;
+    private final AppConfigService appConfig;
 
     public ConversationService(ConversationRepository conversations,
                                UserRepository users,
                                FollowsRepository follows,
                                PrincipalRepository principals,
                                MessageRequestRepository messageRequests,
-                               MessagingPushService push) {
+                               MessagingPushService push,
+                               AppConfigService appConfig) {
         this.conversations = conversations;
         this.users = users;
         this.follows = follows;
         this.principals = principals;
         this.messageRequests = messageRequests;
         this.push = push;
+        this.appConfig = appConfig;
     }
 
     public ConversationListResult list(String firebaseUid, String cursor, int limit) {
@@ -63,6 +68,7 @@ public class ConversationService {
             next = Pagination.encode(last.activityAt, last.id);
         }
 
+        String defaultProfileImageUrl = appConfig.defaultProfileImageUrl();
         List<Map<String, Object>> items = rows.stream().map(row -> {
             Map<String, Object> out = new HashMap<>();
             out.put("id", row.id);
@@ -74,7 +80,7 @@ public class ConversationService {
             profile.put("display_name", row.otherUserDisplayName);
             profile.put("bio", row.otherUserBio);
             profile.put("company_id", row.otherUserCompanyId);
-            profile.put("profile_image_url", row.otherUserProfileImageUrl);
+            profile.put("profile_image_url", ProfileImageUrls.resolve(row.otherUserProfileImageUrl, defaultProfileImageUrl));
             out.put("other_user_profile", profile);
             out.put("last_message", row.lastMessage);
             out.put("last_message_timestamp", row.lastMessageAt);
@@ -116,7 +122,7 @@ public class ConversationService {
         Map<String, Object> payload = new HashMap<>();
         payload.put("id", summary.id);
         payload.put("other_user_id", summary.otherUserId);
-        payload.put("other_user_profile", UserPayloads.directory(participant.get()));
+        payload.put("other_user_profile", UserPayloads.directory(participant.get(), appConfig.defaultProfileImageUrl()));
         payload.put("last_message", summary.lastMessage);
         payload.put("last_message_timestamp", summary.lastMessageAt);
         payload.put("unread_count", summary.unreadCount);

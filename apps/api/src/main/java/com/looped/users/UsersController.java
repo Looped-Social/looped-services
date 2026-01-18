@@ -2,6 +2,7 @@ package com.looped.users;
 
 import com.looped.posts.PostPayloads;
 import com.looped.comments.CommentsService;
+import com.looped.settings.AppConfigService;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
@@ -23,10 +24,12 @@ import java.util.Map;
 public class UsersController {
     private final UsersService service;
     private final CommentsService commentsService;
+    private final AppConfigService appConfig;
 
-    public UsersController(UsersService service, CommentsService commentsService) {
+    public UsersController(UsersService service, CommentsService commentsService, AppConfigService appConfig) {
         this.service = service;
         this.commentsService = commentsService;
+        this.appConfig = appConfig;
     }
 
     @PostMapping("/onboard")
@@ -39,7 +42,7 @@ public class UsersController {
         return switch (res.status()) {
             case BAD_REQUEST -> ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of("error", res.error()));
             case CONFLICT -> ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", res.error()));
-            case OK -> ResponseEntity.status(HttpStatus.CREATED).body(UserPayloads.fromProfile(res.profile(), true, true));
+            case OK -> ResponseEntity.status(HttpStatus.CREATED).body(UserPayloads.fromProfile(res.profile(), true, true, appConfig.defaultProfileImageUrl()));
         };
     }
 
@@ -87,7 +90,7 @@ public class UsersController {
             case CDN_NOT_CONFIGURED -> ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(Map.of(
                     "error", "cdn_not_configured"
             ));
-            case OK -> ResponseEntity.ok(UserPayloads.fromProfile(res.profile(), true, true));
+            case OK -> ResponseEntity.ok(UserPayloads.fromProfile(res.profile(), true, true, appConfig.defaultProfileImageUrl()));
             default -> ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         };
     }
@@ -143,7 +146,7 @@ public class UsersController {
                     "error", "community_not_verified",
                     "message", "You must be verified in this community"
             ));
-            case OK -> ResponseEntity.ok(UserPayloads.fromProfile(res.profile(), true, true));
+            case OK -> ResponseEntity.ok(UserPayloads.fromProfile(res.profile(), true, true, appConfig.defaultProfileImageUrl()));
             default -> ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         };
     }
@@ -171,7 +174,7 @@ public class UsersController {
                     "error", "specialization_not_joined",
                     "message", "You must join this specialization to display it"
             ));
-            case OK -> ResponseEntity.ok(UserPayloads.fromProfile(res.profile(), true, true));
+            case OK -> ResponseEntity.ok(UserPayloads.fromProfile(res.profile(), true, true, appConfig.defaultProfileImageUrl()));
             default -> ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         };
     }
@@ -193,7 +196,7 @@ public class UsersController {
             case USERNAME_TAKEN -> ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
                     "error", "username_taken"
             ));
-            case OK -> ResponseEntity.ok(UserPayloads.fromProfile(res.profile(), true, true));
+            case OK -> ResponseEntity.ok(UserPayloads.fromProfile(res.profile(), true, true, appConfig.defaultProfileImageUrl()));
             default -> ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         };
     }
@@ -328,7 +331,10 @@ public class UsersController {
                     "message", "Invalid anonymous proof"
             ));
             case OK -> {
-                List<Map<String, Object>> items = res.comments().stream().map(com.looped.comments.CommentPayloads::from).toList();
+                String defaultProfileImageUrl = appConfig.defaultProfileImageUrl();
+                List<Map<String, Object>> items = res.comments().stream()
+                        .map(row -> com.looped.comments.CommentPayloads.from(row, defaultProfileImageUrl))
+                        .toList();
                 Map<String, Object> body = new HashMap<>();
                 body.put("items", items);
                 if (res.nextCursor() != null) body.put("next_cursor", res.nextCursor());
@@ -371,7 +377,10 @@ public class UsersController {
                     "error", "user_not_provisioned"
             ));
             case OK -> {
-                List<Map<String, Object>> items = res.users().stream().map(UserPayloads::directory).toList();
+                String defaultProfileImageUrl = appConfig.defaultProfileImageUrl();
+                List<Map<String, Object>> items = res.users().stream()
+                        .map(row -> UserPayloads.directory(row, defaultProfileImageUrl))
+                        .toList();
                 Map<String, Object> body = new HashMap<>();
                 body.put("items", items);
                 if (res.nextCursor() != null) body.put("next_cursor", res.nextCursor());
@@ -420,7 +429,7 @@ public class UsersController {
                     "error", "forbidden",
                     "message", "Cross-company access denied"
             ));
-            case OK -> ResponseEntity.ok(UserPayloads.fromProfile(res.profile(), res.includeFollowerCounts()));
+            case OK -> ResponseEntity.ok(UserPayloads.fromProfile(res.profile(), res.includeFollowerCounts(), false, appConfig.defaultProfileImageUrl()));
             default -> ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         };
     }
@@ -448,7 +457,8 @@ public class UsersController {
                     "message", "Cross-company access denied"
             ));
             case OK -> {
-                List<Map<String, Object>> items = res.posts().stream().map(PostPayloads::from).toList();
+                String defaultProfileImageUrl = appConfig.defaultProfileImageUrl();
+                List<Map<String, Object>> items = res.posts().stream().map(row -> PostPayloads.from(row, defaultProfileImageUrl)).toList();
                 Map<String, Object> body = new HashMap<>();
                 body.put("items", items);
                 if (res.nextCursor() != null) {

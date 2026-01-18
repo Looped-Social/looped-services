@@ -1,5 +1,6 @@
 package com.looped.users;
 
+import com.looped.settings.AppConfigService;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -19,9 +20,11 @@ import java.util.Map;
 @RestController
 public class FollowsController {
     private final FollowsService service;
+    private final AppConfigService appConfig;
 
-    public FollowsController(FollowsService service) {
+    public FollowsController(FollowsService service, AppConfigService appConfig) {
         this.service = service;
+        this.appConfig = appConfig;
     }
 
     @GetMapping("/v1/users/{id}/followers")
@@ -37,7 +40,10 @@ public class FollowsController {
             case USER_NOT_PROVISIONED -> ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "user_not_provisioned"));
             case NOT_FOUND -> ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "not_found"));
             case OK -> {
-                List<Map<String, Object>> items = res.users().stream().map(com.looped.principals.PrincipalPayloads::directory).toList();
+                String defaultProfileImageUrl = appConfig.defaultProfileImageUrl();
+                List<Map<String, Object>> items = res.users().stream()
+                        .map(row -> com.looped.principals.PrincipalPayloads.directory(row, defaultProfileImageUrl))
+                        .toList();
                 Map<String, Object> body = new HashMap<>();
                 body.put("items", items);
                 if (res.nextCursor() != null) body.put("next_cursor", res.nextCursor());
@@ -60,7 +66,10 @@ public class FollowsController {
             case USER_NOT_PROVISIONED -> ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "user_not_provisioned"));
             case NOT_FOUND -> ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "not_found"));
             case OK -> {
-                List<Map<String, Object>> items = res.users().stream().map(com.looped.principals.PrincipalPayloads::directory).toList();
+                String defaultProfileImageUrl = appConfig.defaultProfileImageUrl();
+                List<Map<String, Object>> items = res.users().stream()
+                        .map(row -> com.looped.principals.PrincipalPayloads.directory(row, defaultProfileImageUrl))
+                        .toList();
                 Map<String, Object> body = new HashMap<>();
                 body.put("items", items);
                 if (res.nextCursor() != null) body.put("next_cursor", res.nextCursor());

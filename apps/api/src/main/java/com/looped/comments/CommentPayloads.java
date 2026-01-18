@@ -7,6 +7,10 @@ public final class CommentPayloads {
     private CommentPayloads() {}
 
     public static Map<String, Object> from(CommentsRepository.CommentViewRow row) {
+        return from(row, null);
+    }
+
+    public static Map<String, Object> from(CommentsRepository.CommentViewRow row, String defaultProfileImageUrl) {
         Map<String, Object> out = new HashMap<>();
         out.put("id", row.comment.id);
         out.put("post_id", row.comment.postId);
@@ -32,7 +36,7 @@ public final class CommentPayloads {
         author.put("username", row.author.handle);
         author.put("handle", row.author.handle);
         author.put("company_id", row.author.companyId);
-        author.put("profile_image_url", row.author.profileImageUrl);
+        author.put("profile_image_url", com.looped.users.ProfileImageUrls.resolve(row.author.profileImageUrl, defaultProfileImageUrl));
         out.put("author", author);
 
         return out;

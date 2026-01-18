@@ -11,6 +11,7 @@ import com.looped.posts.SavedPostsRepository;
 import com.looped.principals.PrincipalProfilesRepository;
 import com.looped.principals.PrincipalRepository;
 import com.looped.principals.PrincipalStatsRepository;
+import com.looped.settings.AppConfigService;
 import com.looped.shared.Pagination;
 import com.looped.users.UserPayloads;
 import com.looped.users.UserRepository;
@@ -37,6 +38,7 @@ public class AnonProfilesService {
     private final CommunitiesRepository communities;
     private final AnonIssuerRepository issuers;
     private final AnonProofService proofs;
+    private final AppConfigService appConfig;
 
     public AnonProfilesService(UserRepository users,
                                AnonymousProfilesRepository profiles,
@@ -52,7 +54,8 @@ public class AnonProfilesService {
                                AnonContentRepository content,
                                CommunitiesRepository communities,
                                AnonIssuerRepository issuers,
-                               AnonProofService proofs) {
+                               AnonProofService proofs,
+                               AppConfigService appConfig) {
         this.users = users;
         this.profiles = profiles;
         this.principals = principals;
@@ -68,6 +71,7 @@ public class AnonProfilesService {
         this.communities = communities;
         this.issuers = issuers;
         this.proofs = proofs;
+        this.appConfig = appConfig;
     }
 
     public ProfileResult profile(String firebaseUid, long anonProfileId) {
@@ -352,6 +356,7 @@ public class AnonProfilesService {
             }
         }
 
+        String defaultProfileImageUrl = appConfig.defaultProfileImageUrl();
         java.util.List<java.util.Map<String, Object>> items = new java.util.ArrayList<>();
         for (var ref : refs) {
             if ("post".equals(ref.type())) {
@@ -360,7 +365,7 @@ public class AnonProfilesService {
                 items.add(java.util.Map.of(
                         "type", "post",
                         "created_at", ref.createdAt(),
-                        "post", PostPayloads.from(p)
+                        "post", PostPayloads.from(p, defaultProfileImageUrl)
                 ));
             } else if ("reply".equals(ref.type())) {
                 var c = repliesById.get(ref.entityId());
@@ -372,7 +377,7 @@ public class AnonProfilesService {
                 if (includePostPreview) {
                     var host = postsById.get(c.postId);
                     if (host == null) host = replyPostsById.get(c.postId);
-                    if (host != null) payload.put("post", PostPayloads.from(host));
+                    if (host != null) payload.put("post", PostPayloads.from(host, defaultProfileImageUrl));
                 }
                 items.add(payload);
             }

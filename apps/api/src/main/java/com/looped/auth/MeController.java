@@ -2,6 +2,7 @@ package com.looped.auth;
 
 import com.looped.users.UserPayloads;
 import com.looped.users.UsersService;
+import com.looped.settings.AppConfigService;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -14,9 +15,11 @@ import java.util.Map;
 public class MeController {
 
     private final UsersService users;
+    private final AppConfigService appConfig;
 
-    public MeController(UsersService users) {
+    public MeController(UsersService users, AppConfigService appConfig) {
         this.users = users;
+        this.appConfig = appConfig;
     }
 
     @GetMapping("/v1/me")
@@ -56,7 +59,7 @@ public class MeController {
             return resp;
         }
         resp.put("provisioned", true);
-        resp.put("user", UserPayloads.fromProfile(profile.get(), true, true));
+        resp.put("user", UserPayloads.fromProfile(profile.get(), true, true, appConfig.defaultProfileImageUrl()));
         return resp;
     }
 }

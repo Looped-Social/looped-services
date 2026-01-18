@@ -57,6 +57,7 @@ public class SecurityConfig {
             .authorizeHttpRequests(authz -> authz
                 .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                 .requestMatchers("/health", "/actuator/health", "/actuator/info").permitAll()
+                .requestMatchers(HttpMethod.GET, "/v1/app-config").permitAll()
                 .requestMatchers(HttpMethod.POST, "/v1/media/presign").permitAll()
                 .requestMatchers(HttpMethod.POST, "/v1/media/callback").permitAll()
                 .requestMatchers(HttpMethod.POST, "/v1/media/resolve").permitAll()
