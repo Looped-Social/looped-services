@@ -67,7 +67,7 @@ firebase:
 cors:
   allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173}
   allowed-methods: ${CORS_ALLOWED_METHODS:GET,POST,PATCH,PUT,DELETE,OPTIONS}
-  allowed-headers: ${CORS_ALLOWED_HEADERS:Authorization,Content-Type}
+  allowed-headers: ${CORS_ALLOWED_HEADERS:Authorization,Content-Type,Idempotency-Key,X-Actor,X-Media-Signature}
   allow-credentials: ${CORS_ALLOW_CREDENTIALS:false}
 
 redis:
