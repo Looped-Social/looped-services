@@ -1,0 +1,6 @@
+# Looped moderation blocklist (MVP)
+#
+# One term per line. Lines starting with `#` are ignored.
+# Keep this file free of PII and avoid committing long/explicit slur lists to git.
+# Prefer injecting terms via env var `MODERATION_BLOCKLIST_TERMS` in production.
+

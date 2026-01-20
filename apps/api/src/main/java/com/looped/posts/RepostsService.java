@@ -77,6 +77,10 @@ public class RepostsService {
             var principal = principals.createForUser(user.get().id);
             actorPrincipalId = principal.id;
         }
+        if (post.get().visibility != null && !post.get().visibility.equalsIgnoreCase("public")
+                && actorPrincipalId != post.get().authorPrincipalId) {
+            return ToggleResult.notFound();
+        }
 
         if (actorPrincipalId == post.get().authorPrincipalId) return ToggleResult.selfRepostNotAllowed();
 
@@ -122,6 +126,10 @@ public class RepostsService {
             }
             var principal = principals.createForUser(user.get().id);
             actorPrincipalId = principal.id;
+        }
+        if (post.get().visibility != null && !post.get().visibility.equalsIgnoreCase("public")
+                && actorPrincipalId != post.get().authorPrincipalId) {
+            return ToggleResult.notFound();
         }
 
         boolean deleted = reposts.deleteIfPresent(actorPrincipalId, postId);

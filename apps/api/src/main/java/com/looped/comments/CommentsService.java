@@ -4,6 +4,8 @@ import com.looped.anon.AnonProofService;
 import com.looped.communities.CommunitiesRepository;
 import com.looped.communities.CommunityVerificationsRepository;
 import com.looped.media.MediaRepository;
+import com.looped.moderation.ContentModerationService;
+import com.looped.moderation.QuarantineService;
 import com.looped.notifications.NotificationPublisher;
 import com.looped.principals.PrincipalRepository;
 import com.looped.posts.PostRepository;
@@ -29,6 +31,8 @@ public class CommentsService {
     private final NotificationPublisher notifications;
     private final UserCommunityBanRepository communityBans;
     private final MediaRepository media;
+    private final ContentModerationService contentModeration;
+    private final QuarantineService quarantine;
 
     public CommentsService(CommentsRepository comments,
                            PostRepository posts,
@@ -39,7 +43,9 @@ public class CommentsService {
                            AnonProofService anonProofs,
                            NotificationPublisher notifications,
                            UserCommunityBanRepository communityBans,
-                           MediaRepository media) {
+                           MediaRepository media,
+                           ContentModerationService contentModeration,
+                           QuarantineService quarantine) {
         this.comments = comments;
         this.posts = posts;
         this.users = users;
@@ -50,6 +56,8 @@ public class CommentsService {
         this.notifications = notifications;
         this.communityBans = communityBans;
         this.media = media;
+        this.contentModeration = contentModeration;
+        this.quarantine = quarantine;
     }
 
     public ListResult list(String firebaseUid, long postId, String cursor, int limit, AnonProofService.AnonActionProof anonProof) {
@@ -62,9 +70,6 @@ public class CommentsService {
 
         var post = posts.findById(postId);
         if (post.isEmpty()) return ListResult.postNotFound();
-        if (anonProof == null && post.get().communityId != null && communityBans.isBanned(actor.orElseThrow().id, post.get().communityId)) {
-            return ListResult.communityBanned();
-        }
         long viewerPrincipalId;
         if (anonProof != null && anonProof.anonProfileId() != null) {
             if (post.get().communityId == null) return ListResult.invalidAnonProof();
@@ -73,6 +78,13 @@ public class CommentsService {
             viewerPrincipalId = verified.actor().principalId();
         } else {
             viewerPrincipalId = principals.createForUser(actor.orElseThrow().id).id;
+        }
+        if (post.get().visibility != null && !post.get().visibility.equalsIgnoreCase("public")
+                && viewerPrincipalId != post.get().authorPrincipalId) {
+            return ListResult.postNotFound();
+        }
+        if (anonProof == null && post.get().communityId != null && communityBans.isBanned(actor.orElseThrow().id, post.get().communityId)) {
+            return ListResult.communityBanned();
         }
         OffsetDateTime cTs = null; Long cId = null;
         if (cursor != null && !cursor.isBlank()) {
@@ -101,7 +113,11 @@ public class CommentsService {
         long actorPrincipalId;
         Long actorUserId = null;
         long effectiveCompanyId;
+        ContentModerationService.Decision decision;
+        boolean isAnonAction = false;
+        boolean mediaUnderReview = false;
         if (anonProof != null && anonProof.anonProfileId() != null) {
+            isAnonAction = true;
             var verified = anonProofs.verifyActionScoped(anonProof, "comment", postId, post.get().communityId);
             if (verified.status() != AnonProofService.Status.OK) return CreateResult.invalidAnonProof();
             actorPrincipalId = verified.actor().principalId();
@@ -110,6 +126,7 @@ public class CommentsService {
             if (mediaAssetId != null && !mediaOwnerIsNull(mediaAssetId)) {
                 return CreateResult.anonMediaNotAllowed();
             }
+            decision = contentModeration.evaluateTextForAnon(content);
         } else {
             if (firebaseUid == null) return CreateResult.userNotProvisioned();
             var actor = users.findByFirebaseUid(firebaseUid);
@@ -124,6 +141,22 @@ public class CommentsService {
             actorPrincipalId = principals.createForUser(actor.get().id).id;
             actorUserId = actor.get().id;
             effectiveCompanyId = actor.get().companyId;
+            decision = contentModeration.evaluateText(content);
+        }
+        if (mediaAssetId != null) {
+            var row = media.findById(mediaAssetId).orElse(null);
+            if (row == null || row.removedAt != null) return CreateResult.mediaNotFound();
+            if (row.visibility != null && !row.visibility.equalsIgnoreCase("public")) mediaUnderReview = true;
+        }
+        if (post.get().visibility != null && !post.get().visibility.equalsIgnoreCase("public")
+                && actorPrincipalId != post.get().authorPrincipalId) {
+            return CreateResult.postNotFound();
+        }
+        if (decision.action() == ContentModerationService.Action.REJECT_ANON) {
+            return CreateResult.contentUnderReview();
+        }
+        if (mediaUnderReview && isAnonAction) {
+            return CreateResult.contentUnderReview();
         }
 
         CommentsRepository.CommentRow parentComment = null;
@@ -139,15 +172,25 @@ public class CommentsService {
         if (parentId != null) {
             comments.incrementReplyCount(parentId);
         }
+        boolean quarantineComment = decision.action() == ContentModerationService.Action.QUARANTINE || mediaUnderReview;
+        if (quarantineComment) {
+            if (decision.action() == ContentModerationService.Action.QUARANTINE) {
+                quarantine.quarantineComment(inserted.id, decision.source(), decision.reason());
+            } else {
+                quarantine.quarantineComment(inserted.id, "media", "policy:media_under_review");
+            }
+        }
 
         var view = comments.findViewById(inserted.id, actorPrincipalId, post.get().authorPrincipalId).orElseThrow();
-        try {
-            notifications.notifyComment(post.get(), inserted.id, actorPrincipalId);
-            if (parentComment != null) {
-                notifications.notifyReply(parentComment, inserted.id, actorPrincipalId);
-            }
-            notifyMentions(actorPrincipalId, actorUserId, effectiveCompanyId, content, postId, inserted.id, post.get().authorId);
-        } catch (RuntimeException ignored) {}
+        if (!quarantineComment) {
+            try {
+                notifications.notifyComment(post.get(), inserted.id, actorPrincipalId);
+                if (parentComment != null) {
+                    notifications.notifyReply(parentComment, inserted.id, actorPrincipalId);
+                }
+                notifyMentions(actorPrincipalId, actorUserId, effectiveCompanyId, content, postId, inserted.id, post.get().authorId);
+            } catch (RuntimeException ignored) {}
+        }
         return CreateResult.ok(view);
     }
 
@@ -176,6 +219,10 @@ public class CommentsService {
             viewerPrincipalId = verified.actor().principalId();
         } else {
             viewerPrincipalId = principals.createForUser(actor.orElseThrow().id).id;
+        }
+        if (post.get().visibility != null && !post.get().visibility.equalsIgnoreCase("public")
+                && viewerPrincipalId != post.get().authorPrincipalId) {
+            return RepliesResult.commentNotFound();
         }
         OffsetDateTime cTs = null; Long cId = null;
         if (cursor != null && !cursor.isBlank()) {
@@ -242,26 +289,41 @@ public class CommentsService {
         var comment = comments.findById(commentId);
         if (comment.isEmpty()) return EditResult.commentNotFound();
         if (comment.get().deletedAt != null) return EditResult.commentDeleted();
+        if (comment.get().removedAt != null) return EditResult.commentDeleted();
         var post = posts.findById(comment.get().postId);
         if (post.isEmpty()) return EditResult.commentNotFound();
 
         long actorPrincipalId;
+        ContentModerationService.Decision decision;
         if (anonProof != null && anonProof.anonProfileId() != null) {
             if (post.get().communityId == null) return EditResult.invalidAnonProof();
             var verified = anonProofs.verifyActionScoped(anonProof, "comment_edit", commentId, post.get().communityId);
             if (verified.status() != AnonProofService.Status.OK) return EditResult.invalidAnonProof();
             actorPrincipalId = verified.actor().principalId();
+            decision = contentModeration.evaluateTextForAnon(content);
         } else {
             if (firebaseUid == null) return EditResult.userNotProvisioned();
             var actor = users.findByFirebaseUid(firebaseUid);
             if (actor.isEmpty() || actor.get().companyId == null) return EditResult.userNotProvisioned();
             actorPrincipalId = principals.createForUser(actor.get().id).id;
+            decision = contentModeration.evaluateText(content);
         }
 
         if (actorPrincipalId != comment.get().authorPrincipalId) return EditResult.forbidden();
+        if (post.get().visibility != null && !post.get().visibility.equalsIgnoreCase("public")
+                && actorPrincipalId != post.get().authorPrincipalId) {
+            return EditResult.commentNotFound();
+        }
+        if (decision.action() == ContentModerationService.Action.REJECT_ANON) {
+            return EditResult.contentUnderReview();
+        }
 
         boolean updated = comments.updateContent(commentId, content);
         if (!updated) return EditResult.commentDeleted();
+        if (decision.action() == ContentModerationService.Action.QUARANTINE
+                && (comment.get().visibility == null || comment.get().visibility.equalsIgnoreCase("public"))) {
+            quarantine.quarantineComment(commentId, decision.source(), decision.reason());
+        }
 
         var view = comments.findViewById(commentId, actorPrincipalId, post.get().authorPrincipalId).orElseThrow();
         return EditResult.ok(view);
@@ -272,6 +334,7 @@ public class CommentsService {
         var comment = comments.findById(commentId);
         if (comment.isEmpty()) return DeleteResult.commentNotFound();
         if (comment.get().deletedAt != null) return DeleteResult.ok(false);
+        if (comment.get().removedAt != null) return DeleteResult.ok(false);
         var post = posts.findById(comment.get().postId);
         if (post.isEmpty()) return DeleteResult.commentNotFound();
 
@@ -289,6 +352,10 @@ public class CommentsService {
                 return DeleteResult.communityBanned();
             }
             actorPrincipalId = principals.createForUser(actor.get().id).id;
+        }
+        if (post.get().visibility != null && !post.get().visibility.equalsIgnoreCase("public")
+                && actorPrincipalId != post.get().authorPrincipalId) {
+            return DeleteResult.commentNotFound();
         }
 
         if (actorPrincipalId != comment.get().authorPrincipalId) return DeleteResult.forbidden();
@@ -308,6 +375,7 @@ public class CommentsService {
         var comment = comments.findById(commentId);
         if (comment.isEmpty()) return LikeResult.commentNotFound();
         if (comment.get().deletedAt != null) return LikeResult.commentNotFound();
+        if (comment.get().removedAt != null) return LikeResult.commentNotFound();
         var post = posts.findById(comment.get().postId);
         if (post.isEmpty()) return LikeResult.commentNotFound();
         long actorPrincipalId;
@@ -331,6 +399,14 @@ public class CommentsService {
             actorPrincipalId = principals.createForUser(actor.get().id).id;
             actorUserId = actor.get().id;
         }
+        if (post.get().visibility != null && !post.get().visibility.equalsIgnoreCase("public")
+                && actorPrincipalId != post.get().authorPrincipalId) {
+            return LikeResult.commentNotFound();
+        }
+        if (comment.get().visibility != null && !comment.get().visibility.equalsIgnoreCase("public")
+                && actorPrincipalId != comment.get().authorPrincipalId) {
+            return LikeResult.commentNotFound();
+        }
         boolean created = comments.insertLikeIfAbsent(commentId, actorPrincipalId, actorUserId);
         if (created) {
             comments.incrementCommentLikes(commentId);
@@ -344,6 +420,7 @@ public class CommentsService {
         var comment = comments.findById(commentId);
         if (comment.isEmpty()) return UnlikeResult.commentNotFound();
         if (comment.get().deletedAt != null) return UnlikeResult.commentNotFound();
+        if (comment.get().removedAt != null) return UnlikeResult.commentNotFound();
         var post = posts.findById(comment.get().postId);
         if (post.isEmpty()) return UnlikeResult.commentNotFound();
         long actorPrincipalId;
@@ -364,6 +441,14 @@ public class CommentsService {
                 return UnlikeResult.notVerified();
             }
             actorPrincipalId = principals.createForUser(actor.get().id).id;
+        }
+        if (post.get().visibility != null && !post.get().visibility.equalsIgnoreCase("public")
+                && actorPrincipalId != post.get().authorPrincipalId) {
+            return UnlikeResult.commentNotFound();
+        }
+        if (comment.get().visibility != null && !comment.get().visibility.equalsIgnoreCase("public")
+                && actorPrincipalId != comment.get().authorPrincipalId) {
+            return UnlikeResult.commentNotFound();
         }
         boolean deleted = comments.deleteLikeIfPresent(commentId, actorPrincipalId);
         if (deleted) {
@@ -398,7 +483,9 @@ public class CommentsService {
         COMMUNITY_BANNED,
         NOT_VERIFIED,
         INVALID_ANON_PROOF,
-        ANON_MEDIA_NOT_ALLOWED
+        ANON_MEDIA_NOT_ALLOWED,
+        CONTENT_UNDER_REVIEW,
+        MEDIA_NOT_FOUND
     }
 
     public record ListResult(Status status, List<CommentsRepository.CommentViewRow> comments, String nextCursor) {
@@ -420,6 +507,8 @@ public class CommentsService {
         static CreateResult notVerified() { return new CreateResult(Status.NOT_VERIFIED, null); }
         static CreateResult invalidAnonProof() { return new CreateResult(Status.INVALID_ANON_PROOF, null); }
         static CreateResult anonMediaNotAllowed() { return new CreateResult(Status.ANON_MEDIA_NOT_ALLOWED, null); }
+        static CreateResult contentUnderReview() { return new CreateResult(Status.CONTENT_UNDER_REVIEW, null); }
+        static CreateResult mediaNotFound() { return new CreateResult(Status.MEDIA_NOT_FOUND, null); }
     }
 
     public record RepliesResult(Status status, List<CommentsRepository.CommentViewRow> comments, String nextCursor) {
@@ -445,7 +534,8 @@ public class CommentsService {
         COMMENT_NOT_FOUND,
         FORBIDDEN,
         COMMENT_DELETED,
-        INVALID_ANON_PROOF
+        INVALID_ANON_PROOF,
+        CONTENT_UNDER_REVIEW
     }
 
     public record EditResult(EditStatus status, CommentsRepository.CommentViewRow comment) {
@@ -455,6 +545,7 @@ public class CommentsService {
         static EditResult forbidden() { return new EditResult(EditStatus.FORBIDDEN, null); }
         static EditResult commentDeleted() { return new EditResult(EditStatus.COMMENT_DELETED, null); }
         static EditResult invalidAnonProof() { return new EditResult(EditStatus.INVALID_ANON_PROOF, null); }
+        static EditResult contentUnderReview() { return new EditResult(EditStatus.CONTENT_UNDER_REVIEW, null); }
     }
 
     public enum DeleteStatus {

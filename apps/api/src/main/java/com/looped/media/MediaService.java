@@ -5,8 +5,10 @@ import org.springframework.stereotype.Service;
 import software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Configuration;
+import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.presigner.model.PutObjectPresignRequest;
+import software.amazon.awssdk.services.s3.presigner.model.GetObjectPresignRequest;
 import software.amazon.awssdk.services.s3.presigner.S3Presigner;
 import org.springframework.util.unit.DataSize;
 
@@ -114,6 +116,18 @@ public class MediaService {
         }
 
         return PresignResult.ok(key, url, Map.of("Content-Type", contentType), signature);
+    }
+
+    public String presignedGetUrl(String key, Duration duration) {
+        GetObjectRequest get = GetObjectRequest.builder()
+                .bucket(bucket)
+                .key(key)
+                .build();
+        GetObjectPresignRequest presignReq = GetObjectPresignRequest.builder()
+                .signatureDuration(duration == null ? Duration.ofMinutes(5) : duration)
+                .getObjectRequest(get)
+                .build();
+        return presigner.presignGetObject(presignReq).url().toString();
     }
 
     public static String hmacSha256Base64(String secret, String data) {

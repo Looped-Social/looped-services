@@ -37,6 +37,10 @@ public class PostSharesService {
             return Result.communityBanned();
         }
         var principal = principals.createForUser(userOpt.get().id);
+        if (postOpt.get().visibility != null && !postOpt.get().visibility.equalsIgnoreCase("public")
+                && principal.id != postOpt.get().authorPrincipalId) {
+            return Result.notFound();
+        }
         shares.insert(principal.id, postId);
         shares.incrementPostShares(postId);
         var current = posts.findById(postId).orElseThrow();

@@ -66,6 +66,10 @@ public class LikesService {
             var principal = principals.createForUser(u.get().id);
             actorPrincipalId = principal.id;
         }
+        if (p.get().visibility != null && !p.get().visibility.equalsIgnoreCase("public")
+                && actorPrincipalId != p.get().authorPrincipalId) {
+            return Result.notFound();
+        }
 
         boolean created = likes.insertIfAbsent(actorPrincipalId, postId);
         if (created) {
@@ -101,6 +105,10 @@ public class LikesService {
             }
             var principal = principals.createForUser(u.get().id);
             actorPrincipalId = principal.id;
+        }
+        if (p.get().visibility != null && !p.get().visibility.equalsIgnoreCase("public")
+                && actorPrincipalId != p.get().authorPrincipalId) {
+            return UnlikeResult.notFound();
         }
 
         boolean deleted = likes.deleteIfPresent(actorPrincipalId, postId);

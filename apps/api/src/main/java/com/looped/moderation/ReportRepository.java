@@ -56,6 +56,16 @@ public class ReportRepository {
         return id;
     }
 
+    public int countDistinctOpenReporters(String targetType, long targetId) {
+        Integer count = jdbc.queryForObject(
+                "SELECT COUNT(DISTINCT reporter_id) FROM reports WHERE target_type = ? AND target_id = ? AND status = 'open'",
+                Integer.class,
+                targetType,
+                targetId
+        );
+        return count == null ? 0 : count;
+    }
+
     public Optional<ReportRow> findById(long id) {
         var list = jdbc.query("SELECT * FROM reports WHERE id=?", MAPPER, id);
         return list.isEmpty() ? Optional.empty() : Optional.of(list.get(0));

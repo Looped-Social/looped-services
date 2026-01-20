@@ -34,13 +34,19 @@ public class MediaRepository {
 
     public java.util.Optional<MediaRow> findByKey(String s3Key) {
         var rows = jdbc.query(
-                "SELECT id, owner_id, s3_key, mime_type FROM media_assets WHERE s3_key = ?",
+                "SELECT id, owner_id, s3_key, mime_type, visibility, quarantined_at, quarantine_reason, removed_at, removed_by, removed_reason FROM media_assets WHERE s3_key = ?",
                 (rs, rowNum) -> {
                     MediaRow row = new MediaRow();
                     row.id = rs.getLong("id");
                     row.ownerId = rs.getObject("owner_id", Long.class);
                     row.s3Key = rs.getString("s3_key");
                     row.mimeType = rs.getString("mime_type");
+                    row.visibility = rs.getString("visibility");
+                    row.quarantinedAt = rs.getObject("quarantined_at", OffsetDateTime.class);
+                    row.quarantineReason = rs.getString("quarantine_reason");
+                    row.removedAt = rs.getObject("removed_at", OffsetDateTime.class);
+                    row.removedBy = rs.getObject("removed_by", Long.class);
+                    row.removedReason = rs.getString("removed_reason");
                     return row;
                 },
                 s3Key
@@ -56,13 +62,19 @@ public class MediaRepository {
 
     public Optional<MediaRow> findById(long mediaAssetId) {
         var rows = jdbc.query(
-                "SELECT id, owner_id, s3_key, mime_type FROM media_assets WHERE id = ?",
+                "SELECT id, owner_id, s3_key, mime_type, visibility, quarantined_at, quarantine_reason, removed_at, removed_by, removed_reason FROM media_assets WHERE id = ?",
                 (rs, rowNum) -> {
                     MediaRow row = new MediaRow();
                     row.id = rs.getLong("id");
                     row.ownerId = rs.getObject("owner_id", Long.class);
                     row.s3Key = rs.getString("s3_key");
                     row.mimeType = rs.getString("mime_type");
+                    row.visibility = rs.getString("visibility");
+                    row.quarantinedAt = rs.getObject("quarantined_at", OffsetDateTime.class);
+                    row.quarantineReason = rs.getString("quarantine_reason");
+                    row.removedAt = rs.getObject("removed_at", OffsetDateTime.class);
+                    row.removedBy = rs.getObject("removed_by", Long.class);
+                    row.removedReason = rs.getString("removed_reason");
                     return row;
                 },
                 mediaAssetId
@@ -74,17 +86,50 @@ public class MediaRepository {
         if (mediaAssetIds == null || mediaAssetIds.isEmpty()) return List.of();
         String placeholders = String.join(",", java.util.Collections.nCopies(mediaAssetIds.size(), "?"));
         return jdbc.query(
-                "SELECT id, owner_id, s3_key, mime_type FROM media_assets WHERE id IN (" + placeholders + ")",
+                "SELECT id, owner_id, s3_key, mime_type, visibility, quarantined_at, quarantine_reason, removed_at, removed_by, removed_reason " +
+                        "FROM media_assets WHERE id IN (" + placeholders + ")",
                 (rs, rowNum) -> {
                     MediaRow row = new MediaRow();
                     row.id = rs.getLong("id");
                     row.ownerId = rs.getObject("owner_id", Long.class);
                     row.s3Key = rs.getString("s3_key");
                     row.mimeType = rs.getString("mime_type");
+                    row.visibility = rs.getString("visibility");
+                    row.quarantinedAt = rs.getObject("quarantined_at", OffsetDateTime.class);
+                    row.quarantineReason = rs.getString("quarantine_reason");
+                    row.removedAt = rs.getObject("removed_at", OffsetDateTime.class);
+                    row.removedBy = rs.getObject("removed_by", Long.class);
+                    row.removedReason = rs.getString("removed_reason");
                     return row;
                 },
                 mediaAssetIds.toArray()
         );
+    }
+
+    public boolean quarantine(long mediaAssetId, String reason) {
+        int rows = jdbc.update(
+                "UPDATE media_assets SET visibility = 'quarantined', quarantined_at = now(), quarantine_reason = ? " +
+                        "WHERE id = ? AND removed_at IS NULL AND visibility <> 'quarantined'",
+                reason, mediaAssetId
+        );
+        return rows > 0;
+    }
+
+    public boolean unquarantine(long mediaAssetId) {
+        int rows = jdbc.update(
+                "UPDATE media_assets SET visibility = 'public', quarantined_at = NULL, quarantine_reason = NULL " +
+                        "WHERE id = ? AND removed_at IS NULL AND visibility <> 'public'",
+                mediaAssetId
+        );
+        return rows > 0;
+    }
+
+    public boolean removeByAdmin(long mediaAssetId, long adminId, String reason) {
+        int rows = jdbc.update(
+                "UPDATE media_assets SET removed_at = now(), removed_by = ?, removed_reason = ? WHERE id = ? AND removed_at IS NULL",
+                adminId, reason, mediaAssetId
+        );
+        return rows > 0;
     }
 
     public static class MediaRow {
@@ -92,5 +137,11 @@ public class MediaRepository {
         public Long ownerId;
         public String s3Key;
         public String mimeType;
+        public String visibility;
+        public OffsetDateTime quarantinedAt;
+        public String quarantineReason;
+        public OffsetDateTime removedAt;
+        public Long removedBy;
+        public String removedReason;
     }
 }

@@ -41,14 +41,14 @@ public class SavedPostsRepository {
                                              long viewerUserId, boolean hideAnonymousPosts) {
         String filter = hideAnonymousFilter(hideAnonymousPosts);
         if (cursorTs == null || cursorPostId == null) {
-            return jdbc.query(BASE_QUERY + " WHERE s.saver_principal_id=? AND p.removed_at IS NULL AND (p.author_id IS NULL OR u.id IS NOT NULL) " +
+            return jdbc.query(BASE_QUERY + " WHERE s.saver_principal_id=? AND p.removed_at IS NULL AND p.visibility = 'public' AND (p.author_id IS NULL OR u.id IS NOT NULL) " +
                             filter +
                             "ORDER BY s.created_at DESC, p.id DESC LIMIT ?",
                     MAPPER,
                     hideAnonymousPosts ? new Object[]{principalId, viewerUserId, limit} : new Object[]{principalId, limit});
         }
         return jdbc.query(BASE_QUERY +
-                        " WHERE s.saver_principal_id=? AND p.removed_at IS NULL AND (p.author_id IS NULL OR u.id IS NOT NULL) " +
+                        " WHERE s.saver_principal_id=? AND p.removed_at IS NULL AND p.visibility = 'public' AND (p.author_id IS NULL OR u.id IS NOT NULL) " +
                         filter +
                         "AND (s.created_at < ? OR (s.created_at = ? AND p.id < ?)) " +
                         "ORDER BY s.created_at DESC, p.id DESC LIMIT ?",

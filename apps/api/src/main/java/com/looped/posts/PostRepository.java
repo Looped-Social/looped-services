@@ -44,10 +44,11 @@ public class PostRepository {
     private static final String BASE_SELECT =
             "SELECT p.id, p.author_id, p.author_principal_id, p.is_anon, p.anon_profile_id, p.anon_company_id, " +
             "p.company_id, p.community_id, c.name AS community_name, c.short_name AS community_short_name, c.kind AS community_kind, " +
-            "p.content, p.media_asset_id, p.likes_count, p.comments_count, p.share_count, p.repost_count, p.created_at, " +
-            "COALESCE(pm.media_asset_ids, CASE WHEN p.media_asset_id IS NULL THEN NULL ELSE ARRAY[p.media_asset_id] END) AS media_asset_ids, " +
-            "p.removed_at, p.removed_by, p.removed_reason, " +
-            "COALESCE(u.handle, ap.handle) AS author_handle, " +
+	            "p.content, p.media_asset_id, p.likes_count, p.comments_count, p.share_count, p.repost_count, p.created_at, " +
+	            "COALESCE(pm.media_asset_ids, CASE WHEN p.media_asset_id IS NULL THEN NULL ELSE ARRAY[p.media_asset_id] END) AS media_asset_ids, " +
+		                "p.removed_at, p.removed_by, p.removed_reason, " +
+		                "p.visibility, p.quarantined_at, p.quarantine_reason, " +
+	            "COALESCE(u.handle, ap.handle) AS author_handle, " +
             "u.display_name AS author_display_name, " +
             "u.first_name AS author_first_name, " +
             "u.last_name AS author_last_name, " +
@@ -108,11 +109,14 @@ public class PostRepository {
             p.shareCount = rs.getInt("share_count");
             p.repostCount = rs.getInt("repost_count");
             p.createdAt = rs.getObject("created_at", OffsetDateTime.class);
-            p.removedAt = rs.getObject("removed_at", OffsetDateTime.class);
-            long removedBy = rs.getLong("removed_by");
-            p.removedBy = rs.wasNull() ? null : removedBy;
-            p.removedReason = rs.getString("removed_reason");
-            p.authorHandle = rs.getString("author_handle");
+	            p.removedAt = rs.getObject("removed_at", OffsetDateTime.class);
+	            long removedBy = rs.getLong("removed_by");
+	            p.removedBy = rs.wasNull() ? null : removedBy;
+	            p.removedReason = rs.getString("removed_reason");
+	            p.visibility = rs.getString("visibility");
+	            p.quarantinedAt = rs.getObject("quarantined_at", OffsetDateTime.class);
+	            p.quarantineReason = rs.getString("quarantine_reason");
+	            p.authorHandle = rs.getString("author_handle");
             p.authorDisplayName = rs.getString("author_display_name");
             p.authorFirstName = rs.getString("author_first_name");
             p.authorLastName = rs.getString("author_last_name");
@@ -183,30 +187,45 @@ public class PostRepository {
         );
     }
 
+    public java.util.List<Long> findPostIdsByMediaAsset(long mediaAssetId) {
+        return jdbc.queryForList(
+                """
+                SELECT id FROM posts
+                WHERE removed_at IS NULL AND (media_asset_id = ? OR id IN (
+                    SELECT post_id FROM post_media_assets WHERE media_asset_id = ?
+                ))
+                """,
+                Long.class,
+                mediaAssetId,
+                mediaAssetId
+        );
+    }
+
     public java.util.List<PostRow> findFeedByCommunity(long communityId, java.time.OffsetDateTime cursorTs, Long cursorId, int limit) {
         if (cursorTs == null || cursorId == null) {
             return jdbc.query(
-                    BASE_SELECT + "WHERE p.community_id=? AND p.removed_at IS NULL AND (p.author_id IS NULL OR u.id IS NOT NULL) " +
+                    BASE_SELECT + "WHERE p.community_id=? AND p.removed_at IS NULL AND p.visibility = 'public' AND (p.author_id IS NULL OR u.id IS NOT NULL) " +
                             "ORDER BY p.created_at ASC, p.id ASC LIMIT ?",
                     MAPPER, communityId, limit
             );
         }
         return jdbc.query(
-                BASE_SELECT + "WHERE p.community_id=? AND p.removed_at IS NULL AND (p.author_id IS NULL OR u.id IS NOT NULL) " +
+                BASE_SELECT + "WHERE p.community_id=? AND p.removed_at IS NULL AND p.visibility = 'public' AND (p.author_id IS NULL OR u.id IS NOT NULL) " +
                         "AND (p.created_at > ? OR (p.created_at = ? AND p.id > ?)) " +
                         "ORDER BY p.created_at ASC, p.id ASC LIMIT ?",
                 MAPPER, communityId, cursorTs, cursorTs, cursorId, limit
         );
     }
 
-    public java.util.List<PostRow> findNew(Long communityId, java.time.OffsetDateTime cursorTs, Long cursorId, int limit,
-                                           long viewerUserId, long viewerPrincipalId, boolean hideAnonymousPosts) {
-        String base = BASE_SELECT + "WHERE p.removed_at IS NULL AND (p.author_id IS NULL OR u.id IS NOT NULL) ";
-        java.util.List<Object> args = new java.util.ArrayList<>();
-        if (communityId != null) {
-            base += "AND p.community_id = ? ";
-            args.add(communityId);
-        }
+	    public java.util.List<PostRow> findNew(Long communityId, java.time.OffsetDateTime cursorTs, Long cursorId, int limit,
+	                                           long viewerUserId, long viewerPrincipalId, boolean hideAnonymousPosts) {
+	        String base = BASE_SELECT + "WHERE p.removed_at IS NULL AND (p.visibility = 'public' OR p.author_id = ?) AND (p.author_id IS NULL OR u.id IS NOT NULL) ";
+	        java.util.List<Object> args = new java.util.ArrayList<>();
+	        args.add(viewerUserId);
+	        if (communityId != null) {
+	            base += "AND p.community_id = ? ";
+	            args.add(communityId);
+	        }
         if (hideAnonymousPosts) {
             base += hideAnonymousFilter(true);
             args.add(viewerUserId);
@@ -235,8 +254,9 @@ public class PostRepository {
 
     public java.util.List<PostRow> findFollowing(Long communityId, java.time.OffsetDateTime cursorTs, Long cursorId, int limit,
                                                  long viewerUserId, long viewerPrincipalId, boolean hideAnonymousPosts) {
-        String base = BASE_SELECT + "WHERE p.removed_at IS NULL AND (p.author_id IS NULL OR u.id IS NOT NULL) ";
+        String base = BASE_SELECT + "WHERE p.removed_at IS NULL AND (p.visibility = 'public' OR p.author_id = ?) AND (p.author_id IS NULL OR u.id IS NOT NULL) ";
         java.util.List<Object> args = new java.util.ArrayList<>();
+        args.add(viewerUserId);
         if (communityId != null) {
             base += "AND p.community_id = ? ";
             args.add(communityId);
@@ -283,6 +303,7 @@ public class PostRepository {
 	                "COALESCE(pm.media_asset_ids, CASE WHEN p.media_asset_id IS NULL THEN NULL ELSE ARRAY[p.media_asset_id] END) AS media_asset_ids, " +
 	                "p.likes_count, p.comments_count, p.share_count, p.repost_count, p.created_at, " +
 	                "p.removed_at, p.removed_by, p.removed_reason, " +
+	                "p.visibility, p.quarantined_at, p.quarantine_reason, " +
 	                "COALESCE(u.handle, ap.handle) AS author_handle, u.display_name AS author_display_name, " +
 	                "u.first_name AS author_first_name, u.last_name AS author_last_name, " +
 	                "u.profile_image_url AS author_profile_image_url, " +
@@ -307,7 +328,7 @@ public class PostRepository {
                 "  SELECT ARRAY_AGG(pma.media_asset_id ORDER BY pma.sort_order) AS media_asset_ids " +
                 "  FROM post_media_assets pma WHERE pma.post_id = p.id" +
                 ") pm ON true " +
-                "WHERE p.created_at >= ? AND p.removed_at IS NULL AND (p.author_id IS NULL OR u.id IS NOT NULL)";
+	                "WHERE p.created_at >= ? AND p.removed_at IS NULL AND (p.visibility = 'public' OR p.author_id = ?) AND (p.author_id IS NULL OR u.id IS NOT NULL)";
         if (hideAnonymousPosts) {
             base += " " + hideAnonymousFilter(true);
         }
@@ -317,38 +338,40 @@ public class PostRepository {
             return jdbc.query(
 	                    "SELECT id, author_id, author_principal_id, is_anon, anon_profile_id, anon_company_id, company_id, community_id, " +
 	                            "community_name, community_short_name, community_kind, content, media_asset_id, likes_count, comments_count, share_count, repost_count, created_at, " +
-	                            "media_asset_ids, " +
-	                            "removed_at, removed_by, removed_reason, " +
-	                            "author_handle, author_display_name, author_first_name, author_last_name, author_profile_image_url, " +
+		                            "media_asset_ids, " +
+		                            "removed_at, removed_by, removed_reason, " +
+		                            "visibility, quarantined_at, quarantine_reason, " +
+		                            "author_handle, author_display_name, author_first_name, author_last_name, author_profile_image_url, " +
 	                            "author_display_community_id, author_display_community_name, author_display_community_short_name, author_display_community_kind, " +
 	                            "author_display_community_specialization_type, " +
 	                            "author_display_specialization_id, author_display_specialization_name, author_display_specialization_short_name, author_display_specialization_kind, " +
 	                            "author_display_specialization_type, author_is_anonymous " +
 	                    "FROM (" + base + ") s ORDER BY score DESC, created_at DESC, id DESC LIMIT ?",
-                    MAPPER,
-                    hideAnonymousPosts
-                            ? new Object[]{asOf, since, viewerUserId, viewerPrincipalId, viewerPrincipalId, viewerUserId, limit}
-                            : new Object[]{asOf, since, viewerPrincipalId, viewerPrincipalId, viewerUserId, limit}
-            );
-        }
-	        return jdbc.query(
+	                    MAPPER,
+	                    hideAnonymousPosts
+	                            ? new Object[]{asOf, since, viewerUserId, viewerUserId, viewerPrincipalId, viewerPrincipalId, viewerUserId, limit}
+	                            : new Object[]{asOf, since, viewerUserId, viewerPrincipalId, viewerPrincipalId, viewerUserId, limit}
+	            );
+	        }
+		        return jdbc.query(
 	                "SELECT id, author_id, author_principal_id, is_anon, anon_profile_id, anon_company_id, company_id, community_id, " +
-	                        "community_name, community_short_name, community_kind, content, media_asset_id, likes_count, comments_count, share_count, repost_count, created_at, " +
-	                        "media_asset_ids, " +
-	                        "removed_at, removed_by, removed_reason, " +
-	                        "author_handle, author_display_name, author_first_name, author_last_name, author_profile_image_url, " +
+		                        "community_name, community_short_name, community_kind, content, media_asset_id, likes_count, comments_count, share_count, repost_count, created_at, " +
+		                        "media_asset_ids, " +
+		                        "removed_at, removed_by, removed_reason, " +
+		                        "visibility, quarantined_at, quarantine_reason, " +
+		                        "author_handle, author_display_name, author_first_name, author_last_name, author_profile_image_url, " +
 	                        "author_display_community_id, author_display_community_name, author_display_community_short_name, author_display_community_kind, " +
 	                        "author_display_community_specialization_type, " +
 	                        "author_display_specialization_id, author_display_specialization_name, author_display_specialization_short_name, author_display_specialization_kind, " +
 	                        "author_display_specialization_type, author_is_anonymous " +
 	                        "FROM (" + base + ") s WHERE (score < ? OR (score = ? AND (created_at < ? OR (created_at = ? AND id < ?)))) " +
 	                        "ORDER BY score DESC, created_at DESC, id DESC LIMIT ?",
-                MAPPER,
-                hideAnonymousPosts
-                        ? new Object[]{asOf, since, viewerUserId, viewerPrincipalId, viewerPrincipalId, viewerUserId, cursorScore, cursorScore, cursorTs, cursorTs, cursorId, limit}
-                        : new Object[]{asOf, since, viewerPrincipalId, viewerPrincipalId, viewerUserId, cursorScore, cursorScore, cursorTs, cursorTs, cursorId, limit}
-        );
-    }
+	                MAPPER,
+	                hideAnonymousPosts
+	                        ? new Object[]{asOf, since, viewerUserId, viewerUserId, viewerPrincipalId, viewerPrincipalId, viewerUserId, cursorScore, cursorScore, cursorTs, cursorTs, cursorId, limit}
+	                        : new Object[]{asOf, since, viewerUserId, viewerPrincipalId, viewerPrincipalId, viewerUserId, cursorScore, cursorScore, cursorTs, cursorTs, cursorId, limit}
+	        );
+	    }
 
     public java.util.List<PostRow> findPopularByCommunity(long communityId, java.time.OffsetDateTime asOf, java.time.OffsetDateTime since,
                                                           Long cursorScore, java.time.OffsetDateTime cursorTs, Long cursorId, int limit,
@@ -361,6 +384,7 @@ public class PostRepository {
 	                "COALESCE(pm.media_asset_ids, CASE WHEN p.media_asset_id IS NULL THEN NULL ELSE ARRAY[p.media_asset_id] END) AS media_asset_ids, " +
 	                "p.likes_count, p.comments_count, p.share_count, p.repost_count, p.created_at, " +
 	                "p.removed_at, p.removed_by, p.removed_reason, " +
+	                "p.visibility, p.quarantined_at, p.quarantine_reason, " +
 	                "COALESCE(u.handle, ap.handle) AS author_handle, u.display_name AS author_display_name, " +
 	                "u.first_name AS author_first_name, u.last_name AS author_last_name, " +
 	                "u.profile_image_url AS author_profile_image_url, " +
@@ -385,8 +409,8 @@ public class PostRepository {
                 "  SELECT ARRAY_AGG(pma.media_asset_id ORDER BY pma.sort_order) AS media_asset_ids " +
                 "  FROM post_media_assets pma WHERE pma.post_id = p.id" +
                 ") pm ON true " +
-                "WHERE p.created_at >= ? AND p.removed_at IS NULL AND p.community_id = ? " +
-                "AND (p.author_id IS NULL OR u.id IS NOT NULL)";
+	                "WHERE p.created_at >= ? AND p.removed_at IS NULL AND p.community_id = ? AND (p.visibility = 'public' OR p.author_id = ?) " +
+	                "AND (p.author_id IS NULL OR u.id IS NOT NULL)";
         if (hideAnonymousPosts) {
             base += " " + hideAnonymousFilter(true);
         }
@@ -396,85 +420,87 @@ public class PostRepository {
             return jdbc.query(
 	                    "SELECT id, author_id, author_principal_id, is_anon, anon_profile_id, anon_company_id, company_id, community_id, " +
 	                            "community_name, community_short_name, community_kind, content, media_asset_id, likes_count, comments_count, share_count, repost_count, created_at, " +
-	                            "media_asset_ids, " +
-	                            "removed_at, removed_by, removed_reason, " +
-	                            "author_handle, author_display_name, author_first_name, author_last_name, author_profile_image_url, " +
+		                            "media_asset_ids, " +
+		                            "removed_at, removed_by, removed_reason, " +
+		                            "visibility, quarantined_at, quarantine_reason, " +
+		                            "author_handle, author_display_name, author_first_name, author_last_name, author_profile_image_url, " +
 	                            "author_display_community_id, author_display_community_name, author_display_community_short_name, author_display_community_kind, " +
 	                            "author_display_community_specialization_type, " +
 	                            "author_display_specialization_id, author_display_specialization_name, author_display_specialization_short_name, author_display_specialization_kind, " +
 	                            "author_display_specialization_type, author_is_anonymous " +
 	                    "FROM (" + base + ") s ORDER BY score DESC, created_at DESC, id DESC LIMIT ?",
-                    MAPPER,
-                    hideAnonymousPosts
-                            ? new Object[]{asOf, since, communityId, viewerUserId, viewerPrincipalId, viewerPrincipalId, viewerUserId, limit}
-                            : new Object[]{asOf, since, communityId, viewerPrincipalId, viewerPrincipalId, viewerUserId, limit}
-            );
-        }
-	        return jdbc.query(
+	                    MAPPER,
+	                    hideAnonymousPosts
+	                            ? new Object[]{asOf, since, communityId, viewerUserId, viewerUserId, viewerPrincipalId, viewerPrincipalId, viewerUserId, limit}
+	                            : new Object[]{asOf, since, communityId, viewerUserId, viewerPrincipalId, viewerPrincipalId, viewerUserId, limit}
+	            );
+	        }
+		        return jdbc.query(
 	                "SELECT id, author_id, author_principal_id, is_anon, anon_profile_id, anon_company_id, company_id, community_id, " +
-	                        "community_name, community_short_name, community_kind, content, media_asset_id, likes_count, comments_count, share_count, repost_count, created_at, " +
-	                        "media_asset_ids, " +
-	                        "removed_at, removed_by, removed_reason, " +
-	                        "author_handle, author_display_name, author_first_name, author_last_name, author_profile_image_url, " +
+		                        "community_name, community_short_name, community_kind, content, media_asset_id, likes_count, comments_count, share_count, repost_count, created_at, " +
+		                        "media_asset_ids, " +
+		                        "removed_at, removed_by, removed_reason, " +
+		                        "visibility, quarantined_at, quarantine_reason, " +
+		                        "author_handle, author_display_name, author_first_name, author_last_name, author_profile_image_url, " +
 	                        "author_display_community_id, author_display_community_name, author_display_community_short_name, author_display_community_kind, " +
 	                        "author_display_community_specialization_type, " +
 	                        "author_display_specialization_id, author_display_specialization_name, author_display_specialization_short_name, author_display_specialization_kind, " +
 	                        "author_display_specialization_type, author_is_anonymous " +
 	                        "FROM (" + base + ") s WHERE (score < ? OR (score = ? AND (created_at < ? OR (created_at = ? AND id < ?)))) " +
 	                        "ORDER BY score DESC, created_at DESC, id DESC LIMIT ?",
-                MAPPER,
-                hideAnonymousPosts
-                        ? new Object[]{asOf, since, communityId, viewerUserId, viewerPrincipalId, viewerPrincipalId, viewerUserId, cursorScore, cursorScore, cursorTs, cursorTs, cursorId, limit}
-                        : new Object[]{asOf, since, communityId, viewerPrincipalId, viewerPrincipalId, viewerUserId, cursorScore, cursorScore, cursorTs, cursorTs, cursorId, limit}
-        );
-    }
+	                MAPPER,
+	                hideAnonymousPosts
+	                        ? new Object[]{asOf, since, communityId, viewerUserId, viewerUserId, viewerPrincipalId, viewerPrincipalId, viewerUserId, cursorScore, cursorScore, cursorTs, cursorTs, cursorId, limit}
+	                        : new Object[]{asOf, since, communityId, viewerUserId, viewerPrincipalId, viewerPrincipalId, viewerUserId, cursorScore, cursorScore, cursorTs, cursorTs, cursorId, limit}
+	        );
+	    }
 
-    public java.util.List<PostRow> findByAuthor(long authorId, java.time.OffsetDateTime cursorTs, Long cursorId, int limit,
-                                               long viewerUserId, boolean hideAnonymousPosts) {
-        String filter = hideAnonymousPosts ? hideAnonymousFilter(true) : "";
-        if (cursorTs == null || cursorId == null) {
-            return jdbc.query(
-                    BASE_SELECT + "WHERE p.author_id=? AND p.removed_at IS NULL AND u.id IS NOT NULL " + filter +
-                            "ORDER BY p.created_at DESC, p.id DESC LIMIT ?",
-                    MAPPER,
-                    hideAnonymousPosts ? new Object[]{authorId, viewerUserId, limit} : new Object[]{authorId, limit}
-            );
-        } else {
-            return jdbc.query(
-                    BASE_SELECT + "WHERE p.author_id=? AND p.removed_at IS NULL AND u.id IS NOT NULL " + filter +
-                            "AND (p.created_at < ? OR (p.created_at = ? AND p.id < ?)) " +
-                            "ORDER BY p.created_at DESC, p.id DESC LIMIT ?",
-                    MAPPER,
-                    hideAnonymousPosts
-                            ? new Object[]{authorId, viewerUserId, cursorTs, cursorTs, cursorId, limit}
-                            : new Object[]{authorId, cursorTs, cursorTs, cursorId, limit}
-            );
-        }
-    }
+	    public java.util.List<PostRow> findByAuthor(long authorId, java.time.OffsetDateTime cursorTs, Long cursorId, int limit,
+	                                               long viewerUserId, boolean hideAnonymousPosts) {
+	        String filter = hideAnonymousPosts ? hideAnonymousFilter(true) : "";
+	        if (cursorTs == null || cursorId == null) {
+	            return jdbc.query(
+	                    BASE_SELECT + "WHERE p.author_id=? AND p.removed_at IS NULL AND (p.visibility = 'public' OR p.author_id = ?) AND u.id IS NOT NULL " + filter +
+	                            "ORDER BY p.created_at DESC, p.id DESC LIMIT ?",
+	                    MAPPER,
+	                    hideAnonymousPosts ? new Object[]{authorId, viewerUserId, viewerUserId, limit} : new Object[]{authorId, viewerUserId, limit}
+	            );
+	        } else {
+	            return jdbc.query(
+	                    BASE_SELECT + "WHERE p.author_id=? AND p.removed_at IS NULL AND (p.visibility = 'public' OR p.author_id = ?) AND u.id IS NOT NULL " + filter +
+	                            "AND (p.created_at < ? OR (p.created_at = ? AND p.id < ?)) " +
+	                            "ORDER BY p.created_at DESC, p.id DESC LIMIT ?",
+	                    MAPPER,
+	                    hideAnonymousPosts
+	                            ? new Object[]{authorId, viewerUserId, viewerUserId, cursorTs, cursorTs, cursorId, limit}
+	                            : new Object[]{authorId, viewerUserId, cursorTs, cursorTs, cursorId, limit}
+	            );
+	        }
+	    }
 
     public java.util.List<PostRow> findByAuthorPrincipal(long authorPrincipalId, java.time.OffsetDateTime cursorTs, Long cursorId, int limit) {
         if (cursorTs == null || cursorId == null) {
-            return jdbc.query(
-                    BASE_SELECT + "WHERE p.author_principal_id=? AND p.removed_at IS NULL AND (p.author_id IS NULL OR u.id IS NOT NULL) " +
-                            "ORDER BY p.created_at DESC, p.id DESC LIMIT ?",
-                    MAPPER, authorPrincipalId, limit
-            );
-        } else {
-            return jdbc.query(
-                    BASE_SELECT + "WHERE p.author_principal_id=? AND p.removed_at IS NULL AND (p.author_id IS NULL OR u.id IS NOT NULL) " +
-                            "AND (p.created_at < ? OR (p.created_at = ? AND p.id < ?)) " +
-                        "ORDER BY p.created_at DESC, p.id DESC LIMIT ?",
-                MAPPER, authorPrincipalId, cursorTs, cursorTs, cursorId, limit
-            );
-        }
-    }
+	            return jdbc.query(
+	                    BASE_SELECT + "WHERE p.author_principal_id=? AND p.removed_at IS NULL AND p.visibility = 'public' AND (p.author_id IS NULL OR u.id IS NOT NULL) " +
+	                            "ORDER BY p.created_at DESC, p.id DESC LIMIT ?",
+	                    MAPPER, authorPrincipalId, limit
+	            );
+	        } else {
+	            return jdbc.query(
+	                    BASE_SELECT + "WHERE p.author_principal_id=? AND p.removed_at IS NULL AND p.visibility = 'public' AND (p.author_id IS NULL OR u.id IS NOT NULL) " +
+	                            "AND (p.created_at < ? OR (p.created_at = ? AND p.id < ?)) " +
+	                        "ORDER BY p.created_at DESC, p.id DESC LIMIT ?",
+	                MAPPER, authorPrincipalId, cursorTs, cursorTs, cursorId, limit
+	            );
+	        }
+	    }
 
     public java.util.List<PostRow> findByHashtag(long companyId, String name, java.time.OffsetDateTime cursorTs, Long cursorId, int limit,
                                                  long viewerUserId, boolean hideAnonymousPosts) {
-        String base = BASE_SELECT +
-                "JOIN hashtag_posts hp ON hp.post_id = p.id " +
-                "JOIN hashtags h ON h.id = hp.hashtag_id " +
-                "WHERE h.company_id = ? AND h.name = ? AND p.removed_at IS NULL AND (p.author_id IS NULL OR u.id IS NOT NULL) ";
+	        String base = BASE_SELECT +
+	                "JOIN hashtag_posts hp ON hp.post_id = p.id " +
+	                "JOIN hashtags h ON h.id = hp.hashtag_id " +
+	                "WHERE h.company_id = ? AND h.name = ? AND p.removed_at IS NULL AND p.visibility = 'public' AND (p.author_id IS NULL OR u.id IS NOT NULL) ";
         if (hideAnonymousPosts) {
             base += hideAnonymousFilter(true);
         }
@@ -527,7 +553,7 @@ public class PostRepository {
                 "  SELECT ARRAY_AGG(pma.media_asset_id ORDER BY pma.sort_order) AS media_asset_ids " +
                 "  FROM post_media_assets pma WHERE pma.post_id = p.id" +
                 ") pm ON true " +
-                "WHERE p.media_asset_id IS NOT NULL AND p.created_at >= ? AND p.removed_at IS NULL AND (p.author_id IS NULL OR u.id IS NOT NULL) ";
+	                "WHERE p.media_asset_id IS NOT NULL AND p.created_at >= ? AND p.removed_at IS NULL AND p.visibility = 'public' AND (p.author_id IS NULL OR u.id IS NOT NULL) ";
         if (communityId != null) {
             base += "AND p.community_id = ? ";
         }
@@ -575,6 +601,7 @@ public class PostRepository {
 	                        "p.content, p.media_asset_id, p.likes_count, p.comments_count, p.share_count, p.repost_count, p.created_at, " +
 	                        "COALESCE(pm.media_asset_ids, CASE WHEN p.media_asset_id IS NULL THEN NULL ELSE ARRAY[p.media_asset_id] END) AS media_asset_ids, " +
 	                        "p.removed_at, p.removed_by, p.removed_reason, " +
+	                        "p.visibility, p.quarantined_at, p.quarantine_reason, " +
                         "COALESCE(u.handle, ap.handle) AS author_handle, " +
                         "u.display_name AS author_display_name, " +
                         "u.first_name AS author_first_name, " +
@@ -609,9 +636,10 @@ public class PostRepository {
                         "  FROM post_media_assets pma WHERE pma.post_id = p.id" +
                         ") pm ON true " +
                         "CROSS JOIN q " +
-                        "WHERE p.company_id = ? " +
-                        "AND p.removed_at IS NULL " +
-                        "AND (p.author_id IS NULL OR u.id IS NOT NULL) " +
+	                        "WHERE p.company_id = ? " +
+	                        "AND p.removed_at IS NULL " +
+	                        "AND p.visibility = 'public' " +
+	                        "AND (p.author_id IS NULL OR u.id IS NOT NULL) " +
                         (hideAnonymousPosts ? hideAnonymousFilter(true) : "") +
                         blocksFilter() +
                         communityBansFilter() +
@@ -654,13 +682,31 @@ public class PostRepository {
         return rows > 0;
     }
 
-    public boolean restore(long postId) {
-        int rows = jdbc.update(
-                "UPDATE posts SET removed_at = NULL, removed_by = NULL, removed_reason = NULL WHERE id = ?",
-                postId
-        );
-        return rows > 0;
-    }
+	    public boolean restore(long postId) {
+	        int rows = jdbc.update(
+	                "UPDATE posts SET removed_at = NULL, removed_by = NULL, removed_reason = NULL WHERE id = ?",
+	                postId
+	        );
+	        return rows > 0;
+	    }
+
+	    public boolean quarantine(long postId, String reason) {
+	        int rows = jdbc.update(
+	                "UPDATE posts SET visibility = 'quarantined', quarantined_at = now(), quarantine_reason = ? " +
+	                        "WHERE id = ? AND removed_at IS NULL AND visibility <> 'quarantined'",
+	                reason, postId
+	        );
+	        return rows > 0;
+	    }
+
+	    public boolean unquarantine(long postId) {
+	        int rows = jdbc.update(
+	                "UPDATE posts SET visibility = 'public', quarantined_at = NULL, quarantine_reason = NULL " +
+	                        "WHERE id = ? AND removed_at IS NULL AND visibility <> 'public'",
+	                postId
+	        );
+	        return rows > 0;
+	    }
 
     public boolean updateContent(long postId, String content) {
         return jdbc.update(
@@ -669,7 +715,7 @@ public class PostRepository {
         ) > 0;
     }
 
-    public static class PostRow {
+	    public static class PostRow {
         public long id;
         public Long authorId;
         public long authorPrincipalId;
@@ -689,10 +735,13 @@ public class PostRepository {
         public int shareCount;
         public int repostCount;
         public OffsetDateTime createdAt;
-        public OffsetDateTime removedAt;
-        public Long removedBy;
-        public String removedReason;
-        public String authorHandle;
+	        public OffsetDateTime removedAt;
+	        public Long removedBy;
+	        public String removedReason;
+	        public String visibility;
+	        public OffsetDateTime quarantinedAt;
+	        public String quarantineReason;
+	        public String authorHandle;
         public String authorDisplayName;
         public String authorFirstName;
         public String authorLastName;

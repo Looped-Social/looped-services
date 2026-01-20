@@ -1,6 +1,7 @@
 package com.looped.media;
 
 import com.looped.users.UserRepository;
+import com.looped.moderation.MediaModerationService;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -22,15 +23,18 @@ public class MediaController {
     private final MediaService mediaService;
     private final MediaRepository mediaRepository;
     private final UserRepository users;
+    private final MediaModerationService mediaModeration;
     private final String cloudfrontDomain;
     private final String callbackSecret;
 
     public MediaController(MediaService mediaService, MediaRepository mediaRepository, UserRepository users,
+                           MediaModerationService mediaModeration,
                            @Value("${cloudfront.domain:}") String cloudfrontDomain,
                            @Value("${media.callbackSecret:}") String callbackSecret) {
         this.mediaService = mediaService;
         this.mediaRepository = mediaRepository;
         this.users = users;
+        this.mediaModeration = mediaModeration;
         this.cloudfrontDomain = cloudfrontDomain;
         this.callbackSecret = callbackSecret;
     }
@@ -95,6 +99,9 @@ public class MediaController {
         if (cloudfrontDomain != null && !cloudfrontDomain.isBlank()) {
             cdnUrl = "https://" + cloudfrontDomain + "/" + body.key();
         }
+        try {
+            mediaModeration.moderateOnUpload(id, body.key(), body.mimeType(), cdnUrl);
+        } catch (RuntimeException ignored) {}
         Map<String,Object> out = new HashMap<>();
         out.put("id", id);
         out.put("key", body.key());
@@ -104,7 +111,10 @@ public class MediaController {
     }
 
     @PostMapping("/resolve")
-    public ResponseEntity<?> resolve(@Validated @RequestBody ResolveRequest body) {
+    public ResponseEntity<?> resolve(@AuthenticationPrincipal Jwt jwt, @Validated @RequestBody ResolveRequest body) {
+        final Long requesterUserId = jwt == null
+                ? null
+                : users.findByFirebaseUid(jwt.getSubject()).map(u -> u.id).orElse(null);
         List<Long> ids = body.ids().stream()
                 .filter(id -> id != null && id > 0)
                 .distinct()
@@ -114,6 +124,9 @@ public class MediaController {
         var rows = mediaRepository.findByIds(ids);
         List<Map<String, Object>> items = rows.stream()
                 .filter(r -> r.s3Key != null && r.s3Key.startsWith("media/"))
+                .filter(r -> r.removedAt == null)
+                .filter(r -> (r.visibility != null && r.visibility.equalsIgnoreCase("public"))
+                        || (requesterUserId != null && r.ownerId != null && r.ownerId.equals(requesterUserId)))
                 .map(r -> {
                     Map<String, Object> item = new HashMap<>();
                     item.put("id", r.id);

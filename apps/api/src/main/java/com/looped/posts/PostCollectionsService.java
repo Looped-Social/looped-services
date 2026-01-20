@@ -155,6 +155,10 @@ public class PostCollectionsService {
             var principal = principals.createForUser(actor.get().id);
             actorPrincipalId = principal.id;
         }
+        if (post.get().visibility != null && !post.get().visibility.equalsIgnoreCase("public")
+                && actorPrincipalId != post.get().authorPrincipalId) {
+            return SaveResult.notFound(false);
+        }
 
         boolean created = savedPosts.insertIfAbsent(actorPrincipalId, postId);
         return SaveResult.ok(true, created);
@@ -174,6 +178,10 @@ public class PostCollectionsService {
             if (actor.isEmpty()) return SaveResult.userNotProvisioned();
             var principal = principals.createForUser(actor.get().id);
             actorPrincipalId = principal.id;
+        }
+        if (post.get().visibility != null && !post.get().visibility.equalsIgnoreCase("public")
+                && actorPrincipalId != post.get().authorPrincipalId) {
+            return SaveResult.notFound(false);
         }
 
         boolean deleted = savedPosts.delete(actorPrincipalId, postId);

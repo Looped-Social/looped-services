@@ -170,7 +170,7 @@ Notes
 ## API — Feed Modes (For You vs New)
 
 - Feed list
-  - `GET /v1/feed?mode=for_you|new&communityId=...&limit=20&cursor=...`
+  - `GET /v1/feed?mode=for_you|new|following&communityId=...&limit=20&cursor=...`
   - `mode=for_you` (default): popularity-ranked posts (global or within `communityId`).
   - `mode=new`: newest posts by `created_at` (global or within `communityId`).
   - `communityId` is optional; when omitted it fetches all posts.

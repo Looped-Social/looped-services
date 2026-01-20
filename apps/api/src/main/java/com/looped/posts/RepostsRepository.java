@@ -166,7 +166,7 @@ public class RepostsRepository {
                 "  FROM post_media_assets pma WHERE pma.post_id = p.id" +
                 ") pm ON true " +
                 "WHERE r.reposter_principal_id = ? " +
-                "AND p.removed_at IS NULL AND (p.author_id IS NULL OR u.id IS NOT NULL) " +
+                "AND p.removed_at IS NULL AND p.visibility = 'public' AND (p.author_id IS NULL OR u.id IS NOT NULL) " +
                 hideAnonymousFilter;
 
         if (cursorTs == null || cursorId == null) {

@@ -42,19 +42,28 @@ public class CommentsRepository {
         row.replyCount = rs.getInt("reply_count");
         row.createdAt = rs.getObject("created_at", OffsetDateTime.class);
         row.deletedAt = rs.getObject("deleted_at", OffsetDateTime.class);
+        row.visibility = rs.getString("visibility");
+        row.quarantinedAt = rs.getObject("quarantined_at", OffsetDateTime.class);
+        row.quarantineReason = rs.getString("quarantine_reason");
+        row.removedAt = rs.getObject("removed_at", OffsetDateTime.class);
+        long removedBy = rs.getLong("removed_by");
+        row.removedBy = rs.wasNull() ? null : removedBy;
+        row.removedReason = rs.getString("removed_reason");
         return row;
     }
 
     public List<CommentRow> findByUser(long userId, OffsetDateTime cursorTs, Long cursorId, int limit) {
         if (cursorTs == null || cursorId == null) {
             return jdbc.query(
-                "SELECT id, post_id, user_id, author_principal_id, company_id, content, media_asset_id, parent_id, likes_count, reply_count, created_at, deleted_at " +
+                "SELECT id, post_id, user_id, author_principal_id, company_id, content, media_asset_id, parent_id, likes_count, reply_count, created_at, deleted_at, " +
+                        "visibility, quarantined_at, quarantine_reason, removed_at, removed_by, removed_reason " +
                         "FROM comments WHERE user_id = ? ORDER BY created_at DESC, id DESC LIMIT ?",
                 MAPPER, userId, limit
         );
         }
         return jdbc.query(
-                "SELECT id, post_id, user_id, author_principal_id, company_id, content, media_asset_id, parent_id, likes_count, reply_count, created_at, deleted_at " +
+                "SELECT id, post_id, user_id, author_principal_id, company_id, content, media_asset_id, parent_id, likes_count, reply_count, created_at, deleted_at, " +
+                        "visibility, quarantined_at, quarantine_reason, removed_at, removed_by, removed_reason " +
                         "FROM comments WHERE user_id = ? AND (created_at < ? OR (created_at = ? AND id < ?)) " +
                         "ORDER BY created_at DESC, id DESC LIMIT ?",
                 MAPPER, userId, cursorTs, cursorTs, cursorId, limit
@@ -63,17 +72,28 @@ public class CommentsRepository {
 
     public Optional<CommentRow> findById(long id) {
         var list = jdbc.query(
-                "SELECT id, post_id, user_id, author_principal_id, company_id, content, media_asset_id, parent_id, likes_count, reply_count, created_at, deleted_at FROM comments WHERE id = ?",
+                "SELECT id, post_id, user_id, author_principal_id, company_id, content, media_asset_id, parent_id, likes_count, reply_count, created_at, deleted_at, " +
+                        "visibility, quarantined_at, quarantine_reason, removed_at, removed_by, removed_reason " +
+                        "FROM comments WHERE id = ?",
                 MAPPER, id
         );
         return list.isEmpty() ? Optional.empty() : Optional.of(list.get(0));
+    }
+
+    public List<Long> findCommentIdsByMediaAsset(long mediaAssetId) {
+        return jdbc.queryForList(
+                "SELECT id FROM comments WHERE deleted_at IS NULL AND removed_at IS NULL AND media_asset_id = ?",
+                Long.class,
+                mediaAssetId
+        );
     }
 
     public List<CommentRow> findByIds(List<Long> ids) {
         if (ids == null || ids.isEmpty()) return List.of();
         String placeholders = String.join(",", java.util.Collections.nCopies(ids.size(), "?"));
         return jdbc.query(
-                "SELECT id, post_id, user_id, author_principal_id, company_id, content, media_asset_id, parent_id, likes_count, reply_count, created_at, deleted_at " +
+                "SELECT id, post_id, user_id, author_principal_id, company_id, content, media_asset_id, parent_id, likes_count, reply_count, created_at, deleted_at, " +
+                        "visibility, quarantined_at, quarantine_reason, removed_at, removed_by, removed_reason " +
                         "FROM comments WHERE id IN (" + placeholders + ")",
                 MAPPER,
                 ids.toArray()
@@ -92,6 +112,7 @@ public class CommentsRepository {
     public List<CommentViewRow> findByPost(long postId, long viewerPrincipalId, Long postAuthorPrincipalId, OffsetDateTime cursorTs, Long cursorId, int limit) {
         String sql = """
                 SELECT c.id, c.post_id, c.user_id, c.author_principal_id, c.company_id, c.content, c.media_asset_id, c.parent_id, c.likes_count, c.reply_count, c.created_at, c.deleted_at,
+                       c.visibility, c.quarantined_at, c.quarantine_reason, c.removed_at, c.removed_by, c.removed_reason,
                        p.kind AS author_kind, p.user_id AS author_user_id, p.anon_profile_id AS author_anon_profile_id,
                        COALESCE(u.handle, ap.handle) AS author_handle,
                        u.display_name AS author_display_name, u.profile_image_url AS author_profile_image_url,
@@ -107,14 +128,15 @@ public class CommentsRepository {
                 LEFT JOIN comment_likes cc ON cc.comment_id = c.id AND cc.liker_principal_id = ?
                 WHERE c.post_id = ?
                 AND (p.kind = 'anon' OR u.id IS NOT NULL)
+                AND (c.visibility = 'public' OR c.author_principal_id = ?)
                 """;
         Object[] params;
         if (cursorTs == null || cursorId == null) {
             sql += "ORDER BY c.created_at ASC, c.id ASC LIMIT ?";
-            params = new Object[]{viewerPrincipalId, postAuthorPrincipalId, postId, limit};
+            params = new Object[]{viewerPrincipalId, postAuthorPrincipalId, postId, viewerPrincipalId, limit};
         } else {
             sql += "AND (c.created_at > ? OR (c.created_at = ? AND c.id > ?)) ORDER BY c.created_at ASC, c.id ASC LIMIT ?";
-            params = new Object[]{viewerPrincipalId, postAuthorPrincipalId, postId, cursorTs, cursorTs, cursorId, limit};
+            params = new Object[]{viewerPrincipalId, postAuthorPrincipalId, postId, viewerPrincipalId, cursorTs, cursorTs, cursorId, limit};
         }
         return jdbc.query(sql, this::mapViewRow, params);
     }
@@ -122,6 +144,7 @@ public class CommentsRepository {
     public List<CommentViewRow> findReplies(long postId, long parentCommentId, long viewerPrincipalId, Long postAuthorPrincipalId, OffsetDateTime cursorTs, Long cursorId, int limit) {
         String sql = """
                 SELECT c.id, c.post_id, c.user_id, c.author_principal_id, c.company_id, c.content, c.media_asset_id, c.parent_id, c.likes_count, c.reply_count, c.created_at, c.deleted_at,
+                       c.visibility, c.quarantined_at, c.quarantine_reason, c.removed_at, c.removed_by, c.removed_reason,
                        p.kind AS author_kind, p.user_id AS author_user_id, p.anon_profile_id AS author_anon_profile_id,
                        COALESCE(u.handle, ap.handle) AS author_handle,
                        u.display_name AS author_display_name, u.profile_image_url AS author_profile_image_url,
@@ -137,14 +160,15 @@ public class CommentsRepository {
                 LEFT JOIN comment_likes cc ON cc.comment_id = c.id AND cc.liker_principal_id = ?
                 WHERE c.parent_id = ? AND c.post_id = ?
                 AND (p.kind = 'anon' OR u.id IS NOT NULL)
+                AND (c.visibility = 'public' OR c.author_principal_id = ?)
                 """;
         Object[] params;
         if (cursorTs == null || cursorId == null) {
             sql += "ORDER BY c.created_at ASC, c.id ASC LIMIT ?";
-            params = new Object[]{viewerPrincipalId, postAuthorPrincipalId, parentCommentId, postId, limit};
+            params = new Object[]{viewerPrincipalId, postAuthorPrincipalId, parentCommentId, postId, viewerPrincipalId, limit};
         } else {
             sql += "AND (c.created_at > ? OR (c.created_at = ? AND c.id > ?)) ORDER BY c.created_at ASC, c.id ASC LIMIT ?";
-            params = new Object[]{viewerPrincipalId, postAuthorPrincipalId, parentCommentId, postId, cursorTs, cursorTs, cursorId, limit};
+            params = new Object[]{viewerPrincipalId, postAuthorPrincipalId, parentCommentId, postId, viewerPrincipalId, cursorTs, cursorTs, cursorId, limit};
         }
         return jdbc.query(sql, this::mapViewRow, params);
     }
@@ -152,11 +176,12 @@ public class CommentsRepository {
     public Optional<CommentViewRow> findViewById(long id, long viewerPrincipalId, Long postAuthorPrincipalId) {
         var list = jdbc.query(
                 """
-                        SELECT c.id, c.post_id, c.user_id, c.author_principal_id, c.company_id, c.content, c.media_asset_id, c.parent_id, c.likes_count, c.reply_count, c.created_at, c.deleted_at,
-                               p.kind AS author_kind, p.user_id AS author_user_id, p.anon_profile_id AS author_anon_profile_id,
-                               COALESCE(u.handle, ap.handle) AS author_handle,
-                               u.display_name AS author_display_name, u.profile_image_url AS author_profile_image_url,
-                               COALESCE(u.company_id, ap.company_id) AS author_company_id,
+	                        SELECT c.id, c.post_id, c.user_id, c.author_principal_id, c.company_id, c.content, c.media_asset_id, c.parent_id, c.likes_count, c.reply_count, c.created_at, c.deleted_at,
+	                               c.visibility, c.quarantined_at, c.quarantine_reason, c.removed_at, c.removed_by, c.removed_reason,
+	                               p.kind AS author_kind, p.user_id AS author_user_id, p.anon_profile_id AS author_anon_profile_id,
+	                               COALESCE(u.handle, ap.handle) AS author_handle,
+	                               u.display_name AS author_display_name, u.profile_image_url AS author_profile_image_url,
+	                               COALESCE(u.company_id, ap.company_id) AS author_company_id,
                                CASE WHEN p.kind = 'anon' THEN true ELSE COALESCE(u.is_anonymous, false) END AS author_is_anonymous,
                                CASE WHEN cv.liker_principal_id IS NULL THEN false ELSE true END AS viewer_liked,
                                CASE WHEN cc.liker_principal_id IS NULL THEN false ELSE true END AS liked_by_creator
@@ -176,9 +201,10 @@ public class CommentsRepository {
 
     public List<CommentViewRow> findByUserWithView(long targetUserId, long viewerPrincipalId, OffsetDateTime cursorTs, Long cursorId, int limit) {
         String sql = """
-                SELECT c.id, c.post_id, c.user_id, c.author_principal_id, c.company_id, c.content, c.media_asset_id, c.parent_id, c.likes_count, c.reply_count, c.created_at, c.deleted_at,
-                       pr.kind AS author_kind, pr.user_id AS author_user_id, pr.anon_profile_id AS author_anon_profile_id,
-                       COALESCE(u.handle, ap.handle) AS author_handle,
+	                SELECT c.id, c.post_id, c.user_id, c.author_principal_id, c.company_id, c.content, c.media_asset_id, c.parent_id, c.likes_count, c.reply_count, c.created_at, c.deleted_at,
+	                       c.visibility, c.quarantined_at, c.quarantine_reason, c.removed_at, c.removed_by, c.removed_reason,
+	                       pr.kind AS author_kind, pr.user_id AS author_user_id, pr.anon_profile_id AS author_anon_profile_id,
+	                       COALESCE(u.handle, ap.handle) AS author_handle,
                        u.display_name AS author_display_name, u.profile_image_url AS author_profile_image_url,
                        COALESCE(u.company_id, ap.company_id) AS author_company_id,
                        CASE WHEN pr.kind = 'anon' THEN true ELSE COALESCE(u.is_anonymous, false) END AS author_is_anonymous,
@@ -207,9 +233,10 @@ public class CommentsRepository {
     public List<CommentViewRow> findByAuthorPrincipalWithView(long targetPrincipalId, long viewerPrincipalId,
                                                               OffsetDateTime cursorTs, Long cursorId, int limit) {
         String sql = """
-                SELECT c.id, c.post_id, c.user_id, c.author_principal_id, c.company_id, c.content, c.media_asset_id, c.parent_id, c.likes_count, c.reply_count, c.created_at, c.deleted_at,
-                       pr.kind AS author_kind, pr.user_id AS author_user_id, pr.anon_profile_id AS author_anon_profile_id,
-                       COALESCE(u.handle, ap.handle) AS author_handle,
+	                SELECT c.id, c.post_id, c.user_id, c.author_principal_id, c.company_id, c.content, c.media_asset_id, c.parent_id, c.likes_count, c.reply_count, c.created_at, c.deleted_at,
+	                       c.visibility, c.quarantined_at, c.quarantine_reason, c.removed_at, c.removed_by, c.removed_reason,
+	                       pr.kind AS author_kind, pr.user_id AS author_user_id, pr.anon_profile_id AS author_anon_profile_id,
+	                       COALESCE(u.handle, ap.handle) AS author_handle,
                        u.display_name AS author_display_name, u.profile_image_url AS author_profile_image_url,
                        COALESCE(u.company_id, ap.company_id) AS author_company_id,
                        CASE WHEN pr.kind = 'anon' THEN true ELSE COALESCE(u.is_anonymous, false) END AS author_is_anonymous,
@@ -270,16 +297,43 @@ public class CommentsRepository {
 
     public boolean updateContent(long commentId, String content) {
         return jdbc.update(
-                "UPDATE comments SET content = ? WHERE id = ? AND deleted_at IS NULL",
+                "UPDATE comments SET content = ? WHERE id = ? AND deleted_at IS NULL AND removed_at IS NULL",
                 content, commentId
         ) > 0;
     }
 
     public boolean softDelete(long commentId) {
         return jdbc.update(
-                "UPDATE comments SET deleted_at = now(), content = '' WHERE id = ? AND deleted_at IS NULL",
+                "UPDATE comments SET deleted_at = now(), content = '' WHERE id = ? AND deleted_at IS NULL AND removed_at IS NULL",
                 commentId
         ) > 0;
+    }
+
+    public boolean quarantine(long commentId, String reason) {
+        int rows = jdbc.update(
+                "UPDATE comments SET visibility = 'quarantined', quarantined_at = now(), quarantine_reason = ? " +
+                        "WHERE id = ? AND removed_at IS NULL AND visibility <> 'quarantined'",
+                reason, commentId
+        );
+        return rows > 0;
+    }
+
+    public boolean unquarantine(long commentId) {
+        int rows = jdbc.update(
+                "UPDATE comments SET visibility = 'public', quarantined_at = NULL, quarantine_reason = NULL " +
+                        "WHERE id = ? AND removed_at IS NULL AND visibility <> 'public'",
+                commentId
+        );
+        return rows > 0;
+    }
+
+    public boolean removeByAdmin(long commentId, long adminId, String reason) {
+        int rows = jdbc.update(
+                "UPDATE comments SET removed_at = now(), removed_by = ?, removed_reason = ?, content = '' " +
+                        "WHERE id = ? AND removed_at IS NULL",
+                adminId, reason, commentId
+        );
+        return rows > 0;
     }
 
     private CommentViewRow mapViewRow(ResultSet rs, int rowNum) throws SQLException {
@@ -318,6 +372,12 @@ public class CommentsRepository {
         public int replyCount;
         public OffsetDateTime createdAt;
         public OffsetDateTime deletedAt;
+        public String visibility;
+        public OffsetDateTime quarantinedAt;
+        public String quarantineReason;
+        public OffsetDateTime removedAt;
+        public Long removedBy;
+        public String removedReason;
     }
 
     public static class CommentViewRow {

@@ -152,6 +152,10 @@ public class PostsController {
                     "error", "invalid_anon_proof",
                     "message", "Invalid anonymous proof"
             ));
+            case CONTENT_UNDER_REVIEW -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
+                    "error", "content_under_review",
+                    "message", "This content is under review"
+            ));
             case MEDIA_TOO_MANY -> ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of(
                     "error", "media_too_many",
                     "message", "Attach up to 4 photos or 1 video"
@@ -251,6 +255,10 @@ public class PostsController {
             case INVALID_ANON_PROOF -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
                     "error", "invalid_anon_proof",
                     "message", "Invalid anonymous proof"
+            ));
+            case CONTENT_UNDER_REVIEW -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
+                    "error", "content_under_review",
+                    "message", "This content is under review"
             ));
             case POST_REMOVED -> ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
                     "error", "post_removed",

@@ -148,9 +148,17 @@ public class CommentsController {
                     "error", "invalid_anon_proof",
                     "message", "Invalid anonymous proof"
             ));
+            case CONTENT_UNDER_REVIEW -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
+                    "error", "content_under_review",
+                    "message", "This content is under review"
+            ));
             case INVALID_PARENT -> ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of(
                     "error", "invalid_parent",
                     "message", "Parent comment must belong to the same post"
+            ));
+            case MEDIA_NOT_FOUND -> ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of(
+                    "error", "media_not_found",
+                    "message", "Media asset not found"
             ));
             case ANON_MEDIA_NOT_ALLOWED -> ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of(
                     "error", "anon_media_invalid",
@@ -205,6 +213,10 @@ public class CommentsController {
             case INVALID_ANON_PROOF -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
                     "error", "invalid_anon_proof",
                     "message", "Invalid anonymous proof"
+            ));
+            case CONTENT_UNDER_REVIEW -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
+                    "error", "content_under_review",
+                    "message", "This content is under review"
             ));
             case OK -> ResponseEntity.ok(CommentPayloads.from(res.comment(), appConfig.defaultProfileImageUrl()));
         };

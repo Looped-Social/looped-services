@@ -4,22 +4,40 @@ import com.looped.users.UserRepository;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
-import java.util.Optional;
+import java.util.Locale;
 
 @Service
 public class ModerationService {
     private final ReportRepository reports;
     private final UserRepository users;
+    private final ModerationProperties props;
+    private final QuarantineService quarantine;
 
-    public ModerationService(ReportRepository reports, UserRepository users) {
+    public ModerationService(ReportRepository reports, UserRepository users, ModerationProperties props, QuarantineService quarantine) {
         this.reports = reports;
         this.users = users;
+        this.props = props;
+        this.quarantine = quarantine;
     }
 
     public CreateResult create(String firebaseUid, String targetType, long targetId, String reason) {
         var u = users.findByFirebaseUid(firebaseUid);
         if (u.isEmpty()) return CreateResult.userNotProvisioned();
-        long id = reports.insert(targetType, targetId, u.get().id, reason);
+        String normalizedTargetType = targetType == null ? "" : targetType.trim().toLowerCase(Locale.ROOT);
+        long id = reports.insert(normalizedTargetType, targetId, u.get().id, reason);
+
+        if (props.isEnabled() && props.getReportQuarantineThreshold() > 0
+                && ("post".equals(normalizedTargetType) || "comment".equals(normalizedTargetType))) {
+            int distinct = reports.countDistinctOpenReporters(normalizedTargetType, targetId);
+            if (distinct >= props.getReportQuarantineThreshold()) {
+                String quarantineReason = "policy:reports_threshold";
+                if ("post".equals(normalizedTargetType)) {
+                    quarantine.quarantinePost(targetId, "reports_threshold", quarantineReason);
+                } else {
+                    quarantine.quarantineComment(targetId, "reports_threshold", quarantineReason);
+                }
+            }
+        }
         return CreateResult.ok(id);
     }
 
@@ -56,4 +74,3 @@ public class ModerationService {
         static UpdateResult notFound() { return new UpdateResult(Status.NOT_FOUND, null); }
     }
 }
-

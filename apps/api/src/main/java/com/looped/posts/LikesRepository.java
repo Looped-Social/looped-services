@@ -52,14 +52,14 @@ public class LikesRepository {
                                              long viewerUserId, boolean hideAnonymousPosts) {
         String filter = hideAnonymousFilter(hideAnonymousPosts);
         if (cursorTs == null || cursorPostId == null) {
-            return jdbc.query(BASE_QUERY + " WHERE l.liker_principal_id=? AND p.removed_at IS NULL AND (p.author_id IS NULL OR u.id IS NOT NULL) " +
+            return jdbc.query(BASE_QUERY + " WHERE l.liker_principal_id=? AND p.removed_at IS NULL AND p.visibility = 'public' AND (p.author_id IS NULL OR u.id IS NOT NULL) " +
                             filter +
                             "ORDER BY l.created_at ASC, p.id ASC LIMIT ?",
                     MAPPER,
                     hideAnonymousPosts ? new Object[]{principalId, viewerUserId, limit} : new Object[]{principalId, limit});
         }
         return jdbc.query(BASE_QUERY +
-                        " WHERE l.liker_principal_id=? AND p.removed_at IS NULL AND (p.author_id IS NULL OR u.id IS NOT NULL) " +
+                        " WHERE l.liker_principal_id=? AND p.removed_at IS NULL AND p.visibility = 'public' AND (p.author_id IS NULL OR u.id IS NOT NULL) " +
                         filter +
                         "AND (l.created_at > ? OR (l.created_at = ? AND p.id > ?)) " +
                         "ORDER BY l.created_at ASC, p.id ASC LIMIT ?",

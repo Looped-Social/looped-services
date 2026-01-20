@@ -16,6 +16,9 @@ public final class AdminPermissions {
     public static final String DELETE_MEDIA = "delete_media";
     public static final String VIEW_FEEDBACK = "view_feedback";
     public static final String SEND_ANNOUNCEMENTS = "send_announcements";
+    public static final String VIEW_MODERATION_QUEUE = "view_moderation_queue";
+    public static final String RESOLVE_MODERATION_QUEUE = "resolve_moderation_queue";
+    public static final String MANAGE_MODERATION_BLOCKLIST = "manage_moderation_blocklist";
 
     public static final Set<String> ALL = Set.of(
             MANAGE_ADMINS,
@@ -27,7 +30,10 @@ public final class AdminPermissions {
             VERIFY_USERS,
             DELETE_MEDIA,
             VIEW_FEEDBACK,
-            SEND_ANNOUNCEMENTS
+            SEND_ANNOUNCEMENTS,
+            VIEW_MODERATION_QUEUE,
+            RESOLVE_MODERATION_QUEUE,
+            MANAGE_MODERATION_BLOCKLIST
     );
 
     private AdminPermissions() {}
@@ -64,7 +70,10 @@ public final class AdminPermissions {
                     VERIFY_USERS,
                     DELETE_MEDIA,
                     VIEW_FEEDBACK,
-                    SEND_ANNOUNCEMENTS
+                    SEND_ANNOUNCEMENTS,
+                    VIEW_MODERATION_QUEUE,
+                    RESOLVE_MODERATION_QUEUE,
+                    MANAGE_MODERATION_BLOCKLIST
             );
         }
         if (AdminRoles.ADMIN.equals(normalized)) {
@@ -77,7 +86,10 @@ public final class AdminPermissions {
                     VERIFY_USERS,
                     DELETE_MEDIA,
                     VIEW_FEEDBACK,
-                    SEND_ANNOUNCEMENTS
+                    SEND_ANNOUNCEMENTS,
+                    VIEW_MODERATION_QUEUE,
+                    RESOLVE_MODERATION_QUEUE,
+                    MANAGE_MODERATION_BLOCKLIST
             );
         }
         if (AdminRoles.MODERATOR.equals(normalized)) {
@@ -87,7 +99,10 @@ public final class AdminPermissions {
                     CREATE_COMMUNITY,
                     VIEW_REPORTS,
                     RESOLVE_REPORTS,
-                    VIEW_FEEDBACK
+                    VIEW_FEEDBACK,
+                    VIEW_MODERATION_QUEUE,
+                    RESOLVE_MODERATION_QUEUE,
+                    MANAGE_MODERATION_BLOCKLIST
             );
         }
         return List.of();

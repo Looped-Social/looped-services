@@ -7,6 +7,8 @@ import com.looped.discovery.HashtagParser;
 import com.looped.discovery.HashtagPostsRepository;
 import com.looped.discovery.HashtagsRepository;
 import com.looped.media.MediaRepository;
+import com.looped.moderation.ContentModerationService;
+import com.looped.moderation.QuarantineService;
 import com.looped.notifications.NotificationPublisher;
 import com.looped.polls.PollRequests;
 import com.looped.polls.PollsService;
@@ -47,6 +49,8 @@ public class PostsService {
     private final NotificationPublisher notifications;
     private final PostStateService postState;
     private final PollsService pollsService;
+    private final ContentModerationService contentModeration;
+    private final QuarantineService quarantine;
 
     public PostsService(PostRepository posts,
                         UserRepository users,
@@ -64,7 +68,9 @@ public class PostsService {
                         UserCommunityBanRepository communityBans,
                         NotificationPublisher notifications,
                         PostStateService postState,
-                        PollsService pollsService) {
+                        PollsService pollsService,
+                        ContentModerationService contentModeration,
+                        QuarantineService quarantine) {
         this.posts = posts;
         this.users = users;
         this.principals = principals;
@@ -82,6 +88,8 @@ public class PostsService {
         this.notifications = notifications;
         this.postState = postState;
         this.pollsService = pollsService;
+        this.contentModeration = contentModeration;
+        this.quarantine = quarantine;
     }
 
     @Transactional
@@ -109,7 +117,14 @@ public class PostsService {
             if (verified.status() != AnonProofService.Status.OK) {
                 return CreateResult.invalidAnonProof();
             }
+            var decision = contentModeration.evaluateTextForAnon(content);
+            if (decision.action() == ContentModerationService.Action.REJECT_ANON) {
+                return CreateResult.contentUnderReview();
+            }
             var mediaValidation = validatePostMedia(normalizedMediaIds, null, true);
+            if (mediaValidation.underReview()) {
+                return CreateResult.contentUnderReview();
+            }
             if (mediaValidation.status() != MediaValidationStatus.OK) {
                 return toCreateResult(mediaValidation);
             }
@@ -187,6 +202,9 @@ public class PostsService {
         }
 
         try {
+            var decision = contentModeration.evaluateText(content);
+            boolean mediaUnderReview = mediaValidation.underReview();
+            boolean quarantinePost = decision.action() == ContentModerationService.Action.QUARANTINE || mediaUnderReview;
             Long primaryMediaAssetId = mediaValidation.primaryId();
             var p = posts.insert(userId, principal.id, companyId, communityId, content, primaryMediaAssetId,
                     false, null, null, null, null, null, null);
@@ -195,16 +213,26 @@ public class PostsService {
             if (poll != null) {
                 pollsService.createForPost(refreshed.id, poll);
             }
-            indexHashtags(refreshed.id, companyId, content);
+            if (quarantinePost) {
+                String qSource = decision.action() == ContentModerationService.Action.QUARANTINE ? decision.source() : "media";
+                String qReason = decision.action() == ContentModerationService.Action.QUARANTINE ? decision.reason() : "policy:media_under_review";
+                quarantine.quarantinePost(refreshed.id, qSource, qReason);
+                hashtagPosts.deleteByPostId(refreshed.id);
+                refreshed = posts.findById(refreshed.id).orElse(refreshed);
+            } else {
+                indexHashtags(refreshed.id, companyId, content);
+            }
             if (useIdem) {
                 try {
                     redis.opsForValue().set(redisKey, Long.toString(refreshed.id), Duration.ofHours(24));
                 } catch (RuntimeException ignored) {}
             }
-            try {
-                notifyPostFromFollowed(refreshed.authorPrincipalId, refreshed.id);
-                notifyMentions(refreshed.authorPrincipalId, userId, companyId, content, refreshed.id);
-            } catch (RuntimeException ignored) {}
+            if (!quarantinePost) {
+                try {
+                    notifyPostFromFollowed(refreshed.authorPrincipalId, refreshed.id);
+                    notifyMentions(refreshed.authorPrincipalId, userId, companyId, content, refreshed.id);
+                } catch (RuntimeException ignored) {}
+            }
             postState.applyForPrincipal(principal.id, java.util.List.of(refreshed));
             return CreateResult.ok(refreshed, true);
         } catch (DataAccessException e) {
@@ -229,7 +257,7 @@ public class PostsService {
 
     private MediaValidation validatePostMedia(List<Long> mediaAssetIds, Long expectedOwnerId, boolean requireNullOwner) {
         if (mediaAssetIds == null || mediaAssetIds.isEmpty()) {
-            return MediaValidation.ok(null);
+            return MediaValidation.ok(null, false);
         }
         var rows = media.findByIds(mediaAssetIds);
         if (rows.size() != mediaAssetIds.size()) {
@@ -238,10 +266,13 @@ public class PostsService {
 
         boolean hasImage = false;
         boolean hasVideo = false;
+        boolean underReview = false;
         for (var row : rows) {
             if (row.mimeType != null && row.mimeType.startsWith("image/")) hasImage = true;
             else if (row.mimeType != null && row.mimeType.startsWith("video/")) hasVideo = true;
             else return MediaValidation.invalidType();
+            if (row.removedAt != null) return MediaValidation.notFound();
+            if (row.visibility != null && !row.visibility.equalsIgnoreCase("public")) underReview = true;
 
             if (requireNullOwner) {
                 if (row.ownerId != null) return MediaValidation.anonNotAllowed();
@@ -259,7 +290,7 @@ public class PostsService {
         if (hasImage && mediaAssetIds.size() > 4) {
             return MediaValidation.tooMany();
         }
-        return MediaValidation.ok(mediaAssetIds.get(0));
+        return MediaValidation.ok(mediaAssetIds.get(0), underReview);
     }
 
     private static CreateResult toCreateResult(MediaValidation validation) {
@@ -275,14 +306,14 @@ public class PostsService {
 
     private enum MediaValidationStatus { OK, NOT_FOUND, INVALID_TYPE, MIXED_TYPES, TOO_MANY, NOT_OWNED, ANON_NOT_ALLOWED }
 
-    private record MediaValidation(MediaValidationStatus status, Long primaryId) {
-        static MediaValidation ok(Long primaryId) { return new MediaValidation(MediaValidationStatus.OK, primaryId); }
-        static MediaValidation notFound() { return new MediaValidation(MediaValidationStatus.NOT_FOUND, null); }
-        static MediaValidation invalidType() { return new MediaValidation(MediaValidationStatus.INVALID_TYPE, null); }
-        static MediaValidation mixed() { return new MediaValidation(MediaValidationStatus.MIXED_TYPES, null); }
-        static MediaValidation tooMany() { return new MediaValidation(MediaValidationStatus.TOO_MANY, null); }
-        static MediaValidation notOwned() { return new MediaValidation(MediaValidationStatus.NOT_OWNED, null); }
-        static MediaValidation anonNotAllowed() { return new MediaValidation(MediaValidationStatus.ANON_NOT_ALLOWED, null); }
+    private record MediaValidation(MediaValidationStatus status, Long primaryId, boolean underReview) {
+        static MediaValidation ok(Long primaryId, boolean underReview) { return new MediaValidation(MediaValidationStatus.OK, primaryId, underReview); }
+        static MediaValidation notFound() { return new MediaValidation(MediaValidationStatus.NOT_FOUND, null, false); }
+        static MediaValidation invalidType() { return new MediaValidation(MediaValidationStatus.INVALID_TYPE, null, false); }
+        static MediaValidation mixed() { return new MediaValidation(MediaValidationStatus.MIXED_TYPES, null, false); }
+        static MediaValidation tooMany() { return new MediaValidation(MediaValidationStatus.TOO_MANY, null, false); }
+        static MediaValidation notOwned() { return new MediaValidation(MediaValidationStatus.NOT_OWNED, null, false); }
+        static MediaValidation anonNotAllowed() { return new MediaValidation(MediaValidationStatus.ANON_NOT_ALLOWED, null, false); }
     }
 
     public Optional<PostRepository.PostRow> get(long id) {
@@ -295,6 +326,10 @@ public class PostsService {
         var p = posts.findById(id);
         if (p.isEmpty()) return GetResult.notFound();
         var principal = principals.createForUser(u.get().id);
+        if (p.get().visibility != null && !p.get().visibility.equalsIgnoreCase("public")
+                && principal.id != p.get().authorPrincipalId) {
+            return GetResult.notFound();
+        }
         if (blocks.existsEitherDirection(principal.id, p.get().authorPrincipalId)) {
             return GetResult.notFound();
         }
@@ -315,25 +350,37 @@ public class PostsService {
         if (post.get().removedAt != null) return EditResult.postRemoved();
 
         long actorPrincipalId;
+        ContentModerationService.Decision decision;
         if (anonProof != null && anonProof.anonProfileId() != null) {
             if (post.get().communityId == null) return EditResult.invalidAnonProof();
             var verified = anonProofs.verifyActionScoped(anonProof, "post_edit", postId, post.get().communityId);
             if (verified.status() != AnonProofService.Status.OK) return EditResult.invalidAnonProof();
             actorPrincipalId = verified.actor().principalId();
+            decision = contentModeration.evaluateTextForAnon(content);
         } else {
             if (firebaseUid == null) return EditResult.userNotProvisioned();
             var actor = users.findByFirebaseUid(firebaseUid);
             if (actor.isEmpty() || actor.get().companyId == null) return EditResult.userNotProvisioned();
             actorPrincipalId = principals.createForUser(actor.get().id).id;
+            decision = contentModeration.evaluateText(content);
         }
 
         if (actorPrincipalId != post.get().authorPrincipalId) return EditResult.forbidden();
+        if (decision.action() == ContentModerationService.Action.REJECT_ANON) {
+            return EditResult.contentUnderReview();
+        }
 
         boolean updated = posts.updateContent(postId, content);
         if (!updated) return EditResult.postRemoved();
 
         hashtagPosts.deleteByPostId(postId);
-        indexHashtags(postId, post.get().companyId, content);
+        boolean shouldQuarantine = decision.action() == ContentModerationService.Action.QUARANTINE;
+        if (!shouldQuarantine && (post.get().visibility == null || post.get().visibility.equalsIgnoreCase("public"))) {
+            indexHashtags(postId, post.get().companyId, content);
+        }
+        if (shouldQuarantine && (post.get().visibility == null || post.get().visibility.equalsIgnoreCase("public"))) {
+            quarantine.quarantinePost(postId, decision.source(), decision.reason());
+        }
 
         var updatedPost = posts.findById(postId).orElseThrow();
         postState.applyForPrincipal(actorPrincipalId, java.util.List.of(updatedPost));
@@ -411,6 +458,7 @@ public class PostsService {
         IDEMPOTENCY_REQUIRED,
         INVALID_POLL,
         INVALID_ANON_PROOF,
+        CONTENT_UNDER_REVIEW,
         ANON_MEDIA_NOT_ALLOWED,
         MEDIA_TOO_MANY,
         MEDIA_NOT_FOUND,
@@ -430,6 +478,7 @@ public class PostsService {
         static CreateResult idempotencyRequired() { return new CreateResult(Status.IDEMPOTENCY_REQUIRED, null, false); }
         static CreateResult invalidPoll(String ignored) { return new CreateResult(Status.INVALID_POLL, null, false); }
         static CreateResult invalidAnonProof() { return new CreateResult(Status.INVALID_ANON_PROOF, null, false); }
+        static CreateResult contentUnderReview() { return new CreateResult(Status.CONTENT_UNDER_REVIEW, null, false); }
         static CreateResult anonMediaNotAllowed() { return new CreateResult(Status.ANON_MEDIA_NOT_ALLOWED, null, false); }
         static CreateResult mediaTooMany() { return new CreateResult(Status.MEDIA_TOO_MANY, null, false); }
         static CreateResult mediaNotFound() { return new CreateResult(Status.MEDIA_NOT_FOUND, null, false); }
@@ -441,7 +490,7 @@ public class PostsService {
         static CreateResult notVerified() { return new CreateResult(Status.NOT_VERIFIED, null, false); }
     }
 
-    public enum EditStatus { OK, USER_NOT_PROVISIONED, NOT_FOUND, FORBIDDEN, INVALID_ANON_PROOF, POST_REMOVED }
+    public enum EditStatus { OK, USER_NOT_PROVISIONED, NOT_FOUND, FORBIDDEN, INVALID_ANON_PROOF, POST_REMOVED, CONTENT_UNDER_REVIEW }
 
     public record EditResult(EditStatus status, PostRepository.PostRow post) {
         static EditResult ok(PostRepository.PostRow post) { return new EditResult(EditStatus.OK, post); }
@@ -450,6 +499,7 @@ public class PostsService {
         static EditResult forbidden() { return new EditResult(EditStatus.FORBIDDEN, null); }
         static EditResult invalidAnonProof() { return new EditResult(EditStatus.INVALID_ANON_PROOF, null); }
         static EditResult postRemoved() { return new EditResult(EditStatus.POST_REMOVED, null); }
+        static EditResult contentUnderReview() { return new EditResult(EditStatus.CONTENT_UNDER_REVIEW, null); }
     }
 
     public enum DeleteStatus { OK, USER_NOT_PROVISIONED, NOT_FOUND, FORBIDDEN, INVALID_ANON_PROOF }

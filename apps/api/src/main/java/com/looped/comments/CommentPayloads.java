@@ -21,7 +21,10 @@ public final class CommentPayloads {
         out.put("reply_count", row.comment.replyCount);
         out.put("user_liked", row.viewerLiked);
         out.put("liked_by_creator", row.likedByCreator);
-        out.put("is_deleted", row.comment.deletedAt != null);
+        out.put("is_deleted", row.comment.deletedAt != null || row.comment.removedAt != null);
+        boolean isUnderReview = row.comment.visibility != null && row.comment.visibility.equalsIgnoreCase("quarantined");
+        out.put("is_under_review", isUnderReview);
+        out.put("isUnderReview", isUnderReview);
         out.put("author_principal_id", row.author.principalId);
         out.put("author_is_anonymous", row.author.isAnonymous);
         out.put("is_anonymous", row.author.isAnonymous);
