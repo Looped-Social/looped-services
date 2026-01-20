@@ -159,4 +159,49 @@ class FeedIntegrationTest extends PostgresTestBase {
                 .andExpect(jsonPath("$.items[0].content", equalTo("viewer-post")))
                 .andExpect(jsonPath("$.items[*].content", not(hasItem("blocked-post"))));
     }
+
+    @Test
+    void feed_mode_following_returns_posts_from_followed_principals() throws Exception {
+        long companyId = jdbc.queryForObject("INSERT INTO companies(name, domain) VALUES ('FollowFeed','followfeed.co') RETURNING id", Long.class);
+
+        long viewerUserId = jdbc.queryForObject("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?) RETURNING id",
+                Long.class, "uid-follow-viewer", "viewer", companyId);
+        long viewerPrincipalId = jdbc.queryForObject("INSERT INTO principals(kind, user_id) VALUES ('user', ?) RETURNING id", Long.class, viewerUserId);
+
+        long followedUserId = jdbc.queryForObject("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?) RETURNING id",
+                Long.class, "uid-followed", "followed", companyId);
+        long followedPrincipalId = jdbc.queryForObject("INSERT INTO principals(kind, user_id) VALUES ('user', ?) RETURNING id", Long.class, followedUserId);
+
+        long otherUserId = jdbc.queryForObject("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?) RETURNING id",
+                Long.class, "uid-other", "other", companyId);
+        long otherPrincipalId = jdbc.queryForObject("INSERT INTO principals(kind, user_id) VALUES ('user', ?) RETURNING id", Long.class, otherUserId);
+
+        jdbc.update("INSERT INTO principal_follows(follower_principal_id, followee_principal_id) VALUES (?,?)",
+                viewerPrincipalId, followedPrincipalId);
+
+        long comm = jdbc.queryForObject("INSERT INTO communities(kind, name) VALUES ('company', 'FollowFeed') RETURNING id", Long.class);
+        Instant base = Instant.now();
+
+        jdbc.update(
+                "INSERT INTO posts(author_id, author_principal_id, company_id, community_id, content, created_at) VALUES (?,?,?,?,?,?)",
+                otherUserId, otherPrincipalId, companyId, comm, "other-post", Timestamp.from(base.minusSeconds(10))
+        );
+        jdbc.update(
+                "INSERT INTO posts(author_id, author_principal_id, company_id, community_id, content, created_at) VALUES (?,?,?,?,?,?)",
+                followedUserId, followedPrincipalId, companyId, comm, "followed-post", Timestamp.from(base.minusSeconds(20))
+        );
+        jdbc.update(
+                "INSERT INTO posts(author_id, author_principal_id, company_id, community_id, content, created_at) VALUES (?,?,?,?,?,?)",
+                viewerUserId, viewerPrincipalId, companyId, comm, "viewer-post", Timestamp.from(base.minusSeconds(30))
+        );
+
+        String auth = "Bearer " + token("uid-follow-viewer");
+        mockMvc.perform(get("/v1/feed?mode=following&limit=10")
+                        .header("Authorization", auth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items", hasSize(2)))
+                .andExpect(jsonPath("$.items[0].content", equalTo("followed-post")))
+                .andExpect(jsonPath("$.items[*].content", containsInAnyOrder("followed-post", "viewer-post")))
+                .andExpect(jsonPath("$.items[*].content", not(hasItem("other-post"))));
+    }
 }

@@ -233,6 +233,45 @@ public class PostRepository {
         return jdbc.query(base + paging, MAPPER, args.toArray());
     }
 
+    public java.util.List<PostRow> findFollowing(Long communityId, java.time.OffsetDateTime cursorTs, Long cursorId, int limit,
+                                                 long viewerUserId, long viewerPrincipalId, boolean hideAnonymousPosts) {
+        String base = BASE_SELECT + "WHERE p.removed_at IS NULL AND (p.author_id IS NULL OR u.id IS NOT NULL) ";
+        java.util.List<Object> args = new java.util.ArrayList<>();
+        if (communityId != null) {
+            base += "AND p.community_id = ? ";
+            args.add(communityId);
+        }
+        base += "AND (" +
+                "p.author_principal_id = ? " +
+                "OR EXISTS (" +
+                "SELECT 1 FROM principal_follows f " +
+                "WHERE f.follower_principal_id = ? AND f.followee_principal_id = p.author_principal_id" +
+                ")" +
+                ") ";
+        args.add(viewerPrincipalId);
+        args.add(viewerPrincipalId);
+        if (hideAnonymousPosts) {
+            base += hideAnonymousFilter(true);
+            args.add(viewerUserId);
+        }
+        base += blocksFilter();
+        args.add(viewerPrincipalId);
+        args.add(viewerPrincipalId);
+        base += communityBansFilter();
+        args.add(viewerUserId);
+        if (cursorTs == null || cursorId == null) {
+            args.add(limit);
+            return jdbc.query(base + "ORDER BY p.created_at DESC, p.id DESC LIMIT ?", MAPPER, args.toArray());
+        }
+        String paging = "AND (p.created_at < ? OR (p.created_at = ? AND p.id < ?)) " +
+                "ORDER BY p.created_at DESC, p.id DESC LIMIT ?";
+        args.add(cursorTs);
+        args.add(cursorTs);
+        args.add(cursorId);
+        args.add(limit);
+        return jdbc.query(base + paging, MAPPER, args.toArray());
+    }
+
     public java.util.List<PostRow> findPopular(java.time.OffsetDateTime asOf, java.time.OffsetDateTime since, Long cursorScore,
                                                java.time.OffsetDateTime cursorTs, Long cursorId, int limit,
                                                long viewerUserId, long viewerPrincipalId, boolean hideAnonymousPosts) {

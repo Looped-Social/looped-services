@@ -51,6 +51,8 @@ public class FeedService {
         boolean hideAnonymousPosts = u.get().hideAnonymousPosts;
         FeedResult result = resolved == Mode.NEW
                 ? feedNew(cursor, limit, communityId, viewerUserId, viewerPrincipalId, hideAnonymousPosts)
+                : resolved == Mode.FOLLOWING
+                ? feedFollowing(cursor, limit, communityId, viewerUserId, viewerPrincipalId, hideAnonymousPosts)
                 : feedForYou(cursor, limit, communityId, viewerUserId, viewerPrincipalId, hideAnonymousPosts);
         postState.applyForPrincipal(principal.id, result.items());
         applyRepostBanners(principal.id, result.items());
@@ -100,6 +102,27 @@ public class FeedService {
             var last = list.get(list.size() - 1);
             long lastScore = popularityScore(last, asOf);
             next = RankPagination.encode(asOf, lastScore, last.createdAt, last.id);
+        }
+        return FeedResult.ok(list, next);
+    }
+
+    private FeedResult feedFollowing(String cursor, int limit, Long communityId, long viewerUserId, long viewerPrincipalId, boolean hideAnonymousPosts) {
+        OffsetDateTime cTs = null;
+        Long cId = null;
+        if (cursor != null && !cursor.isBlank()) {
+            try {
+                var c = Pagination.decode(cursor);
+                cTs = c.timestamp();
+                cId = c.id();
+            } catch (IllegalArgumentException ignored) {
+                // treat as no cursor
+            }
+        }
+        var list = posts.findFollowing(communityId, cTs, cId, limit, viewerUserId, viewerPrincipalId, hideAnonymousPosts);
+        String next = null;
+        if (list.size() == limit) {
+            var last = list.get(list.size() - 1);
+            next = Pagination.encode(last.createdAt, last.id);
         }
         return FeedResult.ok(list, next);
     }
@@ -156,12 +179,13 @@ public class FeedService {
 
     public enum Status { OK, USER_NOT_PROVISIONED, COMMUNITY_NOT_FOUND, COMMUNITY_BANNED }
     public enum Mode {
-        FOR_YOU, NEW;
+        FOR_YOU, NEW, FOLLOWING;
 
         static Mode from(String raw) {
             if (raw == null || raw.isBlank()) return FOR_YOU;
             String normalized = raw.trim().toLowerCase();
             if (normalized.equals("new") || normalized.equals("recent")) return NEW;
+            if (normalized.equals("following")) return FOLLOWING;
             return FOR_YOU;
         }
     }
