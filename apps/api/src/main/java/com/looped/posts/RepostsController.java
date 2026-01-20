@@ -72,6 +72,10 @@ public class RepostsController {
                     "error", "community_banned",
                     "message", "You are banned from this community"
             ));
+            case NOT_VERIFIED -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
+                    "error", "community_not_verified",
+                    "message", "You must be verified to repost in this community"
+            ));
             case INVALID_SIGNATURE -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
                     "error", "invalid_anon_proof",
                     "message", "Invalid anonymous proof"
@@ -138,6 +142,10 @@ public class RepostsController {
             case COMMUNITY_BANNED -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
                     "error", "community_banned",
                     "message", "You are banned from this community"
+            ));
+            case NOT_VERIFIED -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
+                    "error", "community_not_verified",
+                    "message", "You must be verified to repost in this community"
             ));
             case INVALID_SIGNATURE -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
                     "error", "invalid_anon_proof",

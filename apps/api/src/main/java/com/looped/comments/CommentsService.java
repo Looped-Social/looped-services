@@ -324,6 +324,10 @@ public class CommentsService {
             if (post.get().communityId != null && communityBans.isBanned(actor.get().id, post.get().communityId)) {
                 return LikeResult.communityBanned();
             }
+            if (requiresVerification(post.get().communityId)
+                    && !communityVerifications.isVerified(actor.get().id, post.get().communityId)) {
+                return LikeResult.notVerified();
+            }
             actorPrincipalId = principals.createForUser(actor.get().id).id;
             actorUserId = actor.get().id;
         }
@@ -354,6 +358,10 @@ public class CommentsService {
             if (actor.isEmpty() || actor.get().companyId == null) return UnlikeResult.userNotProvisioned();
             if (post.get().communityId != null && communityBans.isBanned(actor.get().id, post.get().communityId)) {
                 return UnlikeResult.communityBanned();
+            }
+            if (requiresVerification(post.get().communityId)
+                    && !communityVerifications.isVerified(actor.get().id, post.get().communityId)) {
+                return UnlikeResult.notVerified();
             }
             actorPrincipalId = principals.createForUser(actor.get().id).id;
         }
@@ -427,6 +435,7 @@ public class CommentsService {
         static LikeResult userNotProvisioned() { return new LikeResult(Status.USER_NOT_PROVISIONED, false, 0, false, false); }
         static LikeResult commentNotFound() { return new LikeResult(Status.COMMENT_NOT_FOUND, false, 0, false, false); }
         static LikeResult communityBanned() { return new LikeResult(Status.COMMUNITY_BANNED, false, 0, false, false); }
+        static LikeResult notVerified() { return new LikeResult(Status.NOT_VERIFIED, false, 0, false, false); }
         static LikeResult invalidAnonProof() { return new LikeResult(Status.INVALID_ANON_PROOF, false, 0, false, false); }
     }
 
@@ -471,6 +480,7 @@ public class CommentsService {
         USER_NOT_PROVISIONED,
         COMMENT_NOT_FOUND,
         COMMUNITY_BANNED,
+        NOT_VERIFIED,
         INVALID_ANON_PROOF
     }
 
@@ -481,6 +491,7 @@ public class CommentsService {
         static UnlikeResult userNotProvisioned() { return new UnlikeResult(UnlikeStatus.USER_NOT_PROVISIONED, false, 0, false, false); }
         static UnlikeResult commentNotFound() { return new UnlikeResult(UnlikeStatus.COMMENT_NOT_FOUND, false, 0, false, false); }
         static UnlikeResult communityBanned() { return new UnlikeResult(UnlikeStatus.COMMUNITY_BANNED, false, 0, false, false); }
+        static UnlikeResult notVerified() { return new UnlikeResult(UnlikeStatus.NOT_VERIFIED, false, 0, false, false); }
         static UnlikeResult invalidAnonProof() { return new UnlikeResult(UnlikeStatus.INVALID_ANON_PROOF, false, 0, false, false); }
     }
 }

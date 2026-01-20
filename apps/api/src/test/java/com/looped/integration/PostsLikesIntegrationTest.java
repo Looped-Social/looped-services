@@ -64,6 +64,8 @@ class PostsLikesIntegrationTest extends PostgresTestBase {
         long communityId = jdbc.queryForObject("INSERT INTO communities(kind, name) VALUES ('company', 'LikeCo') RETURNING id", Long.class);
         jdbc.update("INSERT INTO community_verifications(user_id, community_id, method, verified, verified_at) VALUES (?,?,?,?, now())",
                 authorId, communityId, "manual", true);
+        jdbc.update("INSERT INTO community_verifications(user_id, community_id, method, verified, verified_at) VALUES (?,?,?,?, now())",
+                likerId, communityId, "manual", true);
         long postId = jdbc.queryForObject("INSERT INTO posts(author_id, author_principal_id, company_id, community_id, content) VALUES (?,?,?,?,?) RETURNING id",
                 Long.class, authorId, authorPrincipal, companyId, communityId, "post body");
 
