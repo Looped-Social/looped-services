@@ -1,0 +1,6 @@
+bucket         = "looped-tofu-state-179388324981"
+key            = "looped/staging.tfstate"
+region         = "us-east-1"
+dynamodb_table = "looped-tofu-lock"
+encrypt        = true
+

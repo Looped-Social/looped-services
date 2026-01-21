@@ -36,3 +36,18 @@ docker/volumes/
 node_modules/
 package-lock.json
 yarn.lock
+
+# OpenTofu / Terraform
+.terraform/
+**/.terraform/
+**/.terraform.lock.hcl
+**/backend.hcl
+*.tfstate
+*.tfstate.*
+crash.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+*.tfvars
+!*.tfvars.example

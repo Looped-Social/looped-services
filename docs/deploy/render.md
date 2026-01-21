@@ -2,6 +2,8 @@
 
 This doc summarizes Render basics and a Looped-specific plan to migrate from ECS/ALB.
 
+Note: the preferred AWS path in this repo is OpenTofu-managed ECS/ALB (`infra/README.md`, `infra/RUNBOOK.md`). Use this doc only if you’re choosing Render instead of AWS ECS/ALB.
+
 ## Render basics (quick reference)
 
 - Service types

@@ -1,0 +1,77 @@
+name: Deploy API to Production (Promote + ECS)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION }}
+  ECR_REGISTRY: ${{ vars.ECR_REGISTRY }}
+  ECR_REPO: ${{ vars.ECR_REPO }}
+  ECS_CLUSTER: ${{ vars.ECS_CLUSTER_PROD }}
+  ECS_SERVICE: ${{ vars.ECS_SERVICE_PROD }}
+
+jobs:
+  promote_and_deploy:
+    name: Promote selected ref to prod
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Checkout (selected ref)
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Promote ECR image tag (SHA -> prod)
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          SHA="${GITHUB_SHA}"
+
+          echo "Promoting ${ECR_REPO}:${SHA} -> ${ECR_REPO}:prod"
+
+          MANIFEST="$(aws ecr batch-get-image \
+            --region "${AWS_REGION}" \
+            --repository-name "${ECR_REPO}" \
+            --image-ids "imageTag=${SHA}" \
+            --query 'images[0].imageManifest' \
+            --output text)"
+
+          if [[ -z "${MANIFEST}" || "${MANIFEST}" == "None" ]]; then
+            echo "ERROR: Could not find ECR image tag '${SHA}' in '${ECR_REPO}'."
+            echo "Make sure staging deploy has run for this commit (it pushes :${SHA})."
+            exit 1
+          fi
+
+          aws ecr put-image \
+            --region "${AWS_REGION}" \
+            --repository-name "${ECR_REPO}" \
+            --image-tag prod \
+            --image-manifest "${MANIFEST}" >/dev/null
+
+      - name: Force new ECS deployment (prod)
+        run: |
+          aws ecs update-service \
+            --cluster "${ECS_CLUSTER}" \
+            --service "${ECS_SERVICE}" \
+            --force-new-deployment \
+            --region "${AWS_REGION}"
+
+      - name: Wait for service stability (prod)
+        run: |
+          aws ecs wait services-stable \
+            --cluster "${ECS_CLUSTER}" \
+            --services "${ECS_SERVICE}" \
+            --region "${AWS_REGION}"
+

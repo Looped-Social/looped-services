@@ -24,7 +24,7 @@ Repos
 looped-iOS/ (SwiftUI app, MVVM)
 looped-web/ (marketing now; web app later)
 looped-services/ (backend modular monolith + workers)
-looped-infra/ (optional Terraform/CDK)
+infra/ (OpenTofu IaC for AWS staging + prod; Cloudflare DNS managed outside AWS)
 
 Inside looped-services/
 apps/api/ (Spring Boot REST)

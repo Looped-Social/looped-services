@@ -63,7 +63,26 @@ No secrets are needed for verification — the backend verifies JWTs via JWKS.
 
 ## AWS Setup
 
-### 1) Postgres
+### Recommended: OpenTofu (IaC) for staging + prod
+This repo includes OpenTofu config under `infra/` that provisions the core AWS pieces:
+- VPC (public+private subnets + NAT), ALB, ECS Fargate service, CloudWatch logs
+- ElastiCache Valkey/Redis (TLS + at-rest encryption)
+- S3 buckets (private) + CloudFront (OAC) for media
+- SSM params (non-secret config) and Secrets Manager (secrets by ARN only; secret values are not stored in OpenTofu state)
+
+Start here:
+- `infra/README.md`
+- `infra/RUNBOOK.md`
+
+High-level workflow:
+1) Create required Secrets Manager secrets (Firebase Admin JSON, DB creds JSON, OpenAI moderation key).
+2) Create ACM cert(s) in `us-east-1` for `api-staging.mylooped.app` and `api.mylooped.app` (DNS validation via Cloudflare).
+3) Bootstrap OpenTofu remote state: `cd infra/bootstrap && tofu apply ...`
+4) Apply staging, then prod: `cd infra/envs/<env> && tofu init && tofu apply`
+5) Point Cloudflare CNAMEs at the new ALB DNS names from `tofu output`.
+
+### Manual AWS setup (console) (legacy)
+#### 1) Postgres
 Choose one:
 - Neon (managed Postgres): create DB; get connection string/hostname.
 - RDS/Aurora: create instance/cluster in your VPC; ensure ECS tasks can reach it.
@@ -72,11 +91,11 @@ Set:
 - `DB_URL = jdbc:postgresql://<host>:5432/<db>`
 - `DB_USERNAME`, `DB_PASSWORD`
 
-### 2) Redis (ElastiCache)
+#### 2) Redis (ElastiCache)
 - Create a Redis cluster; allow access from ECS tasks.
 - Set `REDIS_URL = redis://<host>:6379`
 
-### 3) S3 + CloudFront (Media)
+#### 3) S3 + CloudFront (Media)
 - Create S3 bucket (e.g., `looped-media-prod`).
 - Create CloudFront distribution with the bucket as origin; note the distribution domain.
 - Add bucket policy to restrict content-type/path (`media/original/*`, `media/processed/*`).
@@ -86,7 +105,7 @@ Set:
   - `CLOUDFRONT_DOMAIN`
   - `MEDIA_CALLBACK_SECRET` (store in Secrets Manager)
 
-### 4) ECR + ECS Fargate + ALB
+#### 4) ECR + ECS Fargate + ALB
 - Create ECR repo (e.g., `looped-api`).
 - Create ECS cluster and a Fargate service with one container named `api` listening on 8080.
 - Create task execution role (pull from ECR, write logs) and task role (runtime permissions):
@@ -95,7 +114,7 @@ Set:
 - Create ALB + target group (HTTP 8080), health check path `/health`.
 - CloudWatch Logs: ensure log group `/ecs/looped-api` exists.
 
-### 5) SSM Parameters and Secrets Manager
+#### 5) SSM Parameters and Secrets Manager
 Recommended names (map in task definition `secrets`):
 - SSM Parameters
   - `/looped/auth/issuer` → `AUTH_ISSUER`
@@ -110,7 +129,7 @@ Recommended names (map in task definition `secrets`):
 
 Map plain envs in the task def (non-secret): `PORT=8080`, `AWS_REGION`, `S3_BUCKET`, `CLOUDFRONT_DOMAIN`. See `deploy/ecs-taskdef.sample.json` for an example.
 
-### 6) (Optional) SQS for notifications
+#### 6) (Optional) SQS for notifications
 - Create standard queue `notif-events` and DLQ `notif-events-dlq`.
 - Set redrive policy on main queue.
 - Set `SQS_NOTIF_QUEUE_URL` to the main queue URL.

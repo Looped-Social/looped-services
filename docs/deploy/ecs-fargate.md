@@ -2,6 +2,8 @@
 
 This file is a concise checklist + sample task definition for deploying the API to ECS Fargate behind an ALB.
 
+Preferred: provision AWS resources via OpenTofu in this repo (`infra/README.md`, `infra/RUNBOOK.md`). This doc is kept as a manual/legacy reference for what the IaC creates.
+
 ## Prerequisites
 - AWS account with admin or appropriate IAM permissions
 - VPC with public subnets (for ALB) and private subnets (for ECS tasks)
@@ -126,4 +128,3 @@ Save as `deploy/ecs-taskdef.sample.json` and replace placeholders.
 - For staging, restrict ALB to specific IPs or basic auth via ALB rules
 - When moving to Aurora, keep the same `DB_URL` semantics; increase pool size and add RDS Proxy if needed
 - If Redis is unavailable, post idempotency degrades (can retry safely); rate limits will be lenient
-

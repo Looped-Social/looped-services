@@ -10,6 +10,7 @@
 - `workers/feed-worker` — placeholder (later)
 - `workers/mod-worker` — placeholder (later)
 - `docs/ARCHITECTURE.md` — Architecture Context (authoritative)
+- `infra/` — AWS infrastructure via OpenTofu (staging + prod)
 - `AGENTS.md` — Agents, responsibilities, interfaces, guardrails
 - `config/logging.json` — structured logging template (placeholder)
 - `.env.example` — environment variables example for local dev
@@ -216,6 +217,7 @@ Notes
   - Prod: logs to CloudWatch; set alarms on 5xx/latency; rate limits enforced via Redis
 
 ## Deploy (ECS Fargate quick notes)
+- Preferred: use OpenTofu in `infra/` to provision AWS resources (VPC, ALB, ECS service, Redis, S3+CloudFront, SSM params). Start with `infra/README.md` and `infra/RUNBOOK.md`.
 - Build and push to ECR: tag `looped-api:<sha>`; set repository in ECR.
 - Task definition env vars: `DB_URL`, `DB_USERNAME`, `DB_PASSWORD` (or use Secrets Manager), `AUTH_*`, `REDIS_URL`, `S3_BUCKET`, `AWS_REGION`, `CLOUDFRONT_DOMAIN`, `MEDIA_*`, `S3_MESSAGING_BUCKET` (private DM/channel attachments).
 - ALB target group health check: path `/health`, interval 30s.
