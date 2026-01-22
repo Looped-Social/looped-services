@@ -160,3 +160,16 @@ variable "moderation_openai_category_blocklist" {
 variable "moderation_report_quarantine_threshold" {
   type = number
 }
+
+variable "logo_dev_token" {
+  type        = string
+  description = "Logo.dev public token used to generate default community logos. Leave empty to disable logo.dev fallback."
+  default     = ""
+  sensitive   = true
+}
+
+variable "logo_dev_retina" {
+  type        = bool
+  description = "If true, add retina=true to logo.dev URLs."
+  default     = true
+}

@@ -106,4 +106,7 @@ module "api" {
   moderation_openai_timeout_millis       = var.moderation_openai_timeout_millis
   moderation_openai_category_blocklist   = var.moderation_openai_category_blocklist
   moderation_report_quarantine_threshold = var.moderation_report_quarantine_threshold
+
+  logo_dev_token  = var.logo_dev_token
+  logo_dev_retina = var.logo_dev_retina
 }

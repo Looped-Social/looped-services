@@ -286,6 +286,8 @@ resource "aws_ecs_task_definition" "api" {
         { name = "S3_VERIFICATION_REGION", value = data.aws_region.current.name },
         { name = "S3_DM_REGION", value = data.aws_region.current.name },
         { name = "CLOUDFRONT_DOMAIN", value = var.cloudfront_domain },
+        { name = "LOGO_DEV_TOKEN", value = var.logo_dev_token },
+        { name = "LOGO_DEV_RETINA", value = tostring(var.logo_dev_retina) },
         { name = "EMAIL_FROM", value = var.email_from },
         { name = "EMAIL_REPLY_TO", value = var.email_reply_to },
         { name = "EMAIL_CONFIGURATION_SET", value = var.email_configuration_set },

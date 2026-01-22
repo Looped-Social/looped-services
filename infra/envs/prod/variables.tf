@@ -153,6 +153,19 @@ variable "moderation_report_quarantine_threshold" {
   default = 10
 }
 
+variable "logo_dev_token" {
+  type        = string
+  description = "Logo.dev public token used to generate default community logos. Leave empty to disable logo.dev fallback."
+  default     = ""
+  sensitive   = true
+}
+
+variable "logo_dev_retina" {
+  type        = bool
+  description = "If true, add retina=true to logo.dev URLs."
+  default     = true
+}
+
 variable "media_cloudfront_aliases" {
   type        = list(string)
   description = "Optional custom domain aliases for the media CloudFront distribution (e.g. [\"media.mylooped.app\"])."
