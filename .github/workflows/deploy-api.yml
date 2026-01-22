@@ -82,8 +82,36 @@ jobs:
             --region "${AWS_REGION}"
 
       - name: Wait for service stability
+        shell: bash
         run: |
-          aws ecs wait services-stable \
-            --cluster "${ECS_CLUSTER}" \
-            --services "${ECS_SERVICE}" \
-            --region "${AWS_REGION}"
+          set -euo pipefail
+
+          deadline=$((SECONDS + 1800)) # 30 minutes
+          echo "Waiting for ECS service stability (timeout: 30m)..."
+
+          while (( SECONDS < deadline )); do
+            status_json="$(aws ecs describe-services \
+              --cluster "${ECS_CLUSTER}" \
+              --services "${ECS_SERVICE}" \
+              --region "${AWS_REGION}" \
+              --query 'services[0].{desired:desiredCount,running:runningCount,pending:pendingCount,primary:deployments[?status==`PRIMARY`]|[0],events:events[0:5]}' \
+              --output json)"
+
+            desired="$(echo "${status_json}" | jq -r '.desired')"
+            running="$(echo "${status_json}" | jq -r '.running')"
+            pending="$(echo "${status_json}" | jq -r '.pending')"
+            rollout_state="$(echo "${status_json}" | jq -r '.primary.rolloutState // \"\"')"
+
+            echo "desired=${desired} running=${running} pending=${pending} rollout=${rollout_state}"
+
+            if [[ "${desired}" == "${running}" && "${pending}" == "0" && "${rollout_state}" == "COMPLETED" ]]; then
+              echo "Service stable."
+              exit 0
+            fi
+
+            sleep 15
+          done
+
+          echo "ERROR: ECS service did not become stable within 30 minutes."
+          echo "${status_json}" | jq .
+          exit 1
