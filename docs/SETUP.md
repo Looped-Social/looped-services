@@ -45,19 +45,34 @@ Copy `.env.example` to `.env` for local reference; export vars in your shell. In
 
 ## Firebase Setup (Auth)
 
-1) Create project
-   - Go to Firebase Console → “Add project”.
-   - Note your Project ID: `<project-id>`.
+1) Create project(s)
+   - Recommended: separate Firebase projects per environment.
+     - Prod: `looped-prod`
+     - Staging: `looped-staging`
+   - Firebase Console → “Add project” → note the Project ID for each.
 
 2) Configure iOS app (optional client step)
    - Add an iOS app in Firebase for your bundle identifier; download `GoogleService-Info.plist` into the iOS app.
 
-3) Set backend envs
-   - `AUTH_ISSUER = https://securetoken.google.com/<project-id>`
-   - `AUTH_AUDIENCE = <project-id>`
+3) Set backend envs (per environment)
+   - `AUTH_ISSUER = https://securetoken.google.com/<project-id>` (must match the token `iss`)
+   - `AUTH_AUDIENCE = <project-id>` (must match the token `aud`)
    - `AUTH_JWKS_URI = https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com`
 
 No secrets are needed for verification — the backend verifies JWTs via JWKS.
+
+4) (Optional) Firebase Admin SDK (admin actions)
+   - Only needed if you want the API to call Firebase Admin (e.g., delete Firebase users from server-side flows).
+   - Create a service account key JSON in the matching Firebase project and provide it via:
+     - `FIREBASE_ADMIN_CREDENTIALS_JSON` (recommended in ECS via Secrets Manager), or
+     - `FIREBASE_ADMIN_CREDENTIALS_PATH` (local/dev).
+   - If storing in Secrets Manager, store the entire service account JSON as the secret value (either as plaintext or as key/value JSON); the API expects the full JSON document.
+
+### If deploying via OpenTofu (recommended)
+- Set `auth_issuer` and `auth_audience` in:
+  - `infra/envs/staging/terraform.tfvars`
+  - `infra/envs/prod/terraform.tfvars`
+- OpenTofu writes these to SSM parameters under `/${name_prefix}/${environment}/auth/*` and injects them into the ECS task as `AUTH_ISSUER`/`AUTH_AUDIENCE`.
 
 ---
 

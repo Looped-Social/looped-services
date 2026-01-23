@@ -23,9 +23,9 @@ email_configuration_set = "looped-email-events"
 email_verify_base_url   = ""
 
 # Secrets (ARNs only)
-firebase_admin_secret_arn    = "arn:aws:secretsmanager:us-east-1:179388324981:secret:looped/prod/firebase-admin-XXXXXX"
+firebase_admin_secret_arn    = "arn:aws:secretsmanager:us-east-1:179388324981:secret:looped/staging/firebase-admin-XXXXXX"
 openai_moderation_secret_arn = "arn:aws:secretsmanager:us-east-1:179388324981:secret:looped/openai/moderation-XXXXXX"
-db_credentials_secret_arn    = "arn:aws:secretsmanager:us-east-1:179388324981:secret:looped/db/credentials-XXXXXX"
+db_credentials_secret_arn    = "arn:aws:secretsmanager:us-east-1:179388324981:secret:looped/staging/db/credentials-XXXXXX"
 
 # DB (JDBC URL without embedded creds)
 db_url = "jdbc:postgresql://YOUR_NEON_HOST/YOUR_DB?sslmode=require"
