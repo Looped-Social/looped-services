@@ -242,9 +242,140 @@ resource "aws_ecs_cluster" "this" {
   name = "${local.name}-cluster"
   setting {
     name  = "containerInsights"
-    value = "disabled"
+    value = var.enable_container_insights ? "enabled" : "disabled"
   }
   tags = var.tags
+}
+
+resource "aws_sns_topic" "alerts" {
+  count = var.enable_alerts ? 1 : 0
+
+  name = "${local.name}-alerts"
+  tags = var.tags
+}
+
+locals {
+  alarm_actions = var.enable_alerts ? concat([aws_sns_topic.alerts[0].arn], var.extra_alarm_actions) : var.extra_alarm_actions
+  ok_actions    = var.enable_alerts ? concat([aws_sns_topic.alerts[0].arn], var.extra_ok_actions) : var.extra_ok_actions
+}
+
+resource "aws_cloudwatch_metric_alarm" "alb_5xx" {
+  alarm_name          = "${local.name}-alb-5xx"
+  alarm_description   = "ALB is returning 5xx."
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = 2
+  datapoints_to_alarm = 2
+  threshold           = 5
+  treat_missing_data  = "notBreaching"
+
+  namespace   = "AWS/ApplicationELB"
+  metric_name = "HTTPCode_ELB_5XX_Count"
+  statistic   = "Sum"
+  period      = 60
+
+  dimensions = {
+    LoadBalancer = aws_lb.this.arn_suffix
+  }
+
+  alarm_actions = local.alarm_actions
+  ok_actions    = local.ok_actions
+  tags          = var.tags
+}
+
+resource "aws_cloudwatch_metric_alarm" "target_5xx" {
+  alarm_name          = "${local.name}-target-5xx"
+  alarm_description   = "Targets are returning 5xx."
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = 2
+  datapoints_to_alarm = 2
+  threshold           = 10
+  treat_missing_data  = "notBreaching"
+
+  namespace   = "AWS/ApplicationELB"
+  metric_name = "HTTPCode_Target_5XX_Count"
+  statistic   = "Sum"
+  period      = 60
+
+  dimensions = {
+    LoadBalancer = aws_lb.this.arn_suffix
+    TargetGroup  = aws_lb_target_group.api.arn_suffix
+  }
+
+  alarm_actions = local.alarm_actions
+  ok_actions    = local.ok_actions
+  tags          = var.tags
+}
+
+resource "aws_cloudwatch_metric_alarm" "unhealthy_hosts" {
+  alarm_name          = "${local.name}-unhealthy-hosts"
+  alarm_description   = "ALB target group has unhealthy targets."
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = 2
+  datapoints_to_alarm = 2
+  threshold           = 0
+  treat_missing_data  = "notBreaching"
+
+  namespace   = "AWS/ApplicationELB"
+  metric_name = "UnHealthyHostCount"
+  statistic   = "Maximum"
+  period      = 60
+
+  dimensions = {
+    LoadBalancer = aws_lb.this.arn_suffix
+    TargetGroup  = aws_lb_target_group.api.arn_suffix
+  }
+
+  alarm_actions = local.alarm_actions
+  ok_actions    = local.ok_actions
+  tags          = var.tags
+}
+
+resource "aws_cloudwatch_metric_alarm" "ecs_cpu_high" {
+  alarm_name          = "${local.name}-ecs-cpu-high"
+  alarm_description   = "ECS service CPU is high."
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = 5
+  datapoints_to_alarm = 5
+  threshold           = 80
+  treat_missing_data  = "notBreaching"
+
+  namespace   = "AWS/ECS"
+  metric_name = "CPUUtilization"
+  statistic   = "Average"
+  period      = 60
+
+  dimensions = {
+    ClusterName = aws_ecs_cluster.this.name
+    ServiceName = aws_ecs_service.api.name
+  }
+
+  alarm_actions = local.alarm_actions
+  ok_actions    = local.ok_actions
+  tags          = var.tags
+}
+
+resource "aws_cloudwatch_metric_alarm" "ecs_memory_high" {
+  alarm_name          = "${local.name}-ecs-memory-high"
+  alarm_description   = "ECS service memory is high."
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = 5
+  datapoints_to_alarm = 5
+  threshold           = 85
+  treat_missing_data  = "notBreaching"
+
+  namespace   = "AWS/ECS"
+  metric_name = "MemoryUtilization"
+  statistic   = "Average"
+  period      = 60
+
+  dimensions = {
+    ClusterName = aws_ecs_cluster.this.name
+    ServiceName = aws_ecs_service.api.name
+  }
+
+  alarm_actions = local.alarm_actions
+  ok_actions    = local.ok_actions
+  tags          = var.tags
 }
 
 resource "aws_ecs_task_definition" "api" {
@@ -322,6 +453,9 @@ resource "aws_ecs_service" "api" {
   desired_count   = var.desired_count
   launch_type     = "FARGATE"
 
+  deployment_minimum_healthy_percent = 100
+  deployment_maximum_percent         = 200
+
   enable_execute_command            = true
   health_check_grace_period_seconds = var.health_check_grace_period_seconds
 
@@ -365,6 +499,23 @@ resource "aws_appautoscaling_policy" "cpu" {
       predefined_metric_type = "ECSServiceAverageCPUUtilization"
     }
     target_value       = 60
+    scale_in_cooldown  = 120
+    scale_out_cooldown = 60
+  }
+}
+
+resource "aws_appautoscaling_policy" "memory" {
+  name               = "${local.name}-memory-scaling"
+  policy_type        = "TargetTrackingScaling"
+  resource_id        = aws_appautoscaling_target.ecs.resource_id
+  scalable_dimension = aws_appautoscaling_target.ecs.scalable_dimension
+  service_namespace  = aws_appautoscaling_target.ecs.service_namespace
+
+  target_tracking_scaling_policy_configuration {
+    predefined_metric_specification {
+      predefined_metric_type = "ECSServiceAverageMemoryUtilization"
+    }
+    target_value       = 75
     scale_in_cooldown  = 120
     scale_out_cooldown = 60
   }

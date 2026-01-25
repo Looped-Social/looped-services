@@ -77,7 +77,7 @@ Save as `deploy/ecs-taskdef.sample.json` and replace placeholders.
         }
       },
       "healthCheck": {
-        "command": ["CMD-SHELL","wget -qO- http://127.0.0.1:8080/health || exit 1"],
+        "command": ["CMD-SHELL","wget -qO- http://127.0.0.1:8080/actuator/health || exit 1"],
         "interval": 30,
         "timeout": 5,
         "retries": 3,
@@ -89,7 +89,7 @@ Save as `deploy/ecs-taskdef.sample.json` and replace placeholders.
 ```
 
 ## Service + ALB
-- Create target group (HTTP, port 8080), health check path `/health`, healthy threshold 2, interval 30s
+- Create target group (HTTP, port 8080), health check path `/actuator/health`, healthy threshold 2, interval 30s
 - Create ALB (HTTPS -> HTTP target group), attach ACM certificate
 - ECS service (Fargate):
   - Cluster: `looped`

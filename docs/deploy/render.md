@@ -19,7 +19,7 @@ Note: the preferred AWS path in this repo is OpenTofu-managed ECS/ALB (`infra/RE
 - Port binding + health checks
   - Web services must bind to `0.0.0.0`.
   - Default expected port is `10000`; you can set a custom port.
-  - Use `/health` as the health check path.
+  - Use `/health` as the health check path (or `/actuator/health` if you prefer Spring Actuator semantics).
 
 - Deploys
   - Auto-deploys on Git branch updates (unless you deploy a prebuilt image).
@@ -40,7 +40,7 @@ Note: the preferred AWS path in this repo is OpenTofu-managed ECS/ALB (`infra/RE
 
 | AWS/ECS component | Render equivalent | Notes |
 |---|---|---|
-| ECS Fargate service + ALB | Render Web Service | ALB replaced by Render edge. Use `/health` checks. |
+| ECS Fargate service + ALB | Render Web Service | ALB replaced by Render edge. Use `/health` checks (or `/actuator/health`). |
 | ECS task definition | Render Docker service config | Dockerfile + env vars + optional pre-deploy command. |
 | SQS workers | Render Background Worker | Poll SQS (or use Render Key Value + workers). |
 | Scheduled jobs (cron) | Render Cron Job | Runs per schedule, single-run guarantee. |
@@ -87,7 +87,7 @@ Note: the preferred AWS path in this repo is OpenTofu-managed ECS/ALB (`infra/RE
 4. Configure Docker settings
    - Dockerfile path: `apps/api/Dockerfile`.
    - Set `PORT=8080` and bind to `0.0.0.0`.
-   - Set health check path to `/health`.
+   - Set health check path to `/health` (or `/actuator/health`).
 
 5. Set env vars and secrets
    - `DB_URL`, `DB_USERNAME`, `DB_PASSWORD`, `AUTH_*`, `MEDIA_CALLBACK_SECRET`.

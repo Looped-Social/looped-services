@@ -21,6 +21,7 @@ env:
   ECR_REPO: ${{ vars.ECR_REPO }}
   ECS_CLUSTER: ${{ vars.ECS_CLUSTER_STAGING }}
   ECS_SERVICE: ${{ vars.ECS_SERVICE_STAGING }}
+  API_BASE_URL: ${{ vars.API_BASE_URL_STAGING }}
 
 jobs:
   test:
@@ -114,4 +115,26 @@ jobs:
 
           echo "ERROR: ECS service did not become stable within 30 minutes."
           echo "${status_json}" | jq .
+          exit 1
+
+      - name: Smoke check (staging)
+        if: env.API_BASE_URL != ''
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          url="${API_BASE_URL%/}/actuator/health"
+          echo "Smoke checking ${url} ..."
+
+          for i in {1..30}; do
+            body="$(curl -fsS --max-time 5 "${url}" || true)"
+            status="$(echo "${body}" | jq -r '.status // empty' 2>/dev/null || true)"
+            if [[ "${status}" == "UP" ]]; then
+              echo "OK"
+              exit 0
+            fi
+            sleep 5
+          done
+
+          echo "ERROR: health check did not return UP"
           exit 1

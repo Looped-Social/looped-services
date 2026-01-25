@@ -90,6 +90,9 @@ Optional (media vanity domain):
 Once DNS points at the new ALB:
 - `GET https://api.mylooped.app/actuator/health`
 
+## 8.1) Subscribe to alerts (recommended)
+After `tofu apply`, subscribe to the `alerts_topic_arn` output for email/Slack/PagerDuty.
+
 ## 9) Update deploy pipeline wiring
 Your deploy workflow should point at the new ECS cluster/service (see OpenTofu outputs):
 - `ecs_cluster_name`

@@ -17,3 +17,7 @@ output "ecs_cluster_name" {
 output "ecs_service_name" {
   value = aws_ecs_service.api.name
 }
+
+output "alerts_topic_arn" {
+  value = var.enable_alerts ? aws_sns_topic.alerts[0].arn : null
+}

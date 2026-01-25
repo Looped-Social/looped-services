@@ -8,7 +8,7 @@ How to run
 - Dev server (API): `./mvnw -q -pl apps/api -am spring-boot:run`
 - Tests (all): `./mvnw -q -T 1C test`
 - Build: `./mvnw -q -T 1C -DskipTests package`
-- Health check: `GET http://localhost:8080/health` -> `ok`
+- Health check: `GET http://localhost:8080/health` -> `ok` (ALB health check uses `GET /actuator/health`)
  
 Conventions
 - Package-by-feature in `apps/api/src/main/java/com/looped/{auth,users,verification,posts,feed,media,moderation,shared}`
@@ -32,7 +32,7 @@ Implement
  
 Verify
 - `./mvnw -q -pl apps/api -am test`
-- `./mvnw -q -pl apps/api -am spring-boot:run` and curl `/health`
+- `./mvnw -q -pl apps/api -am spring-boot:run` and curl `/health` (or `/actuator/health`)
  
 DoD
 - Green tests; baseline DB schema applied at startup
@@ -266,7 +266,7 @@ Scope
 - ECS Fargate packaging + secrets.
  
 Implement
-- Containerize API; ALB health `/health`
+- Containerize API; ALB health `/actuator/health`
 - Secrets via Secrets Manager/SSM; env-driven config
  
 DoD

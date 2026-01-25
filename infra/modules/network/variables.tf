@@ -15,3 +15,8 @@ variable "tags" {
   default = {}
 }
 
+variable "multi_az_nat" {
+  type        = bool
+  description = "Create one NAT Gateway per AZ (higher availability, higher cost)."
+  default     = true
+}

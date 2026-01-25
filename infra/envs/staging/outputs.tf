@@ -22,3 +22,6 @@ output "s3_verification_bucket" {
   value = module.storage.verification_bucket_name
 }
 
+output "alerts_topic_arn" {
+  value = module.api.alerts_topic_arn
+}

@@ -19,11 +19,12 @@ locals {
 }
 
 module "network" {
-  source      = "../../modules/network"
-  name_prefix = var.name_prefix
-  environment = local.env
-  vpc_cidr    = var.vpc_cidr
-  tags        = local.tags
+  source       = "../../modules/network"
+  name_prefix  = var.name_prefix
+  environment  = local.env
+  vpc_cidr     = var.vpc_cidr
+  multi_az_nat = var.multi_az_nat
+  tags         = local.tags
 }
 
 module "storage" {

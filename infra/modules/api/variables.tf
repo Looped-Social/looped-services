@@ -41,6 +41,12 @@ variable "desired_count" {
   type = number
 }
 
+variable "enable_container_insights" {
+  type        = bool
+  description = "Enable ECS Container Insights for the cluster."
+  default     = true
+}
+
 variable "health_check_grace_period_seconds" {
   type        = number
   description = "Time in seconds to ignore failing ELB health checks on newly launched tasks (gives the JVM time to warm up)."
@@ -53,6 +59,24 @@ variable "min_capacity" {
 
 variable "max_capacity" {
   type = number
+}
+
+variable "enable_alerts" {
+  type        = bool
+  description = "Create an SNS topic and wire basic CloudWatch alarms to it."
+  default     = true
+}
+
+variable "extra_alarm_actions" {
+  type        = list(string)
+  description = "Additional CloudWatch alarm action ARNs (e.g., SNS topics, OpsGenie)."
+  default     = []
+}
+
+variable "extra_ok_actions" {
+  type        = list(string)
+  description = "Additional CloudWatch OK action ARNs."
+  default     = []
 }
 
 variable "cors_allowed_origins" {

@@ -211,7 +211,7 @@ Notes
   - Prod: task IAM role signs S3 requests; CloudFront domain configured
 - Networking
   - Local: direct HTTP on `localhost:8080`
-  - Prod: ALB (HTTPS) → ECS task (HTTP 8080); health checks on `/health`
+  - Prod: ALB (HTTPS) → ECS task (HTTP 8080); ALB health checks on `/actuator/health` (app also exposes `/health`)
 - Observability
   - Local: JSON logs to console; X-Request-Id header echoed per request
   - Prod: logs to CloudWatch; set alarms on 5xx/latency; rate limits enforced via Redis
@@ -220,7 +220,7 @@ Notes
 - Preferred: use OpenTofu in `infra/` to provision AWS resources (VPC, ALB, ECS service, Redis, S3+CloudFront, SSM params). Start with `infra/README.md` and `infra/RUNBOOK.md`.
 - Build and push to ECR: tag `looped-api:<sha>`; set repository in ECR.
 - Task definition env vars: `DB_URL`, `DB_USERNAME`, `DB_PASSWORD` (or use Secrets Manager), `AUTH_*`, `REDIS_URL`, `S3_BUCKET`, `AWS_REGION`, `CLOUDFRONT_DOMAIN`, `MEDIA_*`, `S3_MESSAGING_BUCKET` (private DM/channel attachments).
-- ALB target group health check: path `/health`, interval 30s.
+- ALB target group health check: path `/actuator/health`, interval 30s.
 - IAM task role: allow S3 PutObject for the media bucket (prefix `media/original/*`).
 - Secrets: prefer SSM/Secrets Manager and reference via task definition; app reads from env.
 

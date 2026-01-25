@@ -14,6 +14,9 @@ desired_count = 2
 min_capacity  = 2
 max_capacity  = 6
 
+# Prod default is multi-AZ NAT (higher availability, higher cost).
+multi_az_nat = true
+
 cors_allowed_origins = "https://admin.mylooped.app"
 
 email_from              = "verify@mylooped.app"

@@ -115,6 +115,9 @@ After switching to the new infra, update GitHub repo variables:
 - `ECR_REPO`
 - `AWS_REGION`
 - `AWS_ROLE_ARN` (OIDC assume-role to deploy)
+- Optional (enables post-deploy smoke checks in workflows):
+  - `API_BASE_URL_STAGING` (e.g. `https://api-staging.mylooped.app`)
+  - `API_BASE_URL_PROD` (e.g. `https://api.mylooped.app`)
 
 This repo now uses two deploy targets:
 - Staging: `ECS_CLUSTER_STAGING`, `ECS_SERVICE_STAGING` (auto-deploy on push to `main`)

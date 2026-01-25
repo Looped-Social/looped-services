@@ -126,7 +126,7 @@ Set:
 - Create task execution role (pull from ECR, write logs) and task role (runtime permissions):
   - `s3:PutObject` on `arn:aws:s3:::<bucket>/media/original/*`
   - `ssm:GetParameter` and `secretsmanager:GetSecretValue` for parameters/secrets below
-- Create ALB + target group (HTTP 8080), health check path `/health`.
+- Create ALB + target group (HTTP 8080), health check path `/actuator/health` (app also exposes `/health`).
 - CloudWatch Logs: ensure log group `/ecs/looped-api` exists.
 
 #### 5) SSM Parameters and Secrets Manager

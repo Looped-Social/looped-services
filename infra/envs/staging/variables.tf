@@ -19,6 +19,12 @@ variable "vpc_cidr" {
   default = "10.20.0.0/16"
 }
 
+variable "multi_az_nat" {
+  type        = bool
+  description = "Create one NAT Gateway per AZ (higher availability, higher cost)."
+  default     = false
+}
+
 variable "domain_name" {
   type        = string
   description = "Public API domain for this environment (used for outputs and cert selection)."

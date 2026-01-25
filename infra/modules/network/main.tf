@@ -75,12 +75,34 @@ resource "aws_route_table_association" "public" {
 }
 
 resource "aws_eip" "nat" {
+  for_each = var.multi_az_nat ? aws_subnet.public : {}
+
+  domain = "vpc"
+  tags   = merge(var.tags, { Name = "${local.name}-nat-eip-${each.key}" })
+}
+
+resource "aws_eip" "nat_single" {
+  count = var.multi_az_nat ? 0 : 1
+
   domain = "vpc"
   tags   = merge(var.tags, { Name = "${local.name}-nat-eip" })
 }
 
 resource "aws_nat_gateway" "this" {
-  allocation_id = aws_eip.nat.id
+  for_each = var.multi_az_nat ? aws_subnet.public : {}
+
+  allocation_id = aws_eip.nat[each.key].id
+  subnet_id     = each.value.id
+
+  tags = merge(var.tags, { Name = "${local.name}-nat-${each.key}" })
+
+  depends_on = [aws_internet_gateway.this]
+}
+
+resource "aws_nat_gateway" "single" {
+  count = var.multi_az_nat ? 0 : 1
+
+  allocation_id = aws_eip.nat_single[0].id
   subnet_id     = aws_subnet.public[local.azs[0]].id
 
   tags = merge(var.tags, { Name = "${local.name}-nat" })
@@ -98,7 +120,7 @@ resource "aws_route" "private_nat" {
   for_each               = aws_route_table.private
   route_table_id         = each.value.id
   destination_cidr_block = "0.0.0.0/0"
-  nat_gateway_id         = aws_nat_gateway.this.id
+  nat_gateway_id         = var.multi_az_nat ? aws_nat_gateway.this[each.key].id : aws_nat_gateway.single[0].id
 }
 
 resource "aws_route_table_association" "private" {

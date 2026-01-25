@@ -13,6 +13,7 @@ env:
   ECR_REPO: ${{ vars.ECR_REPO }}
   ECS_CLUSTER: ${{ vars.ECS_CLUSTER_PROD }}
   ECS_SERVICE: ${{ vars.ECS_SERVICE_PROD }}
+  API_BASE_URL: ${{ vars.API_BASE_URL_PROD }}
 
 jobs:
   promote_and_deploy:
@@ -31,6 +32,28 @@ jobs:
 
       - name: Login to Amazon ECR
         uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Capture current prod image manifest (for rollback)
+        id: prev
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          MANIFEST="$(aws ecr batch-get-image \
+            --region "${AWS_REGION}" \
+            --repository-name "${ECR_REPO}" \
+            --image-ids "imageTag=prod" \
+            --query 'images[0].imageManifest' \
+            --output text)"
+
+          if [[ -z "${MANIFEST}" || "${MANIFEST}" == "None" ]]; then
+            echo "No existing :prod tag found; rollback will be skipped if deploy fails."
+            echo "prev_manifest_b64=" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+
+          prev_manifest_b64="$(printf '%s' "${MANIFEST}" | base64 -w0 2>/dev/null || printf '%s' "${MANIFEST}" | base64 | tr -d '\n')"
+          echo "prev_manifest_b64=${prev_manifest_b64}" >> "${GITHUB_OUTPUT}"
 
       - name: Promote ECR image tag (SHA -> prod)
         shell: bash
@@ -100,5 +123,78 @@ jobs:
           done
 
           echo "ERROR: ECS service did not become stable within 30 minutes."
+          echo "${status_json}" | jq .
+          exit 1
+
+      - name: Smoke check (prod)
+        if: env.API_BASE_URL != ''
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          url="${API_BASE_URL%/}/actuator/health"
+          echo "Smoke checking ${url} ..."
+
+          for i in {1..30}; do
+            body="$(curl -fsS --max-time 5 "${url}" || true)"
+            status="$(echo "${body}" | jq -r '.status // empty' 2>/dev/null || true)"
+            if [[ "${status}" == "UP" ]]; then
+              echo "OK"
+              exit 0
+            fi
+            sleep 5
+          done
+
+          echo "ERROR: health check did not return UP"
+          exit 1
+
+      - name: Roll back prod tag + redeploy (on failure)
+        if: failure() && steps.prev.outputs.prev_manifest_b64 != ''
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "Rolling back :prod to previous image digest..."
+          prev_manifest="$(printf '%s' "${{ steps.prev.outputs.prev_manifest_b64 }}" | base64 -d)"
+
+          aws ecr put-image \
+            --region "${AWS_REGION}" \
+            --repository-name "${ECR_REPO}" \
+            --image-tag prod \
+            --image-manifest "${prev_manifest}" >/dev/null
+
+          aws ecs update-service \
+            --cluster "${ECS_CLUSTER}" \
+            --service "${ECS_SERVICE}" \
+            --force-new-deployment \
+            --region "${AWS_REGION}"
+
+          deadline=$((SECONDS + 1800)) # 30 minutes
+          echo "Waiting for rollback stability (timeout: 30m)..."
+
+          while (( SECONDS < deadline )); do
+            status_json="$(aws ecs describe-services \
+              --cluster "${ECS_CLUSTER}" \
+              --services "${ECS_SERVICE}" \
+              --region "${AWS_REGION}" \
+              --query 'services[0].{desired:desiredCount,running:runningCount,pending:pendingCount,primary:deployments[?status==`PRIMARY`]|[0],events:events[0:5]}' \
+              --output json)"
+
+            desired="$(echo "${status_json}" | jq -r '.desired')"
+            running="$(echo "${status_json}" | jq -r '.running')"
+            pending="$(echo "${status_json}" | jq -r '.pending')"
+            rollout_state="$(echo "${status_json}" | jq -r '.primary.rolloutState // \"\"')"
+
+            echo "desired=${desired} running=${running} pending=${pending} rollout=${rollout_state}"
+
+            if [[ "${desired}" == "${running}" && "${pending}" == "0" && "${rollout_state}" == "COMPLETED" ]]; then
+              echo "Rollback stable."
+              exit 0
+            fi
+
+            sleep 15
+          done
+
+          echo "ERROR: rollback did not become stable within 30 minutes."
           echo "${status_json}" | jq .
           exit 1
