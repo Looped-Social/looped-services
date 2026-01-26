@@ -80,6 +80,14 @@ public class NotificationPublisher {
         publishToUser(post.authorId, NotificationType.REPOST, payload);
     }
 
+    public void notifyMessageRequest(long recipientUserId, long actorPrincipalId, long conversationId, long messageId) {
+        if (recipientUserId <= 0 || actorPrincipalId <= 0 || conversationId <= 0 || messageId <= 0) return;
+        Map<String, Object> payload = new HashMap<>(actorPayload(actorPrincipalId));
+        payload.put("conversation_id", conversationId);
+        payload.put("message_id", messageId);
+        publishToUser(recipientUserId, NotificationType.MESSAGE_REQUEST, payload);
+    }
+
     public void notifyMentions(long actorPrincipalId, List<Long> mentionedUserIds, Long postId, Long commentId) {
         if (mentionedUserIds == null || mentionedUserIds.isEmpty()) return;
         Map<String, Object> payload = new HashMap<>(actorPayload(actorPrincipalId));
@@ -272,6 +280,13 @@ public class NotificationPublisher {
             case ANNOUNCEMENT, SYSTEM -> {
                 return notificationId == null ? null : "looped://announcement/" + notificationId;
             }
+            case MESSAGE_REQUEST -> {
+                Long conversationId = asLong(payload.get("conversation_id"));
+                if (conversationId != null) {
+                    return "looped://conversations/" + conversationId;
+                }
+                return "looped://message-requests";
+            }
             default -> {
                 return null;
             }
@@ -317,6 +332,7 @@ public class NotificationPublisher {
             }
             case POST_FROM_FOLLOWED -> new PushContent("New post", actor + " posted");
             case REPOST -> new PushContent("Repost", actor + " reposted your post");
+            case MESSAGE_REQUEST -> new PushContent("Message request", actor + " wants to message you");
             default -> null;
         };
     }

@@ -1,6 +1,7 @@
 package com.looped.messaging;
 
 import com.looped.shared.Pagination;
+import com.looped.notifications.NotificationPublisher;
 import com.looped.principals.PrincipalRepository;
 import com.looped.settings.AppConfigService;
 import com.looped.users.FollowsRepository;
@@ -31,6 +32,7 @@ public class ConversationService {
     private final PrincipalRepository principals;
     private final MessageRequestRepository messageRequests;
     private final MessagingPushService push;
+    private final NotificationPublisher notifications;
     private final AppConfigService appConfig;
 
     public ConversationService(ConversationRepository conversations,
@@ -39,6 +41,7 @@ public class ConversationService {
                                PrincipalRepository principals,
                                MessageRequestRepository messageRequests,
                                MessagingPushService push,
+                               NotificationPublisher notifications,
                                AppConfigService appConfig) {
         this.conversations = conversations;
         this.users = users;
@@ -46,6 +49,7 @@ public class ConversationService {
         this.principals = principals;
         this.messageRequests = messageRequests;
         this.push = push;
+        this.notifications = notifications;
         this.appConfig = appConfig;
     }
 
@@ -250,7 +254,12 @@ public class ConversationService {
 
         var existing = messageRequests.findByConversationRecipient(conversationId, recipientId);
         if (existing.isEmpty()) {
-            messageRequests.insertPending(conversationId, senderId, recipientId, messageId);
+            boolean created = messageRequests.insertPending(conversationId, senderId, recipientId, messageId);
+            if (created) {
+                try {
+                    notifications.notifyMessageRequest(recipientId, senderPrincipal.id, conversationId, messageId);
+                } catch (RuntimeException ignored) {}
+            }
             return;
         }
         if (REQUEST_STATUS_PENDING.equals(existing.get().status)) {

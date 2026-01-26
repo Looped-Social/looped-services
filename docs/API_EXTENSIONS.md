@@ -109,14 +109,15 @@
 - **Notifications**
   - `GET /v1/notifications?cursor=&limit=` → `{ items: [{ id, type, created_at, unread, payload }], next_cursor }`
   - `POST /v1/notifications/{id}/read` → `{ "read": true }`
-  - `GET /v1/notifications/preferences` → `{ notifications: { channels: { in_app|push|email: { enabled, types: { follow, like, comment, reply, mention, post_from_followed, repost, announcement, system } } } } }`
+  - `GET /v1/notifications/preferences` → `{ notifications: { channels: { in_app|push|email: { enabled, types: { follow, like, comment, reply, mention, post_from_followed, repost, message_request, dm_message, channel_message, announcement, system } } } } }`
   - `PUT /v1/notifications/preferences` → same response; body updates any `enabled` or per-type flags.
-  - Payload fields (by type): `actor_principal_id`, `actor_user_id`, `actor_anon_profile_id`, `actor_is_anonymous`, `actor_display_name`, `actor_profile_image_url`, `post_id`, `comment_id`, `context`, `deeplink`, `action_deeplink`.
+  - Payload fields (by type): `actor_principal_id`, `actor_user_id`, `actor_anon_profile_id`, `actor_is_anonymous`, `actor_display_name`, `actor_profile_image_url`, `post_id`, `comment_id`, `context`, `conversation_id`, `message_id`, `deeplink`, `action_deeplink`.
   - `action_deeplink` is always present when a `deeplink` can be derived (or if the notification already includes one).
   - Deeplinks (preferred):
     - `looped://post/{post_id}` (like/mention/post_from_followed/repost)
     - `looped://comment/{comment_id}?post_id={post_id}` (comment/reply/mention-in-comment; `post_id` optional)
     - `looped://user/{user_id}?anon=true|false` (follow)
+    - `looped://conversations/{conversation_id}` (message_request)
     - `looped://announcement/{notification_id}` (announcement/system)
   - Invite notification conventions (payload is passed through):
     - `type: "loopInvite"`: include `community_id` (or `loop_id`) and `action_deeplink`

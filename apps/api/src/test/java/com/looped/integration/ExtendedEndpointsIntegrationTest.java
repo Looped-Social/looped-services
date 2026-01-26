@@ -218,6 +218,26 @@ class ExtendedEndpointsIntegrationTest extends PostgresTestBase {
                         .content("{\"content\":\"request hello\",\"attachments\":[]}"))
                 .andExpect(status().isCreated());
 
+        mockMvc.perform(get("/v1/notifications")
+                        .header("Authorization", recipientAuth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items", hasSize(1)))
+                .andExpect(jsonPath("$.items[0].type", equalTo("message_request")))
+                .andExpect(jsonPath("$.items[0].payload.conversation_id", equalTo(Integer.parseInt(conversationId))))
+                .andExpect(jsonPath("$.items[0].payload.deeplink", equalTo("looped://conversations/" + conversationId)))
+                .andExpect(jsonPath("$.items[0].payload.action_deeplink", equalTo("looped://conversations/" + conversationId)));
+
+        mockMvc.perform(post("/v1/conversations/" + conversationId + "/messages")
+                        .header("Authorization", senderAuth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"content\":\"request hello 2\",\"attachments\":[]}"))
+                .andExpect(status().isCreated());
+
+        mockMvc.perform(get("/v1/notifications")
+                        .header("Authorization", recipientAuth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items", hasSize(1)));
+
         mockMvc.perform(get("/v1/conversations")
                         .header("Authorization", recipientAuth))
                 .andExpect(status().isOk())
@@ -228,7 +248,7 @@ class ExtendedEndpointsIntegrationTest extends PostgresTestBase {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items", hasSize(1)))
                 .andExpect(jsonPath("$.items[0].requester_id", equalTo((int) senderId)))
-                .andExpect(jsonPath("$.items[0].message.content", equalTo("request hello")))
+                .andExpect(jsonPath("$.items[0].message.content", equalTo("request hello 2")))
                 .andReturn();
 
         String requestId = new com.fasterxml.jackson.databind.ObjectMapper()
@@ -248,12 +268,13 @@ class ExtendedEndpointsIntegrationTest extends PostgresTestBase {
         mockMvc.perform(get("/v1/conversations")
                         .header("Authorization", recipientAuth))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.items[0].last_message", equalTo("request hello")));
+                .andExpect(jsonPath("$.items[0].last_message", equalTo("request hello 2")));
 
         mockMvc.perform(get("/v1/conversations/" + conversationId + "/messages")
                         .header("Authorization", recipientAuth))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.items[0].content", equalTo("request hello")));
+                .andExpect(jsonPath("$.items", hasSize(2)))
+                .andExpect(jsonPath("$.items[*].content", containsInAnyOrder("request hello", "request hello 2")));
     }
 
     @Test
