@@ -424,6 +424,155 @@ Errors:
 - `404 { "error": "community_not_found" }`
 - `404 { "error": "community_verification_not_found" }`
 
+## Verification review queue
+
+All verification review endpoints require permission `verify_users`.
+
+### GET /v1/admin/verifications
+List verification requests awaiting review (and historical items).
+
+Auth
+- Header: `Authorization: Bearer <ID_TOKEN>`
+- Permission: `verify_users`
+
+Query params:
+- `status` (optional): `pending`, `approved`, `rejected`
+- `method` (optional): `email`, `video`, `thirdparty`, `photo_id`, ...
+- `cursor` (optional): pagination cursor from `next_cursor`
+- `limit` (default 50)
+
+Response (200)
+```json
+{
+  "items": [
+    {
+      "id": 123,
+      "user_id": 456,
+      "user_handle": "alice",
+      "user_display_name": "Alice",
+      "email": "alice@company.com",
+      "method": "photo_id",
+      "status": "pending",
+      "submitted_at": "2026-01-26T12:00:00Z",
+      "company_domain": "acme.com",
+      "community_id": 42,
+      "community_name": "UNC",
+      "community_kind": "school",
+      "media_key": null,
+      "selfie_key": "verification/photo-id/456/<session>/selfie.jpg",
+      "id_front_key": "verification/photo-id/456/<session>/id_front.jpg",
+      "id_back_key": "verification/photo-id/456/<session>/id_back.jpg",
+      "metadata": "{\"nonce\":\"ABCD1234\"}"
+    }
+  ],
+  "next_cursor": "eyJ0Ijo..."
+}
+```
+
+Notes
+- `metadata` is a string. For Photo ID submissions it may contain JSON like `{ "nonce": "..." }` (parse client-side).
+
+Errors
+- `403 { "error": "forbidden" }`
+
+### GET /v1/admin/verifications/{id}
+Fetch full details for a verification request.
+
+Auth
+- Header: `Authorization: Bearer <ID_TOKEN>`
+- Permission: `verify_users`
+
+Response (200)
+```json
+{
+  "id": 123,
+  "user_id": 456,
+  "user_handle": "alice",
+  "user_display_name": "Alice",
+  "email": "alice@company.com",
+  "method": "photo_id",
+  "status": "pending",
+  "submitted_at": "2026-01-26T12:00:00Z",
+  "community_id": 42,
+  "community_name": "UNC",
+  "community_kind": "school",
+  "metadata": "{\"nonce\":\"ABCD1234\"}",
+  "documents": [
+    {
+      "kind": "selfie",
+      "key": "verification/photo-id/456/<session>/selfie.jpg",
+      "download_url": "<presigned-url>",
+      "expires_in_seconds": 300
+    }
+  ]
+}
+```
+
+Errors
+- `403 { "error": "forbidden" }`
+- `404 { "error": "not_found" }`
+
+### POST /v1/admin/verifications/{id}/approve
+Approve a verification request (marks the user verified).
+
+Auth
+- Header: `Authorization: Bearer <ID_TOKEN>`
+- Permission: `verify_users`
+
+Response (200)
+```json
+{ "status": "approved", "media_deleted": true }
+```
+
+Errors
+- `403 { "error": "forbidden" }`
+- `404 { "error": "not_found" }`
+- `404 { "error": "community_not_found" }` (if request is community-scoped but community was deleted)
+- `409 { "error": "email_in_use" }` (community-scoped email verification only)
+
+### POST /v1/admin/verifications/{id}/reject
+Reject a verification request (keeps user unverified).
+
+Auth
+- Header: `Authorization: Bearer <ID_TOKEN>`
+- Permission: `verify_users`
+
+Request (optional)
+```json
+{ "reason": "blurry_or_incomplete" }
+```
+
+Response (200)
+```json
+{ "status": "rejected", "delete_after_at": "2026-02-02T12:00:00Z" }
+```
+
+Notes
+- `delete_after_at` is included for `photo_id` to support scheduled media cleanup.
+
+Errors
+- `403 { "error": "forbidden" }`
+- `404 { "error": "not_found" }`
+
+### POST /v1/admin/verifications/{id}/delete-media
+Delete stored media for a Photo ID verification request (used for privacy cleanup).
+
+Auth
+- Header: `Authorization: Bearer <ID_TOKEN>`
+- Permission: `verify_users`
+
+Response (200)
+```json
+{ "media_deleted": true, "media_deleted_at": "2026-01-26T12:00:00Z" }
+```
+
+Errors
+- `403 { "error": "forbidden" }`
+- `404 { "error": "not_found" }`
+- `400 { "error": "unsupported_method" }` (non-`photo_id`)
+- `409 { "error": "verification_bucket_not_configured" }`
+- `500 { "error": "delete_failed" }`
+
 ### POST /v1/admin/users/{id}/specializations/join-limits/reset
 Clear a user's specialization join cooldown (and optionally remove their joined majors/departments). Requires `verify_users`.
 

@@ -157,6 +157,12 @@ variable "db_credentials_secret_arn" {
   type = string
 }
 
+variable "admin_edge_secret_arn" {
+  type        = string
+  description = "Optional Secrets Manager ARN containing the ADMIN_EDGE_SECRET value. When set, API requires X-Admin-Edge-Secret for /v1/admin/*."
+  default     = ""
+}
+
 variable "moderation_enabled" {
   type = bool
 }

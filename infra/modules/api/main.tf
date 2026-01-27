@@ -168,11 +168,12 @@ resource "aws_iam_role_policy" "execution_secrets" {
       {
         Effect = "Allow"
         Action = ["secretsmanager:GetSecretValue"]
-        Resource = [
+        Resource = compact([
           var.firebase_admin_secret_arn,
           var.openai_moderation_secret_arn,
-          var.db_credentials_secret_arn
-        ]
+          var.db_credentials_secret_arn,
+          var.admin_edge_secret_arn != "" ? var.admin_edge_secret_arn : null
+        ])
       },
       {
         Effect = "Allow"
@@ -432,16 +433,19 @@ resource "aws_ecs_task_definition" "api" {
         { name = "MODERATION_REPORT_QUARANTINE_THRESHOLD", value = tostring(var.moderation_report_quarantine_threshold) },
         { name = "REDIS_URL", value = local.redis_url }
       ]
-      secrets = [
-        { name = "AUTH_AUDIENCE", valueFrom = var.ssm_auth_audience_arn },
-        { name = "AUTH_ISSUER", valueFrom = var.ssm_auth_issuer_arn },
-        { name = "AUTH_JWKS_URI", valueFrom = var.ssm_auth_jwks_uri_arn },
-        { name = "DB_URL", valueFrom = var.ssm_db_url_arn },
-        { name = "DB_USERNAME", valueFrom = "${var.db_credentials_secret_arn}:username::" },
-        { name = "DB_PASSWORD", valueFrom = "${var.db_credentials_secret_arn}:password::" },
-        { name = "FIREBASE_ADMIN_CREDENTIALS_JSON", valueFrom = var.firebase_admin_secret_arn },
-        { name = "MODERATION_OPENAI_API_KEY", valueFrom = local.openai_secret_value_from }
-      ]
+      secrets = concat(
+        [
+          { name = "AUTH_AUDIENCE", valueFrom = var.ssm_auth_audience_arn },
+          { name = "AUTH_ISSUER", valueFrom = var.ssm_auth_issuer_arn },
+          { name = "AUTH_JWKS_URI", valueFrom = var.ssm_auth_jwks_uri_arn },
+          { name = "DB_URL", valueFrom = var.ssm_db_url_arn },
+          { name = "DB_USERNAME", valueFrom = "${var.db_credentials_secret_arn}:username::" },
+          { name = "DB_PASSWORD", valueFrom = "${var.db_credentials_secret_arn}:password::" },
+          { name = "FIREBASE_ADMIN_CREDENTIALS_JSON", valueFrom = var.firebase_admin_secret_arn },
+          { name = "MODERATION_OPENAI_API_KEY", valueFrom = local.openai_secret_value_from }
+        ],
+        var.admin_edge_secret_arn != "" ? [{ name = "ADMIN_EDGE_SECRET", valueFrom = var.admin_edge_secret_arn }] : []
+      )
     }
   ])
 }

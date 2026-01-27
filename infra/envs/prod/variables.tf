@@ -104,6 +104,12 @@ variable "db_credentials_secret_arn" {
   description = "Secrets Manager ARN with JSON keys 'username' and 'password' for DB creds."
 }
 
+variable "admin_edge_secret_arn" {
+  type        = string
+  description = "Optional Secrets Manager ARN containing ADMIN_EDGE_SECRET (string). When set, /v1/admin/* requires X-Admin-Edge-Secret."
+  default     = ""
+}
+
 variable "db_url" {
   type        = string
   description = "JDBC URL without embedded credentials."

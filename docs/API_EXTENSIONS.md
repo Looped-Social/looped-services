@@ -190,12 +190,35 @@
   - `GET /v1/users/{id}/comments?cursor=&limit=` → `{ items: [{ id, post_id, content, created_at, parent_id? }], next_cursor }`
 - **Community permissions**
   - `GET /v1/communities/{id}/permissions` → `{ can_post: true|false, requires_verification: true|false }`
+- **Photo ID verification (global)**
+  - Use when the app requires manual Photo ID review for the user's primary account verification (not scoped to a specific community).
+  - `POST /v1/verification/photo-id/start`
+    - Auth: Firebase JWT required
+    - Response: `{ "status": "pending_upload", "method": "photo_id", "upload_session_id": "<uuid>", "nonce": "<string>", "required": ["selfie","id_front"], "optional": ["id_back"], "constraints": { "allowed_content_types": ["image/jpeg","image/png"], "max_bytes": <int> } }`
+    - `nonce` is a short server-generated challenge (single session) intended to be shown in the photos (e.g., written on paper) for manual reviewer verification.
+  - `POST /v1/verification/photo-id/presign`
+    - Auth: Firebase JWT required
+    - Request: `{ "uploadSessionId": "<uuid>", "kind": "selfie|id_front|id_back", "contentType": "image/jpeg|image/png", "sizeBytes": <int> }`
+    - Response: `{ "kind": "selfie|id_front|id_back", "key": "verification/photo-id/{userId}/{uploadSessionId}/{kind}.jpg|.png", "uploadUrl": "<presigned-url>", "headers": { "Content-Type": "image/jpeg|image/png" } }`
+  - `POST /v1/verification/photo-id/submit`
+    - Auth: Firebase JWT required
+    - Request: `{ "uploadSessionId": "<uuid>", "documents": { "selfieKey": "<s3Key>", "idFrontKey": "<s3Key>", "idBackKey?": "<s3Key>" } }`
+    - Response: `{ "verification_request_id": <int>, "status": "pending_review" }`
+  - `GET /v1/verification/photo-id/status`
+    - Auth: Firebase JWT required
+    - Response: `{ "method": "photo_id|email|video|thirdparty", "status": "none|pending_review|rejected|approved", "verified_at?": "<ISO-8601>" }`
+  - Errors:
+    - `409 { "error": "user_not_provisioned" }`
+    - `409 { "error": "already_pending" }`
+    - `409 { "error": "already_verified", "current_method": "email|video|thirdparty|photo_id" }`
+    - `403 { "error": "invalid_session" }`
 - **Community Photo ID verification (per-community)**
   - Use when a community requires manual Photo ID review; pending/approved is tracked **per community**.
   - `GET /v1/communities/{communityId}/verification/photo-id/status`
     - Response: `{ "method": "photo_id|email|video|thirdparty", "status": "none|pending_review|rejected|approved", "verified_at?": "<ISO-8601>", "expires_at?": "<ISO-8601>" }`
   - `POST /v1/communities/{communityId}/verification/photo-id/start`
-    - Response: `{ "status": "pending_upload", "method": "photo_id", "upload_session_id": "<uuid>", "required": ["selfie","id_front"], "optional": ["id_back"], "constraints": { "allowed_content_types": ["image/jpeg","image/png"], "max_bytes": <int> } }`
+    - Response: `{ "status": "pending_upload", "method": "photo_id", "upload_session_id": "<uuid>", "nonce": "<string>", "required": ["selfie","id_front"], "optional": ["id_back"], "constraints": { "allowed_content_types": ["image/jpeg","image/png"], "max_bytes": <int> } }`
+    - `nonce` is a short server-generated challenge (single session) intended to be shown in the photos (e.g., written on paper) for manual reviewer verification.
   - `POST /v1/communities/{communityId}/verification/photo-id/presign`
     - Request: `{ "uploadSessionId": "<uuid>", "kind": "selfie|id_front|id_back", "contentType": "image/jpeg|image/png", "sizeBytes": <int> }`
     - Response: `{ "kind": "selfie|id_front|id_back", "key": "verification/photo-id/{userId}/{uploadSessionId}/{kind}.jpg|.png", "uploadUrl": "<presigned-url>", "headers": { "Content-Type": "image/jpeg|image/png" } }`

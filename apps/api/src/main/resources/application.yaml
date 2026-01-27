@@ -70,6 +70,9 @@ cors:
   allowed-headers: ${CORS_ALLOWED_HEADERS:Authorization,Content-Type,Idempotency-Key,X-Actor,X-Media-Signature}
   allow-credentials: ${CORS_ALLOW_CREDENTIALS:false}
 
+admin:
+  edge-secret: ${ADMIN_EDGE_SECRET:}
+
 redis:
   url: ${REDIS_URL:redis://localhost:6379}
 

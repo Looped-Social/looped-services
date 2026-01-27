@@ -3,9 +3,11 @@ package com.looped.verification;
 import com.looped.communities.CommunitiesRepository;
 import com.looped.communities.CommunityVerificationsRepository;
 import com.looped.users.UserRepository;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
+import java.security.SecureRandom;
 import java.time.Duration;
 import java.util.Locale;
 import java.util.Optional;
@@ -17,6 +19,10 @@ public class PhotoIdVerificationService {
 
     public enum Kind { selfie, id_front, id_back }
 
+    private static final ObjectMapper JSON = new ObjectMapper();
+    private static final char[] NONCE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789".toCharArray();
+    private static final int NONCE_LEN = 8;
+
     private final UserRepository users;
     private final VerificationRepository verifications;
     private final CommunitiesRepository communities;
@@ -25,6 +31,7 @@ public class PhotoIdVerificationService {
     private final StringRedisTemplate redis;
     private final PhotoIdVerificationProperties props;
     private final VerificationPrivateMediaService media;
+    private final SecureRandom random = new SecureRandom();
 
     public PhotoIdVerificationService(
             UserRepository users,
@@ -77,8 +84,10 @@ public class PhotoIdVerificationService {
         }
 
         String sessionId = UUID.randomUUID().toString();
+        String nonce = generateNonce();
         redis.opsForValue().set(keyActiveSession(userId, communityId), sessionId, props.getSessionTtl());
-        return StartResult.ok(sessionId, props.getMaxImageBytes());
+        redis.opsForValue().set(keyNonce(userId, communityId), sessionId + ":" + nonce, props.getSessionTtl());
+        return StartResult.ok(sessionId, nonce, props.getMaxImageBytes());
     }
 
     public PresignResult presign(String firebaseUid, String sessionId, String kindRaw, String contentType, long sizeBytes) {
@@ -144,9 +153,14 @@ public class PhotoIdVerificationService {
             return SubmitResult.badRequest("id_back_key_invalid");
         }
 
-        redis.delete(keyActiveSession(userId, communityId));
+        String nonce = getNonceForSession(userId, communityId, sessionId);
+        if (nonce == null) return SubmitResult.forbidden("invalid_session");
 
-        long requestId = requests.insertPhotoId(userId, communityId, email, "pending", selfieKey, idFrontKey, emptyToNull(idBackKey));
+        redis.delete(keyActiveSession(userId, communityId));
+        redis.delete(keyNonce(userId, communityId));
+
+        String metadata = toJsonQuietly(java.util.Map.of("nonce", nonce));
+        long requestId = requests.insertPhotoId(userId, communityId, email, "pending", selfieKey, idFrontKey, emptyToNull(idBackKey), metadata);
         return SubmitResult.ok(requestId);
     }
 
@@ -202,6 +216,39 @@ public class PhotoIdVerificationService {
         return "verify:photo_id:session:" + userId + ":" + communityId;
     }
 
+    private String keyNonce(long userId, Long communityId) {
+        if (communityId == null) {
+            return "verify:photo_id:nonce:" + userId;
+        }
+        return "verify:photo_id:nonce:" + userId + ":" + communityId;
+    }
+
+    private String getNonceForSession(long userId, Long communityId, String sessionId) {
+        String raw = redis.opsForValue().get(keyNonce(userId, communityId));
+        if (raw == null || raw.isBlank()) return null;
+        int idx = raw.indexOf(':');
+        if (idx <= 0 || idx >= raw.length() - 1) return null;
+        String storedSession = raw.substring(0, idx);
+        if (!storedSession.equals(sessionId)) return null;
+        return raw.substring(idx + 1);
+    }
+
+    private String generateNonce() {
+        char[] out = new char[NONCE_LEN];
+        for (int i = 0; i < NONCE_LEN; i++) {
+            out[i] = NONCE_CHARS[random.nextInt(NONCE_CHARS.length)];
+        }
+        return new String(out);
+    }
+
+    private String toJsonQuietly(Object value) {
+        try {
+            return JSON.writeValueAsString(value);
+        } catch (Exception ex) {
+            return null;
+        }
+    }
+
     private Kind parseKind(String raw) {
         if (raw == null) return null;
         try {
@@ -241,13 +288,13 @@ public class PhotoIdVerificationService {
         return t.isBlank() ? null : t;
     }
 
-    public record StartResult(Status status, String uploadSessionId, Long maxBytes, String error, String currentMethod) {
-        static StartResult ok(String sessionId, long maxBytes) { return new StartResult(Status.OK, sessionId, maxBytes, null, null); }
-        static StartResult userNotProvisioned() { return new StartResult(Status.USER_NOT_PROVISIONED, null, null, null, null); }
-        static StartResult communityNotFound() { return new StartResult(Status.COMMUNITY_NOT_FOUND, null, null, "community_not_found", null); }
-        static StartResult conflict(String err) { return new StartResult(Status.CONFLICT, null, null, err, null); }
-        static StartResult alreadyVerified(String method) { return new StartResult(Status.CONFLICT, null, null, "already_verified", method); }
-        static StartResult badRequest(String err) { return new StartResult(Status.BAD_REQUEST, null, null, err, null); }
+    public record StartResult(Status status, String uploadSessionId, String nonce, Long maxBytes, String error, String currentMethod) {
+        static StartResult ok(String sessionId, String nonce, long maxBytes) { return new StartResult(Status.OK, sessionId, nonce, maxBytes, null, null); }
+        static StartResult userNotProvisioned() { return new StartResult(Status.USER_NOT_PROVISIONED, null, null, null, null, null); }
+        static StartResult communityNotFound() { return new StartResult(Status.COMMUNITY_NOT_FOUND, null, null, null, "community_not_found", null); }
+        static StartResult conflict(String err) { return new StartResult(Status.CONFLICT, null, null, null, err, null); }
+        static StartResult alreadyVerified(String method) { return new StartResult(Status.CONFLICT, null, null, null, "already_verified", method); }
+        static StartResult badRequest(String err) { return new StartResult(Status.BAD_REQUEST, null, null, null, err, null); }
     }
 
     public record PresignResult(Status status, String kind, String key, String uploadUrl, java.util.Map<String, String> headers, String error) {

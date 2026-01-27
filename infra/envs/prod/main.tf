@@ -101,6 +101,7 @@ module "api" {
   firebase_admin_secret_arn    = var.firebase_admin_secret_arn
   openai_moderation_secret_arn = var.openai_moderation_secret_arn
   db_credentials_secret_arn    = var.db_credentials_secret_arn
+  admin_edge_secret_arn        = var.admin_edge_secret_arn
 
   moderation_enabled                     = var.moderation_enabled
   moderation_openai_enabled              = var.moderation_openai_enabled

@@ -97,11 +97,13 @@ class CommunityPhotoIdVerificationIntegrationTest extends PostgresTestBase {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status", equalTo("pending_upload")))
                 .andExpect(jsonPath("$.upload_session_id", notNullValue()))
+                .andExpect(jsonPath("$.nonce", notNullValue()))
                 .andReturn();
 
-        String sessionA = new com.fasterxml.jackson.databind.ObjectMapper()
-                .readTree(startA.getResponse().getContentAsString())
-                .get("upload_session_id").asText();
+        var startJson = new com.fasterxml.jackson.databind.ObjectMapper()
+                .readTree(startA.getResponse().getContentAsString());
+        String sessionA = startJson.get("upload_session_id").asText();
+        String nonce = startJson.get("nonce").asText();
 
         String selfieKey = "verification/photo-id/" + userId + "/" + sessionA + "/selfie.jpg";
         String idFrontKey = "verification/photo-id/" + userId + "/" + sessionA + "/id_front.jpg";
@@ -124,6 +126,18 @@ class CommunityPhotoIdVerificationIntegrationTest extends PostgresTestBase {
                 .andExpect(jsonPath("$.status", equalTo("pending_review")))
                 .andExpect(jsonPath("$.verification_request_id", notNullValue()));
 
+        String storedMetadata = jdbc.queryForObject(
+                "SELECT metadata FROM verification_requests WHERE user_id = ? AND community_id = ? ORDER BY id DESC LIMIT 1",
+                String.class,
+                userId,
+                communityA
+        );
+        org.junit.jupiter.api.Assertions.assertNotNull(storedMetadata);
+        String storedNonce = new com.fasterxml.jackson.databind.ObjectMapper()
+                .readTree(storedMetadata)
+                .get("nonce").asText();
+        org.junit.jupiter.api.Assertions.assertEquals(nonce, storedNonce);
+
         // Pending review in community A should not block starting a new submission in community B.
         mockMvc.perform(post("/v1/communities/" + communityB + "/verification/photo-id/start")
                         .header("Authorization", auth))
@@ -138,4 +152,3 @@ class CommunityPhotoIdVerificationIntegrationTest extends PostgresTestBase {
                 .andExpect(jsonPath("$.error", equalTo("already_pending")));
     }
 }
-

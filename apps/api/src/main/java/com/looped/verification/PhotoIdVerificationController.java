@@ -48,6 +48,7 @@ public class PhotoIdVerificationController {
         out.put("status", "pending_upload");
         out.put("method", "photo_id");
         out.put("upload_session_id", res.uploadSessionId());
+        out.put("nonce", res.nonce());
         out.put("required", new String[]{"selfie", "id_front"});
         out.put("optional", new String[]{"id_back"});
         out.put("constraints", Map.of(

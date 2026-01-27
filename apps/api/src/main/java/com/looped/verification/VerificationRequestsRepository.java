@@ -186,16 +186,16 @@ public class VerificationRequestsRepository {
         return n != null;
     }
 
-    public long insertPhotoId(long userId, String email, String status, String selfieKey, String idFrontKey, String idBackKey) {
-        return insertPhotoId(userId, null, email, status, selfieKey, idFrontKey, idBackKey);
+    public long insertPhotoId(long userId, String email, String status, String selfieKey, String idFrontKey, String idBackKey, String metadata) {
+        return insertPhotoId(userId, null, email, status, selfieKey, idFrontKey, idBackKey, metadata);
     }
 
-    public long insertPhotoId(long userId, Long communityId, String email, String status, String selfieKey, String idFrontKey, String idBackKey) {
+    public long insertPhotoId(long userId, Long communityId, String email, String status, String selfieKey, String idFrontKey, String idBackKey, String metadata) {
         Long id = jdbc.query(
-                "INSERT INTO verification_requests(user_id, community_id, email, method, status, selfie_key, id_front_key, id_back_key) " +
-                        "VALUES (?, ?, ?, 'photo_id', ?, ?, ?, ?) RETURNING id",
+                "INSERT INTO verification_requests(user_id, community_id, email, method, status, selfie_key, id_front_key, id_back_key, metadata) " +
+                        "VALUES (?, ?, ?, 'photo_id', ?, ?, ?, ?, ?) RETURNING id",
                 rs -> rs.next() ? rs.getLong(1) : null,
-                userId, communityId, normalizeEmail(email), status, selfieKey, idFrontKey, idBackKey
+                userId, communityId, normalizeEmail(email), status, selfieKey, idFrontKey, idBackKey, metadata
         );
         if (id == null) {
             throw new IllegalStateException("Failed to insert verification request");
