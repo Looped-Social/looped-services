@@ -18,7 +18,6 @@ concurrency:
 env:
   AWS_REGION: ${{ vars.AWS_REGION }}
   ECR_REGISTRY: ${{ vars.ECR_REGISTRY }}
-  ECR_REPO: ${{ vars.ECR_REPO_NOTIF_WORKER }}
   ECS_CLUSTER: ${{ vars.ECS_CLUSTER_STAGING }}
   ECS_SERVICE: ${{ vars.ECS_SERVICE_NOTIF_WORKER_STAGING }}
 
@@ -47,9 +46,23 @@ jobs:
     needs: [ build ]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     environment: staging
+    env:
+      # NOTE: This should be configured as a GitHub Actions variable (repo-level or environment-level).
+      # If unset, the docker tag becomes "<registry>/:<tag>" which is invalid.
+      ECR_REPO: ${{ vars.ECR_REPO_NOTIF_WORKER }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Validate deploy variables
+        shell: bash
+        run: |
+          set -euo pipefail
+          : "${AWS_REGION:?missing AWS_REGION (GitHub Actions var)}"
+          : "${ECR_REGISTRY:?missing ECR_REGISTRY (GitHub Actions var)}"
+          : "${ECR_REPO:?missing ECR_REPO_NOTIF_WORKER (GitHub Actions var; expected e.g. 'looped-notif-worker')}"
+          : "${ECS_CLUSTER:?missing ECS_CLUSTER_STAGING (GitHub Actions var)}"
+          : "${ECS_SERVICE:?missing ECS_SERVICE_NOTIF_WORKER_STAGING (GitHub Actions var)}"
 
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4

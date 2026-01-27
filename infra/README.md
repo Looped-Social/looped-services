@@ -115,6 +115,9 @@ After switching to the new infra, update GitHub repo variables:
 - `ECR_REPO`
 - `AWS_REGION`
 - `AWS_ROLE_ARN` (OIDC assume-role to deploy)
+- If deploying the notif-worker (`.github/workflows/deploy-notif-worker.yml`), also set:
+  - `ECR_REPO_NOTIF_WORKER` (e.g. `looped-notif-worker`)
+  - `ECS_SERVICE_NOTIF_WORKER_STAGING` (ECS service name)
 - Optional (enables post-deploy smoke checks in workflows):
   - `API_BASE_URL_STAGING` (e.g. `https://api-staging.mylooped.app`)
   - `API_BASE_URL_PROD` (e.g. `https://api.mylooped.app`)
