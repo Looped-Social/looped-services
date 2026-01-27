@@ -42,6 +42,8 @@ yarn.lock
 **/.terraform/
 **/.terraform.lock.hcl
 **/backend.hcl
+**/tfplan
+**/tfplan.*
 *.tfstate
 *.tfstate.*
 crash.log

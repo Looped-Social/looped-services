@@ -162,6 +162,15 @@ class AdminUserAccessIntegrationTest extends PostgresTestBase {
         org.junit.jupiter.api.Assertions.assertEquals(0, cooldownRows.intValue());
         org.junit.jupiter.api.Assertions.assertEquals(0, joinRows.intValue());
 
+        long schoolId = jdbc.queryForObject(
+                "INSERT INTO communities(kind, name) VALUES ('school', 'Reset U') RETURNING id",
+                Long.class
+        );
+        jdbc.update(
+                "INSERT INTO community_verifications(user_id, community_id, method, verified, expires_at) VALUES (?,?,?,?, NULL)",
+                userId, schoolId, "manual", true
+        );
+
         String userAuth = "Bearer " + userToken("uid-reset");
         mockMvc.perform(get("/v1/me/specializations/join-limits?type=major")
                         .header("Authorization", userAuth))
@@ -172,4 +181,3 @@ class AdminUserAccessIntegrationTest extends PostgresTestBase {
                 .andExpect(jsonPath("$.items[0].can_join").value(true));
     }
 }
-

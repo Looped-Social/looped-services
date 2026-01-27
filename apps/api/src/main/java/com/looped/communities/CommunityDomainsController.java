@@ -17,14 +17,11 @@ import java.util.TreeSet;
 public class CommunityDomainsController {
     private final CommunitiesRepository communities;
     private final CommunityDomainsRepository domains;
-    private final CommunitySectorLinksRepository sectorLinks;
 
     public CommunityDomainsController(CommunitiesRepository communities,
-                                      CommunityDomainsRepository domains,
-                                      CommunitySectorLinksRepository sectorLinks) {
+                                      CommunityDomainsRepository domains) {
         this.communities = communities;
         this.domains = domains;
-        this.sectorLinks = sectorLinks;
     }
 
     @GetMapping("/{id}/domains")
@@ -36,12 +33,6 @@ public class CommunityDomainsController {
         var community = communityOpt.get();
         Set<String> unique = new TreeSet<>();
         unique.addAll(domains.listDomains(id));
-        if ("sector".equalsIgnoreCase(community.kind)) {
-            var companyIds = sectorLinks.listCompanyIds(id);
-            if (!companyIds.isEmpty()) {
-                unique.addAll(domains.listDomainsForCommunities(companyIds));
-            }
-        }
         return ResponseEntity.ok(Map.of("items", List.copyOf(unique)));
     }
 }

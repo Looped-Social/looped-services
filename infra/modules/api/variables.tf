@@ -203,3 +203,15 @@ variable "logo_dev_retina" {
   description = "If true, add retina=true to logo.dev URLs."
   default     = true
 }
+
+variable "sqs_notif_queue_url" {
+  type        = string
+  description = "Optional SQS queue URL used for push notifications (enables SQS producer when set)."
+  default     = ""
+}
+
+variable "sqs_notif_queue_arn" {
+  type        = string
+  description = "Optional SQS queue ARN used for IAM permissions (sqs:SendMessage)."
+  default     = ""
+}

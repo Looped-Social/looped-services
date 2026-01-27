@@ -63,7 +63,7 @@ class AdminCommunityRequestsIntegrationTest extends PostgresTestBase {
                 Long.class, "uid-requester", "requester", companyId);
         long requestId = jdbc.queryForObject(
                 "INSERT INTO community_requests(user_id, kind, name, description) VALUES (?,?,?,?) RETURNING id",
-                Long.class, userId, "sector", "Design", "For designers");
+                Long.class, userId, "company", "Design", "For designers");
 
         admins.insert(null, "admin@looped.com", "owner", "active",
                 List.of(AdminPermissions.CREATE_COMMUNITY));
@@ -76,7 +76,7 @@ class AdminCommunityRequestsIntegrationTest extends PostgresTestBase {
                 .andExpect(jsonPath("$.community_id").isNumber());
 
         Integer communities = jdbc.queryForObject(
-                "SELECT COUNT(*) FROM communities WHERE kind = 'sector' AND name = 'Design'",
+                "SELECT COUNT(*) FROM communities WHERE kind = 'company' AND name = 'Design'",
                 Integer.class
         );
         String status = jdbc.queryForObject(

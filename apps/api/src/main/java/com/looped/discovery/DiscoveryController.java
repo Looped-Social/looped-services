@@ -70,7 +70,7 @@ public class DiscoveryController {
         if (kindProvided && normalizedKind == null) {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of(
                     "error", "invalid_kind",
-                    "message", "kind must be company, school, sector, profession, specialization, major, department, or unknown"
+                    "message", "kind must be company, school, specialization, major, field, or unknown"
             ));
         }
         if ("unknown".equals(normalizedKind)) {
@@ -131,7 +131,7 @@ public class DiscoveryController {
         if (kindProvided && normalizedKind == null) {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of(
                     "error", "invalid_kind",
-                    "message", "kind must be company, school, sector, profession, specialization, major, department, or unknown"
+                    "message", "kind must be company, school, specialization, major, field, or unknown"
             ));
         }
         if ("unknown".equals(normalizedKind)) {
@@ -172,17 +172,17 @@ public class DiscoveryController {
         if (normalized == null) {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of(
                     "error", "invalid_specialization_type",
-                    "message", "type must be major, department, or all"
+                    "message", "type must be major, field, or all"
             ));
         }
 
         if ("all".equals(normalized)) {
             var majorsRes = service.recommendedCommunities(jwt.getSubject(), "specialization", "major", lim);
-            var departmentsRes = service.recommendedCommunities(jwt.getSubject(), "specialization", "department", lim);
+            var fieldsRes = service.recommendedCommunities(jwt.getSubject(), "specialization", "field", lim);
             var fallback = logos.resolveFallbacks(
                     java.util.stream.Stream.concat(
                                     majorsRes.items().stream(),
-                                    departmentsRes.items().stream()
+                                    fieldsRes.items().stream()
                             )
                             .map(row -> new CommunityLogoResolver.CommunityRef(row.id, row.kind, row.imageUrl))
                             .toList()
@@ -190,7 +190,7 @@ public class DiscoveryController {
             var memberCounts = verifications.countActiveVerifiedMembersByCommunityIds(
                     java.util.stream.Stream.concat(
                                     majorsRes.items().stream(),
-                                    departmentsRes.items().stream()
+                                    fieldsRes.items().stream()
                             )
                             .map(row -> row.id)
                             .toList()
@@ -198,12 +198,13 @@ public class DiscoveryController {
             List<Map<String, Object>> majors = majorsRes.items().stream()
                     .map(row -> recommendedPayload(row, fallback, memberCounts.getOrDefault(row.id, 0)))
                     .toList();
-            List<Map<String, Object>> departments = departmentsRes.items().stream()
+            List<Map<String, Object>> fields = fieldsRes.items().stream()
                     .map(row -> recommendedPayload(row, fallback, memberCounts.getOrDefault(row.id, 0)))
                     .toList();
             return ResponseEntity.ok(Map.of(
                     "majors", majors,
-                    "departments", departments
+                    "fields", fields,
+                    "departments", fields
             ));
         }
 
@@ -352,16 +353,16 @@ public class DiscoveryController {
         if (raw == null) return null;
         String normalized = raw.trim().toLowerCase(Locale.ROOT);
         if (normalized.isBlank()) return null;
-        if (normalized.equals("profession") || normalized.equals("proffesion")) {
-            normalized = "sector";
-        }
+        if (normalized.equals("profession") || normalized.equals("proffesion")) normalized = "sector";
         if (normalized.equals("unknown")) {
             return "unknown";
         }
-        if (normalized.equals("major") || normalized.equals("department")) {
+        if (normalized.equals("department")) normalized = "field";
+        if (normalized.equals("sector")) normalized = "field";
+        if (normalized.equals("major") || normalized.equals("field")) {
             normalized = "specialization";
         }
-        if (!normalized.equals("company") && !normalized.equals("school") && !normalized.equals("sector")) {
+        if (!normalized.equals("company") && !normalized.equals("school")) {
             if (!normalized.equals("specialization")) {
                 return null;
             }
@@ -373,7 +374,9 @@ public class DiscoveryController {
         if (raw == null) return null;
         String normalized = raw.trim().toLowerCase(Locale.ROOT);
         if (normalized.isBlank()) return null;
-        if (normalized.equals("major") || normalized.equals("department")) {
+        if (normalized.equals("department")) normalized = "field";
+        if (normalized.equals("sector")) normalized = "field";
+        if (normalized.equals("major") || normalized.equals("field")) {
             return normalized;
         }
         return null;
@@ -383,7 +386,8 @@ public class DiscoveryController {
         if (raw == null) return "all";
         String normalized = raw.trim().toLowerCase(Locale.ROOT);
         if (normalized.isBlank() || "all".equals(normalized)) return "all";
-        if ("major".equals(normalized) || "department".equals(normalized)) return normalized;
+        if ("department".equals(normalized)) normalized = "field";
+        if ("major".equals(normalized) || "field".equals(normalized)) return normalized;
         return null;
     }
 }

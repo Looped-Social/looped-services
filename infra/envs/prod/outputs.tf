@@ -10,6 +10,14 @@ output "cloudfront_domain_name" {
   value = module.storage.cloudfront_domain_name
 }
 
+output "notif_queue_url" {
+  value = module.notifications.notif_queue_url
+}
+
+output "notif_worker_service_name" {
+  value = var.enable_notif_worker ? module.notif_worker[0].service_name : null
+}
+
 output "redis_primary_endpoint" {
   value = module.redis.primary_endpoint_address
 }

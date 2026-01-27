@@ -63,7 +63,7 @@ class CommunityFollowsIntegrationTest extends PostgresTestBase {
                 "uid-communities", "lori", companyId);
 
         long commA = jdbc.queryForObject("INSERT INTO communities(kind, name) VALUES ('company', 'Acme') RETURNING id", Long.class);
-        long commB = jdbc.queryForObject("INSERT INTO communities(kind, name) VALUES ('sector', 'Finance') RETURNING id", Long.class);
+        long commB = jdbc.queryForObject("INSERT INTO communities(kind, name) VALUES ('company', 'Finance') RETURNING id", Long.class);
         long userId = jdbc.queryForObject("SELECT id FROM users WHERE firebase_uid=?", Long.class, "uid-communities");
         jdbc.update("INSERT INTO community_follows(user_id, community_id, is_pinned, sort_order) VALUES (?,?,?,?)",
                 userId, commA, true, 1);
@@ -90,7 +90,7 @@ class CommunityFollowsIntegrationTest extends PostgresTestBase {
                 Long.class);
         jdbc.update("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?)",
                 "uid-communities-2", "miles", companyId);
-        long communityId = jdbc.queryForObject("INSERT INTO communities(kind, name) VALUES ('sector', 'HR') RETURNING id", Long.class);
+        long communityId = jdbc.queryForObject("INSERT INTO communities(kind, name) VALUES ('company', 'HR') RETURNING id", Long.class);
 
         String auth = "Bearer " + token("uid-communities-2");
 
@@ -157,6 +157,15 @@ class CommunityFollowsIntegrationTest extends PostgresTestBase {
                 Long.class);
         jdbc.update("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?)",
                 "uid-specialization-2", "nina", companyId);
+        long userId = jdbc.queryForObject("SELECT id FROM users WHERE firebase_uid=?", Long.class, "uid-specialization-2");
+        long schoolId = jdbc.queryForObject(
+                "INSERT INTO communities(kind, name) VALUES ('school', 'Echo University') RETURNING id",
+                Long.class
+        );
+        jdbc.update(
+                "INSERT INTO community_verifications(user_id, community_id, method, verified, expires_at) VALUES (?,?,?,?, NULL)",
+                userId, schoolId, "manual", true
+        );
         long majorOne = jdbc.queryForObject(
                 "INSERT INTO communities(kind, specialization_type, name) VALUES ('specialization','major','Economics') RETURNING id",
                 Long.class);

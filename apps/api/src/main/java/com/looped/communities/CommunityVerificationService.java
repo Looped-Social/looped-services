@@ -22,7 +22,6 @@ public class CommunityVerificationService {
     private final UserRepository users;
     private final CommunitiesRepository communities;
     private final CommunityDomainsRepository communityDomains;
-    private final CommunitySectorLinksRepository sectorLinks;
     private final CommunityVerificationsRepository communityVerifications;
     private final VerificationRequestsRepository requests;
     private final StringRedisTemplate redis;
@@ -34,7 +33,6 @@ public class CommunityVerificationService {
     public CommunityVerificationService(UserRepository users,
                                         CommunitiesRepository communities,
                                         CommunityDomainsRepository communityDomains,
-                                        CommunitySectorLinksRepository sectorLinks,
                                         CommunityVerificationsRepository communityVerifications,
                                         VerificationRequestsRepository requests,
                                         StringRedisTemplate redis,
@@ -44,7 +42,6 @@ public class CommunityVerificationService {
         this.users = users;
         this.communities = communities;
         this.communityDomains = communityDomains;
-        this.sectorLinks = sectorLinks;
         this.communityVerifications = communityVerifications;
         this.requests = requests;
         this.redis = redis;
@@ -208,19 +205,11 @@ public class CommunityVerificationService {
     private String keyThirdParty(long userId, long communityId) { return "verify:community:thirdparty:" + userId + ":" + communityId; }
 
     private boolean hasEffectiveDomains(CommunitiesRepository.CommunityRow community) {
-        if (!"sector".equalsIgnoreCase(community.kind)) {
-            return communityDomains.hasDomains(community.id);
-        }
-        if (communityDomains.hasDomains(community.id)) return true;
-        var companyIds = sectorLinks.listCompanyIds(community.id);
-        return communityDomains.hasDomainsForCommunities(companyIds);
+        return communityDomains.hasDomains(community.id);
     }
 
     private boolean isDomainAllowed(CommunitiesRepository.CommunityRow community, String domain) {
-        if (communityDomains.isDomainAllowed(community.id, domain)) return true;
-        if (!"sector".equalsIgnoreCase(community.kind)) return false;
-        var companyIds = sectorLinks.listCompanyIds(community.id);
-        return communityDomains.isDomainAllowedForCommunities(companyIds, domain);
+        return communityDomains.isDomainAllowed(community.id, domain);
     }
 
     private String resolveRequestEmail(Method method, String requestEmail, String fallbackEmail) {

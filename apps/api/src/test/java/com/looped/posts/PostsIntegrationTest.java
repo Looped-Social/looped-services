@@ -144,7 +144,7 @@ class PostsIntegrationTest extends PostgresTestBase {
         jdbc.update("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?)",
                 "uid-post3", "gina", companyId);
         long communityId = jdbc.queryForObject(
-                "INSERT INTO communities(kind, name) VALUES ('sector', 'Finance') RETURNING id",
+                "INSERT INTO communities(kind, name) VALUES ('company', 'Finance') RETURNING id",
                 Long.class);
 
         String auth = "Bearer " + token("uid-post3");

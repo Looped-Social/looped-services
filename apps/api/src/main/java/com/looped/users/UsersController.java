@@ -168,7 +168,7 @@ public class UsersController {
             ));
             case INVALID_SPECIALIZATION -> ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of(
                     "error", "invalid_specialization",
-                    "message", "Specialization must be a major or department"
+                    "message", "Specialization must be a major or field"
             ));
             case SPECIALIZATION_NOT_JOINED -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
                     "error", "specialization_not_joined",

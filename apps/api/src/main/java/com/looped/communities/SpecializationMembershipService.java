@@ -12,7 +12,7 @@ import java.util.Optional;
 
 @Service
 public class SpecializationMembershipService {
-    private static final int MAX_PER_TYPE = 2;
+    private static final int DEFAULT_MAX_PER_TYPE = 2;
     private static final String LIMIT_SCOPE = "join";
 
     private final UserRepository users;
@@ -22,6 +22,7 @@ public class SpecializationMembershipService {
     private final SpecializationLimitsRepository limits;
     private final SpecializationProperties specializationProps;
     private final AppSettingsRepository settings;
+    private final CommunityVerificationsRepository communityVerifications;
 
     public SpecializationMembershipService(UserRepository users,
                                            CommunitiesRepository communities,
@@ -29,7 +30,8 @@ public class SpecializationMembershipService {
                                            SpecializationJoinsRepository joins,
                                            SpecializationLimitsRepository limits,
                                            SpecializationProperties specializationProps,
-                                           AppSettingsRepository settings) {
+                                           AppSettingsRepository settings,
+                                           CommunityVerificationsRepository communityVerifications) {
         this.users = users;
         this.communities = communities;
         this.follows = follows;
@@ -37,23 +39,28 @@ public class SpecializationMembershipService {
         this.limits = limits;
         this.specializationProps = specializationProps;
         this.settings = settings;
+        this.communityVerifications = communityVerifications;
     }
 
-    public enum Status { OK, USER_NOT_PROVISIONED, NOT_FOUND, INVALID_SPECIALIZATION, LIMIT_REACHED, COOLDOWN }
+    public enum Status { OK, USER_NOT_PROVISIONED, NOT_FOUND, INVALID_SPECIALIZATION, LIMIT_REACHED, COOLDOWN, VERIFICATION_REQUIRED }
 
     public record JoinResult(Status status, boolean joined, boolean changed,
-                             String specializationType, OffsetDateTime cooldownEndsAt, Integer cooldownMonths, Integer limit) {
+                             String specializationType, OffsetDateTime cooldownEndsAt, Integer cooldownMonths, Integer limit,
+                             String requiredVerificationKind) {
         static JoinResult ok(boolean joined, boolean changed) {
-            return new JoinResult(Status.OK, joined, changed, null, null, null, null);
+            return new JoinResult(Status.OK, joined, changed, null, null, null, null, null);
         }
-        static JoinResult userNotProvisioned() { return new JoinResult(Status.USER_NOT_PROVISIONED, false, false, null, null, null, null); }
-        static JoinResult notFound() { return new JoinResult(Status.NOT_FOUND, false, false, null, null, null, null); }
-        static JoinResult invalidSpecialization() { return new JoinResult(Status.INVALID_SPECIALIZATION, false, false, null, null, null, null); }
+        static JoinResult userNotProvisioned() { return new JoinResult(Status.USER_NOT_PROVISIONED, false, false, null, null, null, null, null); }
+        static JoinResult notFound() { return new JoinResult(Status.NOT_FOUND, false, false, null, null, null, null, null); }
+        static JoinResult invalidSpecialization() { return new JoinResult(Status.INVALID_SPECIALIZATION, false, false, null, null, null, null, null); }
         static JoinResult limitReached(String specializationType, int limit) {
-            return new JoinResult(Status.LIMIT_REACHED, false, false, specializationType, null, null, limit);
+            return new JoinResult(Status.LIMIT_REACHED, false, false, specializationType, null, null, limit, null);
         }
         static JoinResult cooldown(String specializationType, OffsetDateTime endsAt, int cooldownMonths) {
-            return new JoinResult(Status.COOLDOWN, false, false, specializationType, endsAt, cooldownMonths, null);
+            return new JoinResult(Status.COOLDOWN, false, false, specializationType, endsAt, cooldownMonths, null, null);
+        }
+        static JoinResult verificationRequired(String specializationType, String requiredVerificationKind) {
+            return new JoinResult(Status.VERIFICATION_REQUIRED, false, false, specializationType, null, null, null, requiredVerificationKind);
         }
     }
 
@@ -66,7 +73,8 @@ public class SpecializationMembershipService {
 
     public record JoinLimitSnapshot(String specializationType, int limit, int joinedCount, int remaining,
                                     boolean cooldownActive, OffsetDateTime cooldownEndsAt, Long cooldownDaysRemaining,
-                                    boolean canJoin, String blockedReason, int cooldownMonths) {}
+                                    boolean canJoin, String blockedReason, int cooldownMonths,
+                                    String requiredVerificationKind) {}
 
     public record JoinLimitSnapshotsResult(Status status, List<JoinLimitSnapshot> items) {
         static JoinLimitSnapshotsResult ok(List<JoinLimitSnapshot> items) {
@@ -84,7 +92,7 @@ public class SpecializationMembershipService {
         if (communityOpt.isEmpty()) return JoinResult.notFound();
 
         var community = communityOpt.get();
-        String specializationType = requireMajorOrDepartment(community);
+        String specializationType = requireMajorOrField(community);
         if (specializationType == null) return JoinResult.invalidSpecialization();
 
         if (joins.exists(actor.get().id, specializationId)) {
@@ -92,9 +100,15 @@ public class SpecializationMembershipService {
             return JoinResult.ok(true, false);
         }
 
+        String requiredKind = requiredVerificationKindForSpecializationType(specializationType);
+        if (requiredKind != null && !communityVerifications.hasActiveVerifiedCommunityOfKind(actor.get().id, requiredKind)) {
+            return JoinResult.verificationRequired(specializationType, requiredKind);
+        }
+
         int count = joins.countJoinedByType(actor.get().id, specializationType);
-        if (count >= MAX_PER_TYPE) {
-            return JoinResult.limitReached(specializationType, MAX_PER_TYPE);
+        int max = maxJoinsPerType(specializationType);
+        if (count >= max) {
+            return JoinResult.limitReached(specializationType, max);
         }
 
         int defaultCooldownMonths = defaultJoinCooldownMonths();
@@ -121,7 +135,7 @@ public class SpecializationMembershipService {
         if (communityOpt.isEmpty()) return JoinResult.notFound();
 
         var community = communityOpt.get();
-        String specializationType = requireMajorOrDepartment(community);
+        String specializationType = requireMajorOrField(community);
         if (specializationType == null) return JoinResult.invalidSpecialization();
 
         boolean deleted = joins.delete(actor.get().id, specializationId);
@@ -167,7 +181,7 @@ public class SpecializationMembershipService {
         if (actor.isEmpty()) return JoinLimitSnapshotsResult.userNotProvisioned();
         return JoinLimitSnapshotsResult.ok(List.of(
                 joinLimitSnapshotForUserId(actor.get().id, "major"),
-                joinLimitSnapshotForUserId(actor.get().id, "department")
+                joinLimitSnapshotForUserId(actor.get().id, "field")
         ));
     }
 
@@ -175,12 +189,16 @@ public class SpecializationMembershipService {
         String normalizedType = normalizeType(specializationType);
         int defaultCooldownMonths = defaultJoinCooldownMonths();
         if (normalizedType == null) {
-            return new JoinLimitSnapshot(null, MAX_PER_TYPE, 0, MAX_PER_TYPE, false,
-                    null, null, true, null, defaultCooldownMonths);
+            return new JoinLimitSnapshot(null, DEFAULT_MAX_PER_TYPE, 0, DEFAULT_MAX_PER_TYPE, false,
+                    null, null, true, null, defaultCooldownMonths, null);
         }
 
+        String requiredKind = requiredVerificationKindForSpecializationType(normalizedType);
+        boolean prerequisiteMet = requiredKind == null || communityVerifications.hasActiveVerifiedCommunityOfKind(userId, requiredKind);
+
+        int max = maxJoinsPerType(normalizedType);
         int joinedCount = joins.countJoinedByType(userId, normalizedType);
-        int remaining = Math.max(0, MAX_PER_TYPE - joinedCount);
+        int remaining = Math.max(0, max - joinedCount);
 
         OffsetDateTime now = OffsetDateTime.now();
         var lastChange = limits.findLastChangeWithCooldownMonths(userId, normalizedType, LIMIT_SCOPE).orElse(null);
@@ -198,12 +216,13 @@ public class SpecializationMembershipService {
         }
 
         String blockedReason = null;
-        if (joinedCount >= MAX_PER_TYPE) blockedReason = "limit";
+        if (!prerequisiteMet) blockedReason = "verify_" + requiredKind;
+        else if (joinedCount >= max) blockedReason = "limit";
         else if (cooldownActive) blockedReason = "cooldown";
 
         boolean canJoin = blockedReason == null;
-        return new JoinLimitSnapshot(normalizedType, MAX_PER_TYPE, joinedCount, remaining,
-                cooldownActive, cooldownEndsAt, cooldownDaysRemaining, canJoin, blockedReason, cooldownMonths);
+        return new JoinLimitSnapshot(normalizedType, max, joinedCount, remaining,
+                cooldownActive, cooldownEndsAt, cooldownDaysRemaining, canJoin, blockedReason, cooldownMonths, requiredKind);
     }
 
     private Optional<UserRepository.UserRow> provisionedUser(String firebaseUid) {
@@ -217,6 +236,36 @@ public class SpecializationMembershipService {
         return val > 0 ? val : 6;
     }
 
+    private int maxJoinsPerType(String specializationType) {
+        String normalizedType = normalizeType(specializationType);
+        if (normalizedType == null) return DEFAULT_MAX_PER_TYPE;
+
+        long fallback = switch (normalizedType) {
+            case "major" -> specializationProps.getDefaultMaxJoinsMajor();
+            case "field" -> specializationProps.getDefaultMaxJoinsField();
+            default -> DEFAULT_MAX_PER_TYPE;
+        };
+
+        String key = switch (normalizedType) {
+            case "major" -> AppSettingsKeys.SPECIALIZATIONS_MAX_JOINS_MAJOR;
+            case "field" -> AppSettingsKeys.SPECIALIZATIONS_MAX_JOINS_FIELD;
+            default -> null;
+        };
+        long configured = key == null ? fallback : settings.findLong(key).orElse(fallback);
+        int val = (int) Math.max(1, Math.min(20, configured));
+        return val > 0 ? val : (int) Math.max(1, Math.min(20, fallback));
+    }
+
+    private String requiredVerificationKindForSpecializationType(String specializationType) {
+        String normalized = normalizeType(specializationType);
+        if (normalized == null) return null;
+        return switch (normalized) {
+            case "major" -> "school";
+            case "field" -> "company";
+            default -> null;
+        };
+    }
+
     private int resolveCooldownMonthsForCommunity(CommunitiesRepository.CommunityRow community) {
         if (community != null &&
                 community.specializationJoinCooldownMonths != null &&
@@ -226,7 +275,7 @@ public class SpecializationMembershipService {
         return defaultJoinCooldownMonths();
     }
 
-    private String requireMajorOrDepartment(CommunitiesRepository.CommunityRow community) {
+    private String requireMajorOrField(CommunitiesRepository.CommunityRow community) {
         if (community == null) return null;
         if (community.kind == null || !"specialization".equalsIgnoreCase(community.kind)) return null;
         return normalizeType(community.specializationType);
@@ -236,7 +285,10 @@ public class SpecializationMembershipService {
         if (raw == null) return null;
         String normalized = raw.trim().toLowerCase(Locale.ROOT);
         if (normalized.isBlank()) return null;
-        if (!normalized.equals("major") && !normalized.equals("department")) return null;
+        if (normalized.equals("department")) {
+            normalized = "field";
+        }
+        if (!normalized.equals("major") && !normalized.equals("field")) return null;
         return normalized;
     }
 

@@ -209,33 +209,44 @@ resource "aws_iam_role_policy" "task_app" {
   role = aws_iam_role.task.id
   policy = jsonencode({
     Version = "2012-10-17"
-    Statement = [
-      {
-        Effect = "Allow"
-        Action = [
-          "s3:GetObject",
-          "s3:PutObject",
-          "s3:DeleteObject",
-          "s3:AbortMultipartUpload",
-          "s3:ListBucket",
-          "s3:PutObjectTagging",
-          "s3:GetObjectTagging"
-        ]
-        Resource = [
-          "arn:aws:s3:::${var.s3_media_bucket}",
-          "arn:aws:s3:::${var.s3_media_bucket}/*",
-          "arn:aws:s3:::${var.s3_verification_bucket}",
-          "arn:aws:s3:::${var.s3_verification_bucket}/*",
-          "arn:aws:s3:::${var.s3_dm_bucket}",
-          "arn:aws:s3:::${var.s3_dm_bucket}/*"
-        ]
-      },
-      {
-        Effect   = "Allow"
-        Action   = ["ses:SendEmail", "ses:SendRawEmail"]
-        Resource = "*"
-      }
-    ]
+    Statement = concat(
+      [
+        {
+          Effect = "Allow"
+          Action = [
+            "s3:GetObject",
+            "s3:PutObject",
+            "s3:DeleteObject",
+            "s3:AbortMultipartUpload",
+            "s3:ListBucket",
+            "s3:PutObjectTagging",
+            "s3:GetObjectTagging"
+          ]
+          Resource = [
+            "arn:aws:s3:::${var.s3_media_bucket}",
+            "arn:aws:s3:::${var.s3_media_bucket}/*",
+            "arn:aws:s3:::${var.s3_verification_bucket}",
+            "arn:aws:s3:::${var.s3_verification_bucket}/*",
+            "arn:aws:s3:::${var.s3_dm_bucket}",
+            "arn:aws:s3:::${var.s3_dm_bucket}/*"
+          ]
+        }
+      ],
+      (var.sqs_notif_queue_arn != null && trimspace(var.sqs_notif_queue_arn) != "") ? [
+        {
+          Effect   = "Allow"
+          Action   = ["sqs:SendMessage"]
+          Resource = [var.sqs_notif_queue_arn]
+        }
+      ] : [],
+      [
+        {
+          Effect   = "Allow"
+          Action   = ["ses:SendEmail", "ses:SendRawEmail"]
+          Resource = "*"
+        }
+      ]
+    )
   })
 }
 
@@ -409,7 +420,8 @@ resource "aws_ecs_task_definition" "api" {
           awslogs-stream-prefix = "api"
         }
       }
-      environment = [
+      environment = concat(
+        [
         { name = "AWS_REGION", value = data.aws_region.current.name },
         { name = "CORS_ALLOWED_ORIGINS", value = var.cors_allowed_origins },
         { name = "S3_BUCKET", value = var.s3_media_bucket },
@@ -432,7 +444,11 @@ resource "aws_ecs_task_definition" "api" {
         { name = "MODERATION_OPENAI_CATEGORY_BLOCKLIST", value = var.moderation_openai_category_blocklist },
         { name = "MODERATION_REPORT_QUARANTINE_THRESHOLD", value = tostring(var.moderation_report_quarantine_threshold) },
         { name = "REDIS_URL", value = local.redis_url }
-      ]
+        ],
+        (var.sqs_notif_queue_url != null && trimspace(var.sqs_notif_queue_url) != "") ? [
+          { name = "SQS_NOTIF_QUEUE_URL", value = var.sqs_notif_queue_url }
+        ] : []
+      )
       secrets = concat(
         [
           { name = "AUTH_AUDIENCE", valueFrom = var.ssm_auth_audience_arn },

@@ -8,6 +8,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 
@@ -32,6 +33,26 @@ public class CommunityVerificationsRepository {
         );
         if (rows == null) return false;
         return rows.verified && (rows.expiresAt == null || rows.expiresAt.isAfter(OffsetDateTime.now()));
+    }
+
+    public boolean hasActiveVerifiedCommunityOfKind(long userId, String communityKind) {
+        if (communityKind == null || communityKind.isBlank()) return false;
+        String normalizedKind = communityKind.trim().toLowerCase(Locale.ROOT);
+        Boolean exists = jdbc.query(
+                "SELECT EXISTS (" +
+                        "SELECT 1 " +
+                        "FROM community_verifications cv " +
+                        "JOIN communities c ON c.id = cv.community_id " +
+                        "WHERE cv.user_id = ? " +
+                        "AND cv.verified = true " +
+                        "AND (cv.expires_at IS NULL OR cv.expires_at > now()) " +
+                        "AND lower(c.kind) = ?" +
+                        ")",
+                rs -> rs.next() ? rs.getBoolean(1) : false,
+                userId,
+                normalizedKind
+        );
+        return exists != null && exists;
     }
 
     public int countActiveVerifiedMembers(long communityId) {

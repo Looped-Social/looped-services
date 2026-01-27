@@ -165,7 +165,7 @@ public class AdminCommunitiesController {
             if (!"specialization".equals(kind) || specializationType == null) {
                 return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of(
                         "error", "invalid_specialization",
-                        "message", "specializationJoinCooldownMonths can only be set for major/department specializations"
+                        "message", "specializationJoinCooldownMonths can only be set for major/field specializations"
                 ));
             }
             if (cooldownMonths == 0) cooldownMonths = null;
@@ -202,10 +202,11 @@ public class AdminCommunitiesController {
             }
             String kind = existing.get().kind == null ? "" : existing.get().kind.trim().toLowerCase(Locale.ROOT);
             String specializationType = existing.get().specializationType == null ? "" : existing.get().specializationType.trim().toLowerCase(Locale.ROOT);
-            if (!"specialization".equals(kind) || (!"major".equals(specializationType) && !"department".equals(specializationType))) {
+            if ("department".equals(specializationType)) specializationType = "field";
+            if (!"specialization".equals(kind) || (!"major".equals(specializationType) && !"field".equals(specializationType))) {
                 return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of(
                         "error", "invalid_specialization",
-                        "message", "specializationJoinCooldownMonths can only be set for major/department specializations"
+                        "message", "specializationJoinCooldownMonths can only be set for major/field specializations"
                 ));
             }
         }
@@ -299,13 +300,13 @@ public class AdminCommunitiesController {
         if (raw == null) return null;
         String normalized = raw.trim().toLowerCase(Locale.ROOT);
         if (normalized.isBlank()) return null;
-        if (normalized.equals("profession") || normalized.equals("proffesion")) {
-            normalized = "sector";
-        }
-        if (normalized.equals("major") || normalized.equals("department")) {
+        if (normalized.equals("profession") || normalized.equals("proffesion")) normalized = "sector";
+        if (normalized.equals("department")) normalized = "field";
+        if (normalized.equals("sector")) normalized = "field";
+        if (normalized.equals("major") || normalized.equals("field")) {
             normalized = "specialization";
         }
-        if (!normalized.equals("company") && !normalized.equals("school") && !normalized.equals("sector") && !normalized.equals("specialization")) {
+        if (!normalized.equals("company") && !normalized.equals("school") && !normalized.equals("specialization")) {
             return null;
         }
         return normalized;
@@ -341,14 +342,17 @@ public class AdminCommunitiesController {
         if (raw == null) return null;
         String normalized = raw.trim().toLowerCase(Locale.ROOT);
         if (normalized.isBlank()) return null;
-        if (!normalized.equals("major") && !normalized.equals("department")) return null;
+        if (normalized.equals("department")) normalized = "field";
+        if (!normalized.equals("major") && !normalized.equals("field")) return null;
         return normalized;
     }
 
     private String normalizeSpecializationTypeFromKind(String raw) {
         if (raw == null) return null;
         String normalized = raw.trim().toLowerCase(Locale.ROOT);
-        if (normalized.equals("major") || normalized.equals("department")) return normalized;
+        if (normalized.equals("department")) normalized = "field";
+        if (normalized.equals("sector")) normalized = "field";
+        if (normalized.equals("major") || normalized.equals("field")) return normalized;
         return null;
     }
 

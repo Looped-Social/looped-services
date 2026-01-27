@@ -62,7 +62,7 @@ class CommunitySearchIntegrationTest extends PostgresTestBase {
                 "INSERT INTO communities(kind, specialization_type, name) VALUES ('specialization','major','Data Science') RETURNING id",
                 Long.class);
         jdbc.queryForObject(
-                "INSERT INTO communities(kind, specialization_type, name) VALUES ('specialization','department','Data Engineering') RETURNING id",
+                "INSERT INTO communities(kind, specialization_type, name) VALUES ('specialization','field','Data Engineering') RETURNING id",
                 Long.class);
         jdbc.queryForObject(
                 "INSERT INTO communities(kind, name) VALUES ('company','RetailCo') RETURNING id",
@@ -81,7 +81,7 @@ class CommunitySearchIntegrationTest extends PostgresTestBase {
     }
 
     @Test
-    void search_filters_by_department() throws Exception {
+    void search_filters_by_field() throws Exception {
         long companyId = jdbc.queryForObject(
                 "INSERT INTO companies(name, domain) VALUES ('SearchTwo', 'searchtwo.com') RETURNING id",
                 Long.class);
@@ -91,18 +91,18 @@ class CommunitySearchIntegrationTest extends PostgresTestBase {
                 "INSERT INTO communities(kind, specialization_type, name) VALUES ('specialization','major','Data Science') RETURNING id",
                 Long.class);
         jdbc.queryForObject(
-                "INSERT INTO communities(kind, specialization_type, name) VALUES ('specialization','department','Data Engineering') RETURNING id",
+                "INSERT INTO communities(kind, specialization_type, name) VALUES ('specialization','field','Data Engineering') RETURNING id",
                 Long.class);
 
         String auth = "Bearer " + token("uid-search-2");
         mockMvc.perform(get("/v1/communities/search")
                         .param("query", "data")
-                        .param("kind", "department")
+                        .param("kind", "field")
                         .header("Authorization", auth))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items", hasSize(1)))
                 .andExpect(jsonPath("$.items[0].kind", equalTo("specialization")))
-                .andExpect(jsonPath("$.items[0].specialization_type", equalTo("department")))
+                .andExpect(jsonPath("$.items[0].specialization_type", equalTo("field")))
                 .andExpect(jsonPath("$.items[0].name", equalTo("Data Engineering")));
     }
 }

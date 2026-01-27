@@ -43,6 +43,11 @@ public class CommunityJoinsController {
                 case USER_NOT_PROVISIONED -> ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "user_not_provisioned"));
                 case NOT_FOUND -> ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "not_found"));
                 case INVALID_SPECIALIZATION -> ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of("error", "invalid_specialization"));
+                case VERIFICATION_REQUIRED -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
+                        "error", "specialization_verification_required",
+                        "specialization_type", res.specializationType(),
+                        "required_verification_kind", res.requiredVerificationKind()
+                ));
                 case LIMIT_REACHED -> ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
                         "error", "specialization_join_limit",
                         "specialization_type", res.specializationType(),
@@ -113,4 +118,3 @@ public class CommunityJoinsController {
         };
     }
 }
-

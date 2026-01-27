@@ -176,7 +176,7 @@ public class UserRepository {
                         "FROM users u " +
                         "JOIN communities c ON c.id = u.display_specialization_id " +
                         "WHERE u.id = ? AND c.kind = 'specialization' " +
-                        "AND c.specialization_type IN ('major','department')",
+                        "AND c.specialization_type IN ('major','field')",
                 (rs, rowNum) -> {
                     DisplaySpecializationRow row = new DisplaySpecializationRow();
                     row.id = rs.getLong("id");

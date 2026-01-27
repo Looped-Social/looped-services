@@ -2,7 +2,6 @@ package com.looped.admin;
 
 import com.looped.communities.CommunitiesRepository;
 import com.looped.communities.CommunityDomainsRepository;
-import com.looped.communities.CommunitySectorLinksRepository;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import org.springframework.http.HttpStatus;
@@ -28,18 +27,15 @@ public class AdminCommunityDomainsController {
     private final AdminAuthService auth;
     private final CommunitiesRepository communities;
     private final CommunityDomainsRepository domains;
-    private final CommunitySectorLinksRepository sectorLinks;
     private final AdminAuditRepository audit;
 
     public AdminCommunityDomainsController(AdminAuthService auth,
                                            CommunitiesRepository communities,
                                            CommunityDomainsRepository domains,
-                                           CommunitySectorLinksRepository sectorLinks,
                                            AdminAuditRepository audit) {
         this.auth = auth;
         this.communities = communities;
         this.domains = domains;
-        this.sectorLinks = sectorLinks;
         this.audit = audit;
     }
 
@@ -56,14 +52,7 @@ public class AdminCommunityDomainsController {
         if (community.isEmpty()) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "not_found"));
         }
-        if (!includeInherited || !"sector".equalsIgnoreCase(community.get().kind)) {
-            return ResponseEntity.ok(Map.of("items", domains.listDomains(id)));
-        }
-        var linkedCompanyIds = sectorLinks.listCompanyIds(id);
-        var combined = new java.util.LinkedHashSet<String>();
-        combined.addAll(domains.listDomains(id));
-        combined.addAll(domains.listDomainsForCommunities(linkedCompanyIds));
-        return ResponseEntity.ok(Map.of("items", java.util.List.copyOf(combined)));
+        return ResponseEntity.ok(Map.of("items", domains.listDomains(id)));
     }
 
     @PostMapping("/{id}/domains")

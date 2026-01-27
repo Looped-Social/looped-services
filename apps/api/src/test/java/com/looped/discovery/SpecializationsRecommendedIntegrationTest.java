@@ -59,7 +59,7 @@ class SpecializationsRecommendedIntegrationTest extends PostgresTestBase {
         jdbc.update("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?)",
                 "uid-spec-1", "specuser", companyId);
         jdbc.update("INSERT INTO communities(kind, specialization_type, name, member_count) VALUES ('specialization','major','Data Science', 10)");
-        jdbc.update("INSERT INTO communities(kind, specialization_type, name, member_count) VALUES ('specialization','department','Engineering', 20)");
+        jdbc.update("INSERT INTO communities(kind, specialization_type, name, member_count) VALUES ('specialization','field','Engineering', 20)");
         jdbc.update("INSERT INTO communities(kind, name, member_count) VALUES ('company','Acme', 30)");
 
         String auth = "Bearer " + token("uid-spec-1");
@@ -70,9 +70,9 @@ class SpecializationsRecommendedIntegrationTest extends PostgresTestBase {
                 .andExpect(jsonPath("$.majors", hasSize(1)))
                 .andExpect(jsonPath("$.majors[0].kind", equalTo("specialization")))
                 .andExpect(jsonPath("$.majors[0].specialization_type", equalTo("major")))
-                .andExpect(jsonPath("$.departments", hasSize(1)))
-                .andExpect(jsonPath("$.departments[0].kind", equalTo("specialization")))
-                .andExpect(jsonPath("$.departments[0].specialization_type", equalTo("department")));
+                .andExpect(jsonPath("$.fields", hasSize(1)))
+                .andExpect(jsonPath("$.fields[0].kind", equalTo("specialization")))
+                .andExpect(jsonPath("$.fields[0].specialization_type", equalTo("field")));
     }
 
     @Test
@@ -91,4 +91,3 @@ class SpecializationsRecommendedIntegrationTest extends PostgresTestBase {
                 .andExpect(jsonPath("$.error", equalTo("invalid_specialization_type")));
     }
 }
-

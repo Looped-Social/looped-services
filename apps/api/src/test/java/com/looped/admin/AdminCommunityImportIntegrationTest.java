@@ -55,15 +55,16 @@ class AdminCommunityImportIntegrationTest extends PostgresTestBase {
     }
 
     @Test
-    void import_csv_creates_companies_sectors_and_domains() throws Exception {
+    void import_csv_creates_companies_fields_and_domains() throws Exception {
         admins.insert(null, "admin@looped.com", "owner", "active",
                 List.of(AdminPermissions.CREATE_COMMUNITY));
         String auth = "Bearer " + token("admin-uid", "admin@looped.com");
 
         String csv = """
-                community_type,display_name,sector,authorized_domains,description,website,rank,source
-                company,Walmart,Retailing,walmart.com,Verified community for Walmart,,,top_companies
-                company,Target,Retailing,target.com,Verified community for Target,,,top_companies
+                community_type,display_name,authorized_domains,description
+                company,Walmart,walmart.com,Verified community for Walmart
+                company,Target,target.com,Verified community for Target
+                field,Retail,,
                 """;
 
         var request = MockMvcRequestBuilders.multipart("/v1/admin/communities/import-csv")
@@ -73,22 +74,16 @@ class AdminCommunityImportIntegrationTest extends PostgresTestBase {
 
         mockMvc.perform(request)
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.rows_total", equalTo(2)))
-                .andExpect(jsonPath("$.communities_created", equalTo(2)))
-                .andExpect(jsonPath("$.sectors_created", equalTo(1)))
-                .andExpect(jsonPath("$.links_created", equalTo(2)))
+                .andExpect(jsonPath("$.rows_total", equalTo(3)))
+                .andExpect(jsonPath("$.communities_created", equalTo(3)))
                 .andExpect(jsonPath("$.domains_added", equalTo(2)));
 
         Integer companies = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM communities WHERE kind = 'company'",
                 Integer.class
         );
-        Integer sectors = jdbc.queryForObject(
-                "SELECT COUNT(*) FROM communities WHERE kind = 'sector'",
-                Integer.class
-        );
-        Integer links = jdbc.queryForObject(
-                "SELECT COUNT(*) FROM community_sector_links",
+        Integer fields = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM communities WHERE kind = 'specialization' AND specialization_type = 'field'",
                 Integer.class
         );
         Integer domains = jdbc.queryForObject(
@@ -97,8 +92,7 @@ class AdminCommunityImportIntegrationTest extends PostgresTestBase {
         );
 
         org.junit.jupiter.api.Assertions.assertEquals(2, companies.intValue());
-        org.junit.jupiter.api.Assertions.assertEquals(1, sectors.intValue());
-        org.junit.jupiter.api.Assertions.assertEquals(2, links.intValue());
+        org.junit.jupiter.api.Assertions.assertEquals(1, fields.intValue());
         org.junit.jupiter.api.Assertions.assertEquals(2, domains.intValue());
     }
 }

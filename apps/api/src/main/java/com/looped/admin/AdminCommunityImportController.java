@@ -2,7 +2,6 @@ package com.looped.admin;
 
 import com.looped.communities.CommunitiesRepository;
 import com.looped.communities.CommunityDomainsRepository;
-import com.looped.communities.CommunitySectorLinksRepository;
 import org.apache.commons.csv.CSVFormat;
 import org.apache.commons.csv.CSVParser;
 import org.apache.commons.csv.CSVRecord;
@@ -34,18 +33,15 @@ public class AdminCommunityImportController {
     private final AdminAuthService auth;
     private final CommunitiesRepository communities;
     private final CommunityDomainsRepository domains;
-    private final CommunitySectorLinksRepository links;
     private final AdminAuditRepository audit;
 
     public AdminCommunityImportController(AdminAuthService auth,
                                           CommunitiesRepository communities,
                                           CommunityDomainsRepository domains,
-                                          CommunitySectorLinksRepository links,
                                           AdminAuditRepository audit) {
         this.auth = auth;
         this.communities = communities;
         this.domains = domains;
-        this.links = links;
         this.audit = audit;
     }
 
@@ -104,7 +100,6 @@ public class AdminCommunityImportController {
                     continue;
                 }
                 String description = normalizeDescription(field(record, headerMap, "description"));
-                String sectorName = normalizeName(field(record, headerMap, "sector"));
                 String domainsRaw = field(record, headerMap, "authorized_domains");
 
                 CommunityResult communityResult = getOrCreateCommunity(kind, specializationType, name, description);
@@ -120,14 +115,6 @@ public class AdminCommunityImportController {
                     }
                     if (domains.insert(communityResult.id, normalizedDomain)) {
                         summary.domainsAdded += 1;
-                    }
-                }
-
-                if (isSectorLinkableKind(kind) && sectorName != null) {
-                    CommunityResult sectorResult = getOrCreateCommunity("sector", null, sectorName, null);
-                    if (sectorResult.created) summary.sectorsCreated += 1;
-                    if (links.insert(sectorResult.id, communityResult.id)) {
-                        summary.linksCreated += 1;
                     }
                 }
             }
@@ -168,16 +155,16 @@ public class AdminCommunityImportController {
         if (rawKind == null) return null;
         String normalized = rawKind.trim().toLowerCase(Locale.ROOT);
         if (normalized.isBlank()) return null;
-        if (normalized.equals("profession") || normalized.equals("proffesion")) {
-            normalized = "sector";
-        }
-        if (normalized.equals("major") || normalized.equals("department")) {
+        if (normalized.equals("profession") || normalized.equals("proffesion")) normalized = "sector";
+        if (normalized.equals("department")) normalized = "field";
+        if (normalized.equals("sector")) normalized = "field";
+        if (normalized.equals("major") || normalized.equals("field")) {
             return new KindResult("specialization", normalized);
         }
         if (normalized.equals("specialization")) {
             return new KindResult("specialization", normalizeSpecializationType(rawSpecializationType));
         }
-        if (!normalized.equals("company") && !normalized.equals("school") && !normalized.equals("sector")) {
+        if (!normalized.equals("company") && !normalized.equals("school")) {
             return null;
         }
         return new KindResult(normalized, null);
@@ -199,7 +186,8 @@ public class AdminCommunityImportController {
         if (raw == null) return null;
         String normalized = raw.trim().toLowerCase(Locale.ROOT);
         if (normalized.isBlank()) return null;
-        if (!normalized.equals("major") && !normalized.equals("department")) return null;
+        if (normalized.equals("department")) normalized = "field";
+        if (!normalized.equals("major") && !normalized.equals("field")) return null;
         return normalized;
     }
 
@@ -212,10 +200,6 @@ public class AdminCommunityImportController {
             if (!cleaned.isBlank()) out.add(cleaned);
         }
         return out;
-    }
-
-    private boolean isSectorLinkableKind(String kind) {
-        return "company".equals(kind) || "school".equals(kind);
     }
 
     private CommunityResult getOrCreateCommunity(String kind, String specializationType, String name, String description) {
@@ -243,8 +227,6 @@ public class AdminCommunityImportController {
         int rowsTotal;
         int communitiesCreated;
         int communitiesSkipped;
-        int sectorsCreated;
-        int linksCreated;
         int domainsAdded;
         List<Map<String, Object>> errors = new ArrayList<>();
         String error;
@@ -274,8 +256,6 @@ public class AdminCommunityImportController {
             out.put("rows_total", rowsTotal);
             out.put("communities_created", communitiesCreated);
             out.put("communities_skipped", communitiesSkipped);
-            out.put("sectors_created", sectorsCreated);
-            out.put("links_created", linksCreated);
             out.put("domains_added", domainsAdded);
             if (!errors.isEmpty()) out.put("errors", errors);
             return out;

@@ -74,7 +74,8 @@ public class CommunitiesController {
         out.put("is_following", follows.exists(actor.get().id, id));
         if ("specialization".equalsIgnoreCase(community.kind)) {
             String t = community.specializationType == null ? "" : community.specializationType.trim().toLowerCase(java.util.Locale.ROOT);
-            if (t.equals("major") || t.equals("department")) {
+            if (t.equals("department")) t = "field";
+            if (t.equals("major") || t.equals("field")) {
                 out.put("is_joined", specializationJoins.exists(actor.get().id, id));
                 var snap = specializationMemberships.joinLimitSnapshotForUserId(actor.get().id, t);
                 Map<String, Object> joinLimit = new HashMap<>();
@@ -88,6 +89,7 @@ public class CommunitiesController {
                 if (snap.cooldownDaysRemaining() != null) joinLimit.put("cooldown_days_remaining", snap.cooldownDaysRemaining());
                 joinLimit.put("can_join", snap.canJoin());
                 if (snap.blockedReason() != null) joinLimit.put("blocked_reason", snap.blockedReason());
+                if (snap.requiredVerificationKind() != null) joinLimit.put("required_verification_kind", snap.requiredVerificationKind());
                 out.put("join_limit", joinLimit);
             }
         }

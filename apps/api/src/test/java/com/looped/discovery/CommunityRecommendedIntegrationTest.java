@@ -62,7 +62,7 @@ class CommunityRecommendedIntegrationTest extends PostgresTestBase {
                 "INSERT INTO communities(kind, specialization_type, name, member_count) VALUES ('specialization','major','Data Science', 10) RETURNING id",
                 Long.class
         );
-        jdbc.update("INSERT INTO communities(kind, specialization_type, name, member_count) VALUES ('specialization','department','Engineering', 20)");
+        jdbc.update("INSERT INTO communities(kind, specialization_type, name, member_count) VALUES ('specialization','field','Engineering', 20)");
         jdbc.update("INSERT INTO communities(kind, name, member_count) VALUES ('company','Acme', 30)");
         long otherUserA = jdbc.queryForObject(
                 "INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?) RETURNING id",

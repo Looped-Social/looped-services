@@ -72,10 +72,7 @@ public class CommunityRequestsService {
         if (raw == null) return null;
         String normalized = raw.trim().toLowerCase(Locale.ROOT);
         if (normalized.isBlank()) return null;
-        if (normalized.equals("profession") || normalized.equals("proffesion")) {
-            normalized = "sector";
-        }
-        if (!normalized.equals("company") && !normalized.equals("school") && !normalized.equals("sector")) {
+        if (!normalized.equals("company") && !normalized.equals("school")) {
             return null;
         }
         return normalized;

@@ -8,6 +8,11 @@ data "aws_ecr_repository" "api" {
   name = var.ecr_repository_name
 }
 
+data "aws_ecr_repository" "notif_worker" {
+  count = var.enable_notif_worker ? 1 : 0
+  name  = var.notif_worker_ecr_repository_name
+}
+
 locals {
   env = var.environment
 
@@ -56,6 +61,13 @@ module "ssm" {
   auth_audience = var.auth_audience
   auth_jwks_uri = var.auth_jwks_uri
   tags          = local.tags
+}
+
+module "notifications" {
+  source      = "../../modules/notifications"
+  name_prefix = var.name_prefix
+  environment = local.env
+  tags        = local.tags
 }
 
 module "api" {
@@ -110,4 +122,31 @@ module "api" {
 
   logo_dev_token  = var.logo_dev_token
   logo_dev_retina = var.logo_dev_retina
+
+  sqs_notif_queue_url = var.enable_push_notifications ? module.notifications.notif_queue_url : ""
+  sqs_notif_queue_arn = var.enable_push_notifications ? module.notifications.notif_queue_arn : ""
+}
+
+module "notif_worker" {
+  count       = var.enable_notif_worker ? 1 : 0
+  source      = "../../modules/notif-worker"
+  name_prefix = var.name_prefix
+  environment = local.env
+  tags        = local.tags
+
+  vpc_id             = module.network.vpc_id
+  private_subnet_ids = module.network.private_subnet_ids
+  cluster_name       = module.api.ecs_cluster_name
+
+  aws_region = var.aws_region
+  ecr_image  = "${data.aws_ecr_repository.notif_worker[0].repository_url}:${var.notif_worker_image_tag}"
+
+  sqs_notif_queue_url = module.notifications.notif_queue_url
+  sqs_notif_queue_arn = module.notifications.notif_queue_arn
+
+  apns_bundle_id              = var.apns_bundle_id
+  apns_team_id                = var.apns_team_id
+  apns_key_id                 = var.apns_key_id
+  apns_sandbox                = var.apns_sandbox
+  apns_auth_key_p8_secret_arn = var.apns_auth_key_p8_secret_arn
 }

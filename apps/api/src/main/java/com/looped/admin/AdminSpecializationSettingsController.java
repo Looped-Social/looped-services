@@ -41,10 +41,17 @@ public class AdminSpecializationSettingsController {
         if (authRes.status() != AdminAuthService.Status.OK) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "forbidden"));
         }
-        long fallback = specializationProps.getDefaultJoinCooldownMonths();
-        long months = settings.findLong(AppSettingsKeys.SPECIALIZATIONS_DEFAULT_JOIN_COOLDOWN_MONTHS).orElse(fallback);
+        long fallbackCooldown = specializationProps.getDefaultJoinCooldownMonths();
+        long months = settings.findLong(AppSettingsKeys.SPECIALIZATIONS_DEFAULT_JOIN_COOLDOWN_MONTHS).orElse(fallbackCooldown);
+
+        long fallbackMaxMajor = specializationProps.getDefaultMaxJoinsMajor();
+        long fallbackMaxField = specializationProps.getDefaultMaxJoinsField();
+        long maxMajor = settings.findLong(AppSettingsKeys.SPECIALIZATIONS_MAX_JOINS_MAJOR).orElse(fallbackMaxMajor);
+        long maxField = settings.findLong(AppSettingsKeys.SPECIALIZATIONS_MAX_JOINS_FIELD).orElse(fallbackMaxField);
         return ResponseEntity.ok(Map.of(
-                "default_join_cooldown_months", months
+                "default_join_cooldown_months", months,
+                "max_joins_major", maxMajor,
+                "max_joins_field", maxField
         ));
     }
 
@@ -56,22 +63,64 @@ public class AdminSpecializationSettingsController {
         if (authRes.status() != AdminAuthService.Status.OK) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "forbidden"));
         }
-        if (body == null || body.defaultJoinCooldownMonths() == null) {
+        boolean hasCooldown = body != null && body.defaultJoinCooldownMonths() != null;
+        boolean hasMaxMajor = body != null && body.maxJoinsMajor() != null;
+        boolean hasMaxField = body != null && body.maxJoinsField() != null;
+        if (!hasCooldown && !hasMaxMajor && !hasMaxField) {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of("error", "no_changes"));
         }
-        long months = body.defaultJoinCooldownMonths();
-        if (months < 1 || months > 120) {
-            return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of(
-                    "error", "invalid_default_join_cooldown_months",
-                    "message", "defaultJoinCooldownMonths must be between 1 and 120"
-            ));
+        StringBuilder meta = new StringBuilder();
+        Map<String, Object> out = new java.util.HashMap<>();
+
+        if (hasCooldown) {
+            long months = body.defaultJoinCooldownMonths();
+            if (months < 1 || months > 120) {
+                return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of(
+                        "error", "invalid_default_join_cooldown_months",
+                        "message", "defaultJoinCooldownMonths must be between 1 and 120"
+                ));
+            }
+            settings.upsertLong(AppSettingsKeys.SPECIALIZATIONS_DEFAULT_JOIN_COOLDOWN_MONTHS, months, authRes.admin().id);
+            out.put("default_join_cooldown_months", months);
+            meta.append("default_join_cooldown_months=").append(months);
         }
-        settings.upsertLong(AppSettingsKeys.SPECIALIZATIONS_DEFAULT_JOIN_COOLDOWN_MONTHS, months, authRes.admin().id);
+
+        if (hasMaxMajor) {
+            long max = body.maxJoinsMajor();
+            if (max < 1 || max > 20) {
+                return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of(
+                        "error", "invalid_max_joins_major",
+                        "message", "maxJoinsMajor must be between 1 and 20"
+                ));
+            }
+            settings.upsertLong(AppSettingsKeys.SPECIALIZATIONS_MAX_JOINS_MAJOR, max, authRes.admin().id);
+            out.put("max_joins_major", max);
+            if (meta.length() > 0) meta.append(",");
+            meta.append("max_joins_major=").append(max);
+        }
+
+        if (hasMaxField) {
+            long max = body.maxJoinsField();
+            if (max < 1 || max > 20) {
+                return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of(
+                        "error", "invalid_max_joins_field",
+                        "message", "maxJoinsField must be between 1 and 20"
+                ));
+            }
+            settings.upsertLong(AppSettingsKeys.SPECIALIZATIONS_MAX_JOINS_FIELD, max, authRes.admin().id);
+            out.put("max_joins_field", max);
+            if (meta.length() > 0) meta.append(",");
+            meta.append("max_joins_field=").append(max);
+        }
+
         audit.log(authRes.admin().id, "settings.specializations.update", "settings", null,
-                "default_join_cooldown_months=" + months);
-        return ResponseEntity.ok(Map.of("default_join_cooldown_months", months));
+                meta.length() == 0 ? null : meta.toString());
+        return ResponseEntity.ok(out);
     }
 
-    public record UpdateSpecializationsSettingsRequest(@JsonProperty("defaultJoinCooldownMonths") Long defaultJoinCooldownMonths) {}
+    public record UpdateSpecializationsSettingsRequest(
+            @JsonProperty("defaultJoinCooldownMonths") Long defaultJoinCooldownMonths,
+            @JsonProperty("maxJoinsMajor") Long maxJoinsMajor,
+            @JsonProperty("maxJoinsField") Long maxJoinsField
+    ) {}
 }
-

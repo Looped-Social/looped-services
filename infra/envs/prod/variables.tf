@@ -178,6 +178,60 @@ variable "logo_dev_retina" {
   default     = true
 }
 
+variable "enable_notif_worker" {
+  type        = bool
+  description = "When true, provisions the notif-worker ECS service (SQS consumer) for this environment."
+  default     = false
+}
+
+variable "enable_push_notifications" {
+  type        = bool
+  description = "When true, provisions the notifications SQS queue and enables the API SQS push producer."
+  default     = true
+}
+
+variable "notif_worker_ecr_repository_name" {
+  type        = string
+  description = "ECR repo name containing the notif-worker image."
+  default     = "looped-notif-worker"
+}
+
+variable "notif_worker_image_tag" {
+  type        = string
+  description = "ECR image tag to run for notif-worker."
+  default     = "prod"
+}
+
+variable "apns_bundle_id" {
+  type        = string
+  description = "APNs bundle id (topic) for this environment."
+  default     = ""
+}
+
+variable "apns_team_id" {
+  type        = string
+  description = "Apple Developer Team ID."
+  default     = ""
+}
+
+variable "apns_key_id" {
+  type        = string
+  description = "APNs Auth Key ID (kid)."
+  default     = ""
+}
+
+variable "apns_sandbox" {
+  type        = bool
+  description = "If true, notif-worker uses the APNs sandbox host."
+  default     = false
+}
+
+variable "apns_auth_key_p8_secret_arn" {
+  type        = string
+  description = "Secrets Manager ARN containing base64-encoded APNs auth key (.p8)."
+  default     = ""
+}
+
 variable "media_cloudfront_aliases" {
   type        = list(string)
   description = "Optional custom domain aliases for the media CloudFront distribution (e.g. [\"media.mylooped.app\"])."

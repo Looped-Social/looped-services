@@ -38,7 +38,7 @@ public class SpecializationsController {
     @PostMapping("/specializations/{id}/follow")
     public ResponseEntity<?> followSpecialization(@AuthenticationPrincipal Jwt jwt,
                                                   @PathVariable("id") long id) {
-        var valid = validateMajorOrDepartment(id);
+        var valid = validateMajorOrField(id);
         if (valid != null) return valid;
         var res = communityFollows.follow(jwt.getSubject(), id);
         return switch (res.status()) {
@@ -55,7 +55,7 @@ public class SpecializationsController {
     @DeleteMapping("/specializations/{id}/follow")
     public ResponseEntity<?> unfollowSpecialization(@AuthenticationPrincipal Jwt jwt,
                                                     @PathVariable("id") long id) {
-        var valid = validateMajorOrDepartment(id);
+        var valid = validateMajorOrField(id);
         if (valid != null) return valid;
         var res = communityFollows.unfollow(jwt.getSubject(), id);
         return switch (res.status()) {
@@ -78,7 +78,13 @@ public class SpecializationsController {
             case NOT_FOUND -> ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "specialization_not_found"));
             case INVALID_SPECIALIZATION -> ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of(
                     "error", "invalid_specialization",
-                    "message", "Specialization must be a major or department"
+                    "message", "Specialization must be a major or field"
+            ));
+            case VERIFICATION_REQUIRED -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
+                    "error", "specialization_verification_required",
+                    "message", verificationRequiredMessage(res.specializationType(), res.requiredVerificationKind()),
+                    "specialization_type", res.specializationType(),
+                    "required_verification_kind", res.requiredVerificationKind()
             ));
             case LIMIT_REACHED -> ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
                     "error", "specialization_join_limit",
@@ -115,7 +121,7 @@ public class SpecializationsController {
             case NOT_FOUND -> ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "specialization_not_found"));
             case INVALID_SPECIALIZATION -> ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of(
                     "error", "invalid_specialization",
-                    "message", "Specialization must be a major or department"
+                    "message", "Specialization must be a major or field"
             ));
             case OK -> ResponseEntity.ok(Map.of(
                     "specialization_id", id,
@@ -138,7 +144,7 @@ public class SpecializationsController {
         if (normalized == null) {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of(
                     "error", "invalid_specialization_type",
-                    "message", "type must be major, department, or all"
+                    "message", "type must be major, field, or all"
             ));
         }
         var res = memberships.joined(jwt.getSubject(), requested, cursor, lim);
@@ -171,7 +177,7 @@ public class SpecializationsController {
         if (normalized == null) {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of(
                     "error", "invalid_specialization_type",
-                    "message", "type must be major, department, or all"
+                    "message", "type must be major, field, or all"
             ));
         }
 
@@ -208,6 +214,7 @@ public class SpecializationsController {
         if (snap.cooldownDaysRemaining() != null) out.put("cooldown_days_remaining", snap.cooldownDaysRemaining());
         out.put("can_join", snap.canJoin());
         if (snap.blockedReason() != null) out.put("blocked_reason", snap.blockedReason());
+        if (snap.requiredVerificationKind() != null) out.put("required_verification_kind", snap.requiredVerificationKind());
         return out;
     }
 
@@ -227,13 +234,13 @@ public class SpecializationsController {
 
     private String limitMessage(String specializationType, Integer limit) {
         if (specializationType == null || limit == null) return "Specialization join limit reached";
-        String label = specializationType.equals("major") ? "majors" : "departments";
+        String label = specializationType.equals("major") ? "majors" : "fields";
         return "You can only join up to " + limit + " " + label + ".";
     }
 
     private String cooldownMessage(String specializationType, Integer cooldownMonths) {
         if (specializationType == null) return "You must wait before changing specializations.";
-        String label = specializationType.equals("major") ? "majors" : "departments";
+        String label = specializationType.equals("major") ? "majors" : "fields";
         if (cooldownMonths == null || cooldownMonths <= 0) {
             return "You must wait before changing " + label + ".";
         }
@@ -241,7 +248,16 @@ public class SpecializationsController {
         return "You must wait " + cooldownMonths + " " + unit + " before changing " + label + ".";
     }
 
-    private ResponseEntity<?> validateMajorOrDepartment(long specializationId) {
+    private String verificationRequiredMessage(String specializationType, String requiredKind) {
+        if (specializationType == null || requiredKind == null) {
+            return "You must be verified before joining this specialization.";
+        }
+        String label = specializationType.equals("major") ? "majors" : "fields";
+        String requiredLabel = requiredKind.equals("school") ? "school" : requiredKind;
+        return "Verify at least one " + requiredLabel + " before joining " + label + ".";
+    }
+
+    private ResponseEntity<?> validateMajorOrField(long specializationId) {
         var communityOpt = communities.findById(specializationId);
         if (communityOpt.isEmpty()) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "specialization_not_found"));
@@ -250,14 +266,15 @@ public class SpecializationsController {
         if (!"specialization".equalsIgnoreCase(community.kind)) {
             return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of(
                     "error", "invalid_specialization",
-                    "message", "Specialization must be a major or department"
+                    "message", "Specialization must be a major or field"
             ));
         }
         String t = community.specializationType == null ? "" : community.specializationType.trim().toLowerCase(java.util.Locale.ROOT);
-        if (!t.equals("major") && !t.equals("department")) {
+        if (t.equals("department")) t = "field";
+        if (!t.equals("major") && !t.equals("field")) {
             return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of(
                     "error", "invalid_specialization",
-                    "message", "Specialization must be a major or department"
+                    "message", "Specialization must be a major or field"
             ));
         }
         return null;
@@ -266,8 +283,9 @@ public class SpecializationsController {
     private String normalizeListType(String raw) {
         if (raw == null || raw.isBlank()) return "all";
         String n = raw.trim().toLowerCase(java.util.Locale.ROOT);
+        if ("department".equals(n)) n = "field";
         if ("all".equals(n)) return "all";
-        if ("major".equals(n) || "department".equals(n)) return n;
+        if ("major".equals(n) || "field".equals(n)) return n;
         return null;
     }
 }

@@ -63,7 +63,7 @@ class FeedIntegrationTest extends PostgresTestBase {
                 "uid-feed", "erin", acmeId);
         long principalId = jdbc.queryForObject("INSERT INTO principals(kind, user_id) VALUES ('user', ?) RETURNING id", Long.class, userId);
         long commA = jdbc.queryForObject("INSERT INTO communities(kind, name) VALUES ('company', 'Acme') RETURNING id", Long.class);
-        long commB = jdbc.queryForObject("INSERT INTO communities(kind, name) VALUES ('sector', 'Finance') RETURNING id", Long.class);
+        long commB = jdbc.queryForObject("INSERT INTO communities(kind, name) VALUES ('company', 'Finance') RETURNING id", Long.class);
 
         Instant base = Instant.now();
         jdbc.update(
@@ -107,8 +107,8 @@ class FeedIntegrationTest extends PostgresTestBase {
                 "uid-loop-feed", "lena", acmeId);
         long principalId = jdbc.queryForObject("INSERT INTO principals(kind, user_id) VALUES ('user', ?) RETURNING id", Long.class, userId);
 
-        long commA = jdbc.queryForObject("INSERT INTO communities(kind, name) VALUES ('sector', ?) RETURNING id", Long.class, "Finance");
-        long commB = jdbc.queryForObject("INSERT INTO communities(kind, name) VALUES ('sector', ?) RETURNING id", Long.class, "Product");
+        long commA = jdbc.queryForObject("INSERT INTO communities(kind, name) VALUES ('company', ?) RETURNING id", Long.class, "Finance");
+        long commB = jdbc.queryForObject("INSERT INTO communities(kind, name) VALUES ('company', ?) RETURNING id", Long.class, "Product");
 
         Instant base = Instant.now();
         jdbc.update("INSERT INTO posts(author_id, author_principal_id, company_id, community_id, content, created_at) VALUES (?,?,?,?,?,?)",

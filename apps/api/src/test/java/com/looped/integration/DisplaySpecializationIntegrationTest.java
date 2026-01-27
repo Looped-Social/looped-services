@@ -56,9 +56,23 @@ class DisplaySpecializationIntegrationTest extends PostgresTestBase {
     }
 
     @Test
-    void set_display_specialization_allows_major_or_department() throws Exception {
+    void set_display_specialization_allows_major_or_field() throws Exception {
         long companyId = jdbc.queryForObject("INSERT INTO companies(name, domain) VALUES ('SpecCo','spec.co') RETURNING id", Long.class);
-        jdbc.update("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?)", "uid-display-spec", "displayspec", companyId);
+        long userId = jdbc.queryForObject(
+                "INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?) RETURNING id",
+                Long.class,
+                "uid-display-spec",
+                "displayspec",
+                companyId
+        );
+        long schoolId = jdbc.queryForObject(
+                "INSERT INTO communities(kind, name) VALUES ('school', 'Spec School') RETURNING id",
+                Long.class
+        );
+        jdbc.update(
+                "INSERT INTO community_verifications(user_id, community_id, method, verified, expires_at) VALUES (?,?,?,?, NULL)",
+                userId, schoolId, "manual", true
+        );
         long specializationId = jdbc.queryForObject(
                 "INSERT INTO communities(kind, specialization_type, name) VALUES ('specialization', 'major', 'Data Science') RETURNING id",
                 Long.class
@@ -85,7 +99,7 @@ class DisplaySpecializationIntegrationTest extends PostgresTestBase {
         long companyId = jdbc.queryForObject("INSERT INTO companies(name, domain) VALUES ('SpecJoin','spec.join') RETURNING id", Long.class);
         jdbc.update("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?)", "uid-display-spec-join", "displayspecjoin", companyId);
         long specializationId = jdbc.queryForObject(
-                "INSERT INTO communities(kind, specialization_type, name) VALUES ('specialization', 'department', 'Engineering') RETURNING id",
+                "INSERT INTO communities(kind, specialization_type, name) VALUES ('specialization', 'field', 'Engineering') RETURNING id",
                 Long.class
         );
 

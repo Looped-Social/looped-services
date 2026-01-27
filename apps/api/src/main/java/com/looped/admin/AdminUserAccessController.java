@@ -143,7 +143,7 @@ public class AdminUserAccessController {
         if (normalizedType == null || "all".equals(normalizedType)) {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of(
                     "error", "invalid_specialization_type",
-                    "message", "specializationType must be major or department"
+                    "message", "specializationType must be major or field"
             ));
         }
         int clearedCooldowns = specializationLimits.deleteLastChange(userId, normalizedType, SPECIALIZATION_LIMIT_SCOPE) ? 1 : 0;
@@ -175,7 +175,7 @@ public class AdminUserAccessController {
         if (normalizedType == null) {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of(
                     "error", "invalid_specialization_type",
-                    "message", "specialization_type must be major, department, or all"
+                    "message", "specialization_type must be major, field, or all"
             ));
         }
         boolean clearJoins = body != null && Boolean.TRUE.equals(body.clearJoins());
@@ -198,10 +198,11 @@ public class AdminUserAccessController {
     private String normalizeType(String raw) {
         if (raw == null || raw.isBlank()) return "all";
         String normalized = raw.trim().toLowerCase(Locale.ROOT);
+        if ("department".equals(normalized)) normalized = "field";
         return switch (normalized) {
             case "all" -> "all";
             case "major" -> "major";
-            case "department" -> "department";
+            case "field" -> "field";
             default -> null;
         };
     }
@@ -213,9 +214,9 @@ public class AdminUserAccessController {
             if (specializationLimits.deleteLastChange(userId, "major", SPECIALIZATION_LIMIT_SCOPE)) clearedCooldowns++;
             if (clearJoins) removedJoins += specializationJoins.deleteJoinedByType(userId, "major");
         }
-        if ("all".equals(normalizedType) || "department".equals(normalizedType)) {
-            if (specializationLimits.deleteLastChange(userId, "department", SPECIALIZATION_LIMIT_SCOPE)) clearedCooldowns++;
-            if (clearJoins) removedJoins += specializationJoins.deleteJoinedByType(userId, "department");
+        if ("all".equals(normalizedType) || "field".equals(normalizedType)) {
+            if (specializationLimits.deleteLastChange(userId, "field", SPECIALIZATION_LIMIT_SCOPE)) clearedCooldowns++;
+            if (clearJoins) removedJoins += specializationJoins.deleteJoinedByType(userId, "field");
         }
         return new ResetCounts(clearedCooldowns, removedJoins);
     }

@@ -65,7 +65,7 @@ class AdminAnalyticsIntegrationTest extends PostgresTestBase {
                 "INSERT INTO companies(name, domain) VALUES ('Acme', 'acme.com') RETURNING id",
                 Long.class);
         long communityId = jdbc.queryForObject(
-                "INSERT INTO communities(kind, name) VALUES ('sector', 'Design') RETURNING id",
+                "INSERT INTO communities(kind, name) VALUES ('company', 'Design') RETURNING id",
                 Long.class);
         long authorId = jdbc.queryForObject(
                 "INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?) RETURNING id",
@@ -135,7 +135,7 @@ class AdminAnalyticsIntegrationTest extends PostgresTestBase {
                 "INSERT INTO companies(name, domain) VALUES ('Acme', 'acme.com') RETURNING id",
                 Long.class);
         long communityId = jdbc.queryForObject(
-                "INSERT INTO communities(kind, name) VALUES ('sector', 'Design') RETURNING id",
+                "INSERT INTO communities(kind, name) VALUES ('company', 'Design') RETURNING id",
                 Long.class);
 
         long user1 = jdbc.queryForObject(
@@ -296,7 +296,7 @@ class AdminAnalyticsIntegrationTest extends PostgresTestBase {
                 "INSERT INTO companies(name, domain) VALUES ('ContentCo', 'content.com') RETURNING id",
                 Long.class);
         long communityId = jdbc.queryForObject(
-                "INSERT INTO communities(kind, name) VALUES ('sector', 'Eng') RETURNING id",
+                "INSERT INTO communities(kind, name) VALUES ('company', 'Eng') RETURNING id",
                 Long.class);
         long userId = jdbc.queryForObject(
                 "INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?) RETURNING id",
@@ -329,7 +329,7 @@ class AdminAnalyticsIntegrationTest extends PostgresTestBase {
                 "INSERT INTO companies(name, domain) VALUES ('ModCo', 'mod.com') RETURNING id",
                 Long.class);
         long communityId = jdbc.queryForObject(
-                "INSERT INTO communities(kind, name) VALUES ('sector', 'Mod') RETURNING id",
+                "INSERT INTO communities(kind, name) VALUES ('company', 'Mod') RETURNING id",
                 Long.class);
         long userId = jdbc.queryForObject(
                 "INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?) RETURNING id",

@@ -114,7 +114,21 @@ class CommunityDetailsIntegrationTest extends PostgresTestBase {
     @Test
     void specialization_details_include_join_limit_snapshot_and_me_endpoint_exposes_limits() throws Exception {
         long companyId = jdbc.queryForObject("INSERT INTO companies(name, domain) VALUES ('SpecLimitCo','speclimit.co') RETURNING id", Long.class);
-        jdbc.update("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?)", "uid-spec-limits", "speclimits", companyId);
+        long userId = jdbc.queryForObject(
+                "INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?) RETURNING id",
+                Long.class,
+                "uid-spec-limits",
+                "speclimits",
+                companyId
+        );
+        long schoolId = jdbc.queryForObject(
+                "INSERT INTO communities(kind, name) VALUES ('school', 'Test University') RETURNING id",
+                Long.class
+        );
+        jdbc.update(
+                "INSERT INTO community_verifications(user_id, community_id, method, verified, expires_at) VALUES (?,?,?,?, NULL)",
+                userId, schoolId, "manual", true
+        );
         long majorId = jdbc.queryForObject(
                 "INSERT INTO communities(kind, specialization_type, name) VALUES ('specialization','major','Computer Science') RETURNING id",
                 Long.class
@@ -138,7 +152,8 @@ class CommunityDetailsIntegrationTest extends PostgresTestBase {
                 .andExpect(jsonPath("$.join_limit.joined_count").value(1))
                 .andExpect(jsonPath("$.join_limit.remaining").value(1))
                 .andExpect(jsonPath("$.join_limit.cooldown_active").value(false))
-                .andExpect(jsonPath("$.join_limit.can_join").value(true));
+                .andExpect(jsonPath("$.join_limit.can_join").value(true))
+                .andExpect(jsonPath("$.join_limit.required_verification_kind").value("school"));
 
         mockMvc.perform(get("/v1/me/specializations/join-limits?type=major")
                         .header("Authorization", auth))
@@ -148,7 +163,8 @@ class CommunityDetailsIntegrationTest extends PostgresTestBase {
                 .andExpect(jsonPath("$.items[0].joined_count").value(1))
                 .andExpect(jsonPath("$.items[0].remaining").value(1))
                 .andExpect(jsonPath("$.items[0].cooldown_active").value(false))
-                .andExpect(jsonPath("$.items[0].can_join").value(true));
+                .andExpect(jsonPath("$.items[0].can_join").value(true))
+                .andExpect(jsonPath("$.items[0].required_verification_kind").value("school"));
 
         mockMvc.perform(delete("/v1/specializations/" + majorId + "/join")
                         .header("Authorization", auth))

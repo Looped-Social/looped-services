@@ -64,7 +64,7 @@ class CommunityRequestsIntegrationTest extends PostgresTestBase {
         String auth = "Bearer " + token("uid-community-request");
         String body = """
                 {
-                  "type": "profession",
+                  "type": "company",
                   "name": "Design",
                   "about": "For designers"
                 }
@@ -81,7 +81,7 @@ class CommunityRequestsIntegrationTest extends PostgresTestBase {
                         .header("Authorization", auth))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items", hasSize(1)))
-                .andExpect(jsonPath("$.items[0].kind", equalTo("sector")))
+                .andExpect(jsonPath("$.items[0].kind", equalTo("company")))
                 .andExpect(jsonPath("$.items[0].name", equalTo("Design")))
                 .andExpect(jsonPath("$.items[0].description", equalTo("For designers")))
                 .andExpect(jsonPath("$.items[0].status", equalTo("pending")));

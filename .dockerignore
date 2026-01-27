@@ -5,6 +5,8 @@
 **/target
 **/build
 **/.mvn/wrapper/dists
+**/.terraform
+**/.terraform.lock.hcl
+**/tfplan
 node_modules
 .env
-

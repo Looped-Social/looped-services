@@ -1,0 +1,121 @@
+package com.looped.communities;
+
+import com.looped.auth.TestSecurityConfig;
+import com.looped.support.PostgresTestBase;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.security.oauth2.jose.jws.SignatureAlgorithm;
+import org.springframework.security.oauth2.jwt.JwsHeader;
+import org.springframework.security.oauth2.jwt.JwtClaimsSet;
+import org.springframework.security.oauth2.jwt.JwtEncoder;
+import org.springframework.security.oauth2.jwt.JwtEncoderParameters;
+import org.springframework.test.web.servlet.MockMvc;
+
+import java.time.Instant;
+import java.util.List;
+
+import static org.hamcrest.Matchers.equalTo;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+@SpringBootTest(properties = {
+        "auth.issuer=http://test-issuer",
+        "auth.audience=test-app"
+})
+@AutoConfigureMockMvc
+@org.springframework.context.annotation.Import(TestSecurityConfig.class)
+class SpecializationPrerequisitesIntegrationTest extends PostgresTestBase {
+
+    @Autowired
+    MockMvc mockMvc;
+
+    @Autowired
+    JwtEncoder jwtEncoder;
+
+    @Autowired
+    JdbcTemplate jdbc;
+
+    private String token(String sub) {
+        Instant now = Instant.now();
+        JwtClaimsSet claims = JwtClaimsSet.builder()
+                .issuer("http://test-issuer")
+                .issuedAt(now)
+                .expiresAt(now.plusSeconds(3600))
+                .subject(sub)
+                .audience(List.of("test-app"))
+                .build();
+        JwsHeader header = JwsHeader.with(SignatureAlgorithm.RS256).build();
+        return jwtEncoder.encode(JwtEncoderParameters.from(header, claims)).getTokenValue();
+    }
+
+    @Test
+    void joining_major_requires_verified_school() throws Exception {
+        long companyId = jdbc.queryForObject("INSERT INTO companies(name, domain) VALUES ('MajCo','maj.co') RETURNING id", Long.class);
+        long userId = jdbc.queryForObject(
+                "INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?) RETURNING id",
+                Long.class, "uid-major-prereq", "majorprereq", companyId
+        );
+        long majorId = jdbc.queryForObject(
+                "INSERT INTO communities(kind, specialization_type, name) VALUES ('specialization','major','Economics') RETURNING id",
+                Long.class
+        );
+
+        String auth = "Bearer " + token("uid-major-prereq");
+        mockMvc.perform(post("/v1/specializations/" + majorId + "/join").header("Authorization", auth))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error", equalTo("specialization_verification_required")))
+                .andExpect(jsonPath("$.specialization_type", equalTo("major")))
+                .andExpect(jsonPath("$.required_verification_kind", equalTo("school")));
+
+        long schoolId = jdbc.queryForObject(
+                "INSERT INTO communities(kind, name) VALUES ('school', 'Maj University') RETURNING id",
+                Long.class
+        );
+        jdbc.update(
+                "INSERT INTO community_verifications(user_id, community_id, method, verified, expires_at) VALUES (?,?,?,?, NULL)",
+                userId, schoolId, "manual", true
+        );
+
+        mockMvc.perform(post("/v1/specializations/" + majorId + "/join").header("Authorization", auth))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.joined").value(true));
+    }
+
+    @Test
+    void joining_field_requires_verified_company() throws Exception {
+        long companyId = jdbc.queryForObject("INSERT INTO companies(name, domain) VALUES ('FldCo','fld.co') RETURNING id", Long.class);
+        long userId = jdbc.queryForObject(
+                "INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?) RETURNING id",
+                Long.class, "uid-field-prereq", "fieldprereq", companyId
+        );
+        long fieldId = jdbc.queryForObject(
+                "INSERT INTO communities(kind, specialization_type, name) VALUES ('specialization','field','Engineering') RETURNING id",
+                Long.class
+        );
+
+        String auth = "Bearer " + token("uid-field-prereq");
+        mockMvc.perform(post("/v1/specializations/" + fieldId + "/join").header("Authorization", auth))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error", equalTo("specialization_verification_required")))
+                .andExpect(jsonPath("$.specialization_type", equalTo("field")))
+                .andExpect(jsonPath("$.required_verification_kind", equalTo("company")));
+
+        long companyCommunityId = jdbc.queryForObject(
+                "INSERT INTO communities(kind, name) VALUES ('company', 'FldCo') RETURNING id",
+                Long.class
+        );
+        jdbc.update(
+                "INSERT INTO community_verifications(user_id, community_id, method, verified, expires_at) VALUES (?,?,?,?, NULL)",
+                userId, companyCommunityId, "manual", true
+        );
+
+        mockMvc.perform(post("/v1/specializations/" + fieldId + "/join").header("Authorization", auth))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.joined").value(true));
+    }
+}
+

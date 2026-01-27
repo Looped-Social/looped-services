@@ -243,7 +243,8 @@ public class AnonProfilesService {
     private String normalizeSpecializationType(String specializationType) {
         if (specializationType == null) return null;
         String v = specializationType.trim().toLowerCase(java.util.Locale.ROOT);
-        return (v.equals("major") || v.equals("department")) ? v : null;
+        if (v.equals("department")) v = "field";
+        return (v.equals("major") || v.equals("field")) ? v : null;
     }
 
     private boolean anonProfileIdEquals(long expected, long provided) {
