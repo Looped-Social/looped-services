@@ -270,7 +270,6 @@ public class SpecializationsController {
             ));
         }
         String t = community.specializationType == null ? "" : community.specializationType.trim().toLowerCase(java.util.Locale.ROOT);
-        if (t.equals("department")) t = "field";
         if (!t.equals("major") && !t.equals("field")) {
             return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of(
                     "error", "invalid_specialization",
@@ -283,7 +282,6 @@ public class SpecializationsController {
     private String normalizeListType(String raw) {
         if (raw == null || raw.isBlank()) return "all";
         String n = raw.trim().toLowerCase(java.util.Locale.ROOT);
-        if ("department".equals(n)) n = "field";
         if ("all".equals(n)) return "all";
         if ("major".equals(n) || "field".equals(n)) return n;
         return null;

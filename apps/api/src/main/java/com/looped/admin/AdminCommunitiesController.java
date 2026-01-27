@@ -202,7 +202,6 @@ public class AdminCommunitiesController {
             }
             String kind = existing.get().kind == null ? "" : existing.get().kind.trim().toLowerCase(Locale.ROOT);
             String specializationType = existing.get().specializationType == null ? "" : existing.get().specializationType.trim().toLowerCase(Locale.ROOT);
-            if ("department".equals(specializationType)) specializationType = "field";
             if (!"specialization".equals(kind) || (!"major".equals(specializationType) && !"field".equals(specializationType))) {
                 return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of(
                         "error", "invalid_specialization",
@@ -300,9 +299,6 @@ public class AdminCommunitiesController {
         if (raw == null) return null;
         String normalized = raw.trim().toLowerCase(Locale.ROOT);
         if (normalized.isBlank()) return null;
-        if (normalized.equals("profession") || normalized.equals("proffesion")) normalized = "sector";
-        if (normalized.equals("department")) normalized = "field";
-        if (normalized.equals("sector")) normalized = "field";
         if (normalized.equals("major") || normalized.equals("field")) {
             normalized = "specialization";
         }
@@ -342,7 +338,6 @@ public class AdminCommunitiesController {
         if (raw == null) return null;
         String normalized = raw.trim().toLowerCase(Locale.ROOT);
         if (normalized.isBlank()) return null;
-        if (normalized.equals("department")) normalized = "field";
         if (!normalized.equals("major") && !normalized.equals("field")) return null;
         return normalized;
     }
@@ -350,8 +345,6 @@ public class AdminCommunitiesController {
     private String normalizeSpecializationTypeFromKind(String raw) {
         if (raw == null) return null;
         String normalized = raw.trim().toLowerCase(Locale.ROOT);
-        if (normalized.equals("department")) normalized = "field";
-        if (normalized.equals("sector")) normalized = "field";
         if (normalized.equals("major") || normalized.equals("field")) return normalized;
         return null;
     }

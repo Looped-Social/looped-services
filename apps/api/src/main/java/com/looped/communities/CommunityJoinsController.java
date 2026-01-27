@@ -42,20 +42,26 @@ public class CommunityJoinsController {
             return switch (res.status()) {
                 case USER_NOT_PROVISIONED -> ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "user_not_provisioned"));
                 case NOT_FOUND -> ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "not_found"));
-                case INVALID_SPECIALIZATION -> ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of("error", "invalid_specialization"));
+                case INVALID_SPECIALIZATION -> ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of(
+                        "error", "invalid_specialization",
+                        "message", "Specialization must be a major or field"
+                ));
                 case VERIFICATION_REQUIRED -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
                         "error", "specialization_verification_required",
+                        "message", verificationRequiredMessage(res.specializationType(), res.requiredVerificationKind()),
                         "specialization_type", res.specializationType(),
                         "required_verification_kind", res.requiredVerificationKind()
                 ));
                 case LIMIT_REACHED -> ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
                         "error", "specialization_join_limit",
+                        "message", limitMessage(res.specializationType(), res.limit()),
                         "specialization_type", res.specializationType(),
                         "limit", res.limit()
                 ));
                 case COOLDOWN -> {
                     Map<String, Object> body = new HashMap<>();
                     body.put("error", "specialization_join_cooldown");
+                    body.put("message", cooldownMessage(res.specializationType(), res.cooldownMonths()));
                     body.put("specialization_type", res.specializationType());
                     if (res.cooldownEndsAt() != null) {
                         body.put("cooldown_ends_at", res.cooldownEndsAt());
@@ -116,5 +122,30 @@ public class CommunityJoinsController {
             ));
             default -> ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         };
+    }
+
+    private String limitMessage(String specializationType, Integer limit) {
+        if (specializationType == null || limit == null) return "Specialization join limit reached";
+        String label = specializationType.equals("major") ? "majors" : "fields";
+        return "You can only join up to " + limit + " " + label + ".";
+    }
+
+    private String cooldownMessage(String specializationType, Integer cooldownMonths) {
+        if (specializationType == null) return "You must wait before changing specializations.";
+        String label = specializationType.equals("major") ? "majors" : "fields";
+        if (cooldownMonths == null || cooldownMonths <= 0) {
+            return "You must wait before changing " + label + ".";
+        }
+        String unit = cooldownMonths == 1 ? "month" : "months";
+        return "You must wait " + cooldownMonths + " " + unit + " before changing " + label + ".";
+    }
+
+    private String verificationRequiredMessage(String specializationType, String requiredKind) {
+        if (specializationType == null || requiredKind == null) {
+            return "You must be verified before joining this specialization.";
+        }
+        String label = specializationType.equals("major") ? "majors" : "fields";
+        String requiredLabel = requiredKind.equals("school") ? "school" : requiredKind;
+        return "Verify at least one " + requiredLabel + " before joining " + label + ".";
     }
 }

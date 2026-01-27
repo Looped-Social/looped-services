@@ -123,8 +123,8 @@ public class AdminCommunityRequestsController {
         if (!"pending".equalsIgnoreCase(req.status)) {
             return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "community_request_already_reviewed"));
         }
-        String kind = normalizeKind(body != null && body.kind() != null ? body.kind() : req.kind);
-        if (kind == null) {
+        var kindInfo = normalizeKind(body != null && body.kind() != null ? body.kind() : req.kind);
+        if (kindInfo == null) {
             return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of("error", "invalid_kind"));
         }
         String name = normalizeName(body != null && body.name() != null ? body.name() : req.name);
@@ -140,12 +140,17 @@ public class AdminCommunityRequestsController {
         if (ttlDays != null && ttlDays < 0) {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of("error", "invalid_ttl_days"));
         }
-        if (communities.findByKindAndName(kind, name).isPresent()) {
+        boolean exists = kindInfo.specializationType() != null
+                ? communities.findByKindAndName(kindInfo.communityKind(), name, kindInfo.specializationType()).isPresent()
+                : communities.findByKindAndName(kindInfo.communityKind(), name).isPresent();
+        if (exists) {
             return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "community_exists"));
         }
         long communityId;
         try {
-            communityId = communities.insert(kind, name, description, imageUrl, ttlDays);
+            communityId = kindInfo.specializationType() != null
+                    ? communities.insert(kindInfo.communityKind(), name, description, imageUrl, ttlDays, kindInfo.specializationType())
+                    : communities.insert(kindInfo.communityKind(), name, description, imageUrl, ttlDays);
         } catch (DuplicateKeyException e) {
             return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "community_exists"));
         }
@@ -204,15 +209,20 @@ public class AdminCommunityRequestsController {
         return ResponseEntity.ok(Map.of("status", "deleted"));
     }
 
-    private String normalizeKind(String raw) {
+    private KindInfo normalizeKind(String raw) {
         if (raw == null) return null;
         String normalized = raw.trim().toLowerCase(Locale.ROOT);
         if (normalized.isBlank()) return null;
-        if (!normalized.equals("company") && !normalized.equals("school")) {
+        if (!normalized.equals("company") && !normalized.equals("school") && !normalized.equals("major") && !normalized.equals("field")) {
             return null;
         }
-        return normalized;
+        if (normalized.equals("major") || normalized.equals("field")) {
+            return new KindInfo(normalized, "specialization", normalized);
+        }
+        return new KindInfo(normalized, normalized, null);
     }
+
+    private record KindInfo(String requestKind, String communityKind, String specializationType) {}
 
     private String normalizeName(String raw) {
         if (raw == null) return null;

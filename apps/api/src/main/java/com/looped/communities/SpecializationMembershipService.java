@@ -285,9 +285,6 @@ public class SpecializationMembershipService {
         if (raw == null) return null;
         String normalized = raw.trim().toLowerCase(Locale.ROOT);
         if (normalized.isBlank()) return null;
-        if (normalized.equals("department")) {
-            normalized = "field";
-        }
         if (!normalized.equals("major") && !normalized.equals("field")) return null;
         return normalized;
     }

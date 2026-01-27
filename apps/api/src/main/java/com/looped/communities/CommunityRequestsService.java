@@ -30,8 +30,8 @@ public class CommunityRequestsService {
         if (userOpt.isEmpty() || userOpt.get().companyId == null) {
             return CreateResult.userNotProvisioned();
         }
-        String normalizedKind = normalizeKind(kind);
-        if (normalizedKind == null) return CreateResult.invalidKind();
+        var kindInfo = normalizeKind(kind);
+        if (kindInfo == null) return CreateResult.invalidKind();
         String normalizedName = normalizeName(name);
         if (normalizedName == null) return CreateResult.invalidName();
         String normalizedDescription = normalizeDescription(description);
@@ -47,11 +47,14 @@ public class CommunityRequestsService {
                 return CreateResult.invalidImage();
             }
         }
-        if (communities.findByKindAndName(normalizedKind, normalizedName).isPresent()) {
+        boolean exists = kindInfo.specializationType() != null
+                ? communities.findByKindAndName(kindInfo.communityKind(), normalizedName, kindInfo.specializationType()).isPresent()
+                : communities.findByKindAndName(kindInfo.communityKind(), normalizedName).isPresent();
+        if (exists) {
             return CreateResult.communityExists();
         }
         try {
-            long id = requests.insert(userOpt.get().id, normalizedKind, normalizedName, normalizedDescription, normalizedImageKey);
+            long id = requests.insert(userOpt.get().id, kindInfo.requestKind(), normalizedName, normalizedDescription, normalizedImageKey);
             return CreateResult.ok(id);
         } catch (DuplicateKeyException e) {
             return CreateResult.duplicate();
@@ -68,15 +71,20 @@ public class CommunityRequestsService {
         return ListResult.ok(items);
     }
 
-    private String normalizeKind(String raw) {
+    private KindInfo normalizeKind(String raw) {
         if (raw == null) return null;
         String normalized = raw.trim().toLowerCase(Locale.ROOT);
         if (normalized.isBlank()) return null;
-        if (!normalized.equals("company") && !normalized.equals("school")) {
+        if (!normalized.equals("company") && !normalized.equals("school") && !normalized.equals("major") && !normalized.equals("field")) {
             return null;
         }
-        return normalized;
+        if (normalized.equals("major") || normalized.equals("field")) {
+            return new KindInfo(normalized, "specialization", normalized);
+        }
+        return new KindInfo(normalized, normalized, null);
     }
+
+    private record KindInfo(String requestKind, String communityKind, String specializationType) {}
 
     private String normalizeName(String raw) {
         if (raw == null) return null;

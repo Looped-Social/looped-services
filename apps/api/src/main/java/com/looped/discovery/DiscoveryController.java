@@ -203,8 +203,7 @@ public class DiscoveryController {
                     .toList();
             return ResponseEntity.ok(Map.of(
                     "majors", majors,
-                    "fields", fields,
-                    "departments", fields
+                    "fields", fields
             ));
         }
 
@@ -353,12 +352,9 @@ public class DiscoveryController {
         if (raw == null) return null;
         String normalized = raw.trim().toLowerCase(Locale.ROOT);
         if (normalized.isBlank()) return null;
-        if (normalized.equals("profession") || normalized.equals("proffesion")) normalized = "sector";
         if (normalized.equals("unknown")) {
             return "unknown";
         }
-        if (normalized.equals("department")) normalized = "field";
-        if (normalized.equals("sector")) normalized = "field";
         if (normalized.equals("major") || normalized.equals("field")) {
             normalized = "specialization";
         }
@@ -374,8 +370,6 @@ public class DiscoveryController {
         if (raw == null) return null;
         String normalized = raw.trim().toLowerCase(Locale.ROOT);
         if (normalized.isBlank()) return null;
-        if (normalized.equals("department")) normalized = "field";
-        if (normalized.equals("sector")) normalized = "field";
         if (normalized.equals("major") || normalized.equals("field")) {
             return normalized;
         }
@@ -386,7 +380,6 @@ public class DiscoveryController {
         if (raw == null) return "all";
         String normalized = raw.trim().toLowerCase(Locale.ROOT);
         if (normalized.isBlank() || "all".equals(normalized)) return "all";
-        if ("department".equals(normalized)) normalized = "field";
         if ("major".equals(normalized) || "field".equals(normalized)) return normalized;
         return null;
     }

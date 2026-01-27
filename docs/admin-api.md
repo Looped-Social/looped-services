@@ -574,7 +574,7 @@ Errors
 - `500 { "error": "delete_failed" }`
 
 ### POST /v1/admin/users/{id}/specializations/join-limits/reset
-Clear a user's specialization join cooldown (and optionally remove their joined majors/departments). Requires `verify_users`.
+Clear a user's specialization join cooldown (and optionally remove their joined majors/fields). Requires `verify_users`.
 
 Request (optional)
 ```json
@@ -585,7 +585,7 @@ Request (optional)
 ```
 
 Notes:
-- `specialization_type` may be `major`, `department`, or `all` (default `all`).
+- `specialization_type` may be `major`, `field`, or `all` (default `all`).
 - When `clear_joins=true`, joined rows in `specialization_joins` for that type are deleted (this does not affect follows).
 
 Response (200)
@@ -652,7 +652,7 @@ Request
 ```
 
 Notes:
-- `specializationJoinCooldownMonths` is only valid for `kind="specialization"` with `specializationType` of `major` or `department`.
+- `specializationJoinCooldownMonths` is only valid for `kind="specialization"` with `specializationType` of `major` or `field`.
 - Omit `specializationJoinCooldownMonths` to use the global default (`GET /v1/admin/settings/specializations`).
 
 Response (201)
@@ -884,7 +884,7 @@ Response (200)
       "user_id": 123,
       "user_handle": "alice",
       "user_email": "alice@company.com",
-      "kind": "sector",
+      "kind": "field",
       "name": "Product",
       "description": "Product leadership and ICs",
       "image_key": "media/original/uuid",
@@ -906,7 +906,7 @@ Notes
 Request (optional overrides)
 ```json
 {
-  "kind": "sector",
+  "kind": "field",
   "name": "Product",
   "description": "Product leadership and ICs",
   "imageUrl": "https://cdn.looped.com/media/communities/product.jpg",
@@ -1083,7 +1083,7 @@ Response (200)
   "items": [
     {
       "id": 2,
-      "kind": "sector",
+      "kind": "specialization",
       "name": "Product",
       "image_url": "https://cdn.looped.com/media/original/uuid",
       "likes_count": 120,
@@ -1219,14 +1219,14 @@ Response (200)
 Submit a community request.
 
 Notes
-- `kind` supports `company`, `school`, `sector` (alias: `profession` → `sector`).
+- `kind` supports `company`, `school`, `major`, `field`.
 - To attach an image, upload via `/v1/media/presign` + `/v1/media/callback`, then pass the returned `key` as `imageKey`.
 - JSON aliases accepted: `type` → `kind`, `about` → `description`, `image_key` → `imageKey`.
 
 Request
 ```json
 {
-  "kind": "sector",
+  "kind": "field",
   "name": "Product",
   "description": "Product leadership and ICs",
   "imageKey": "media/original/uuid"
@@ -1253,7 +1253,7 @@ Response (200)
   "items": [
     {
       "id": 91,
-      "kind": "sector",
+      "kind": "field",
       "name": "Product",
       "description": "Product leadership and ICs",
       "image_key": "media/original/uuid",

@@ -74,7 +74,6 @@ public class CommunitiesController {
         out.put("is_following", follows.exists(actor.get().id, id));
         if ("specialization".equalsIgnoreCase(community.kind)) {
             String t = community.specializationType == null ? "" : community.specializationType.trim().toLowerCase(java.util.Locale.ROOT);
-            if (t.equals("department")) t = "field";
             if (t.equals("major") || t.equals("field")) {
                 out.put("is_joined", specializationJoins.exists(actor.get().id, id));
                 var snap = specializationMemberships.joinLimitSnapshotForUserId(actor.get().id, t);

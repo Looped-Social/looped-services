@@ -182,10 +182,10 @@
 - **Profile stats & DTO extensions**
   - User DTO now includes `stats` block with follower/following/posts/comments counts; display/bio/anonymity fields included across `/v1/me`, `/v1/users/{id}`, and update alias responses.
   - User DTO may include `display_community` `{ id, name, short_name?, kind, specialization_type? }` when the user has a verified display community selected.
-  - User DTO may include `display_specialization` `{ id, name, short_name?, kind, specialization_type }` when the user has a highlighted major/department selected.
+  - User DTO may include `display_specialization` `{ id, name, short_name?, kind, specialization_type }` when the user has a highlighted major/field selected.
   - Post DTOs include `comments_count`, `share_count`, `community_name`, `community_short_name?`, `community_kind`, `author_first_name`, `author_last_name`, `is_anonymous`, and `is_saved`.
   - Post DTOs may include `author_display_community` `{ id, name, short_name?, kind, specialization_type? }` when the author has a verified display community selected.
-  - Post DTOs may include `author_display_specialization` `{ id, name, short_name?, kind, specialization_type }` when the author has a highlighted major/department selected.
+  - Post DTOs may include `author_display_specialization` `{ id, name, short_name?, kind, specialization_type }` when the author has a highlighted major/field selected.
 - **Comments history**
   - `GET /v1/users/{id}/comments?cursor=&limit=` → `{ items: [{ id, post_id, content, created_at, parent_id? }], next_cursor }`
 - **Community permissions**
@@ -234,25 +234,29 @@
     - `400 { "error": "verification_not_supported" }` (specializations)
 - **Community details**
   - `GET /v1/communities/{id}` → `{ id, kind, name, short_name?, description?, image_url?, member_count, specialization_type?, is_following, is_joined?, join_limit? }`
-    - For specialization communities (`kind="specialization"`) where `specialization_type` is `major` or `department`, responses include:
+    - For specialization communities (`kind="specialization"`) where `specialization_type` is `major` or `field`, responses include:
       - `is_joined`: whether the current user has joined this specialization
       - `join_limit`: per-type join limit + cooldown state for the current user:
         - `{ specialization_type, limit, joined_count, remaining, cooldown_months, cooldown_active, cooldown_ends_at?, cooldown_days_remaining?, can_join, blocked_reason? }`
   - Join/unjoin (invite acceptance)
     - `POST /v1/communities/{id}/join` → `{ community_id, joined: true, member_count }` (201 when newly joined)
     - `DELETE /v1/communities/{id}/join` → `{ community_id, joined: false, member_count }`
-    - For `kind="specialization"`, this delegates to specialization join rules (major/department only; may return cooldown/limit conflicts).
+    - For `kind="specialization"`, this delegates to specialization join rules (major/field only; may return cooldown/limit conflicts).
     - For other community kinds, this is an alias for follow/unfollow.
+    - Errors (specializations):
+      - `403 { "error": "specialization_verification_required", "message": "...", "specialization_type": "major|field", "required_verification_kind": "school|company" }`
+      - `409 { "error": "specialization_join_limit", "message": "...", "specialization_type": "major|field", "limit": <int> }`
+      - `409 { "error": "specialization_join_cooldown", "message": "...", "specialization_type": "major|field", "cooldown_ends_at?": "<ISO-8601>", "cooldown_months?": <int>, "cooldown_days_remaining?": <int> }`
 - **Specialization join limits (for UI)**
   - Use to show “joined X/Y majors” and “next change available on …” in settings and specialization pickers.
-  - `GET /v1/me/specializations/join-limits?type=major|department|all`
+  - `GET /v1/me/specializations/join-limits?type=major|field|all`
     - Auth: Firebase JWT required
     - Response: `{ "items": [ { specialization_type, limit, joined_count, remaining, cooldown_months, cooldown_active, cooldown_ends_at?, cooldown_days_remaining?, can_join, blocked_reason? } ] }`
 - **Profile display community**
   - `PUT /v1/users/me/display-community` with `{ communityId: <id|null> }` → user payload (same shape as `/v1/me.user`). `null` clears the display community.
 - **Profile display specialization**
   - `PUT /v1/users/me/display-specialization` with `{ specializationId: <id|null> }` → user payload (same shape as `/v1/me.user`). `null` clears the display specialization.
-  - `specializationId` must reference a `communities.kind='specialization'` row with `specialization_type` of `major` or `department`.
+  - `specializationId` must reference a `communities.kind='specialization'` row with `specialization_type` of `major` or `field`.
 - **Anon profile display community**
   - `PUT /v1/anon/{id}/display-community` (NO JWT) with `{ communityId: <id|null>, asAnon: true, anonProfileId, anonCert, anonCertKid, anonSig }`.
   - Requires action signature `anon_display_community|v1|{anonProfileId}`; for non-null `communityId` the anon cert must be scoped to that community.

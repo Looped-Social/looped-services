@@ -198,7 +198,6 @@ public class AdminUserAccessController {
     private String normalizeType(String raw) {
         if (raw == null || raw.isBlank()) return "all";
         String normalized = raw.trim().toLowerCase(Locale.ROOT);
-        if ("department".equals(normalized)) normalized = "field";
         return switch (normalized) {
             case "all" -> "all";
             case "major" -> "major";
