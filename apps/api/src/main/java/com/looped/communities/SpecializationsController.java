@@ -214,8 +214,21 @@ public class SpecializationsController {
         if (snap.cooldownDaysRemaining() != null) out.put("cooldown_days_remaining", snap.cooldownDaysRemaining());
         out.put("can_join", snap.canJoin());
         if (snap.blockedReason() != null) out.put("blocked_reason", snap.blockedReason());
-        if (snap.requiredVerificationKind() != null) out.put("required_verification_kind", snap.requiredVerificationKind());
+        if (snap.requiredVerificationKind() != null) {
+            out.put("required_verification_kind", snap.requiredVerificationKind());
+            out.put("join_requires_verification_kind", snap.requiredVerificationKind());
+        }
+        String joinBlocked = joinBlockedReason(snap.blockedReason());
+        if (joinBlocked != null) out.put("join_blocked_reason", joinBlocked);
         return out;
+    }
+
+    private String joinBlockedReason(String blockedReason) {
+        if (blockedReason == null || blockedReason.isBlank()) return null;
+        if (blockedReason.startsWith("verify_")) return "verification_required";
+        if ("limit".equals(blockedReason)) return "limit";
+        if ("cooldown".equals(blockedReason)) return "cooldown";
+        return null;
     }
 
     private Map<String, Object> payload(SpecializationJoinsRepository.JoinRow row, java.util.Map<Long, Integer> memberCounts) {

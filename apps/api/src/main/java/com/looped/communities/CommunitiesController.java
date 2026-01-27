@@ -88,10 +88,23 @@ public class CommunitiesController {
                 if (snap.cooldownDaysRemaining() != null) joinLimit.put("cooldown_days_remaining", snap.cooldownDaysRemaining());
                 joinLimit.put("can_join", snap.canJoin());
                 if (snap.blockedReason() != null) joinLimit.put("blocked_reason", snap.blockedReason());
-                if (snap.requiredVerificationKind() != null) joinLimit.put("required_verification_kind", snap.requiredVerificationKind());
+                if (snap.requiredVerificationKind() != null) {
+                    joinLimit.put("required_verification_kind", snap.requiredVerificationKind());
+                    joinLimit.put("join_requires_verification_kind", snap.requiredVerificationKind());
+                }
+                String joinBlocked = joinBlockedReason(snap.blockedReason());
+                if (joinBlocked != null) joinLimit.put("join_blocked_reason", joinBlocked);
                 out.put("join_limit", joinLimit);
             }
         }
         return ResponseEntity.ok(out);
+    }
+
+    private String joinBlockedReason(String blockedReason) {
+        if (blockedReason == null || blockedReason.isBlank()) return null;
+        if (blockedReason.startsWith("verify_")) return "verification_required";
+        if ("limit".equals(blockedReason)) return "limit";
+        if ("cooldown".equals(blockedReason)) return "cooldown";
+        return null;
     }
 }
