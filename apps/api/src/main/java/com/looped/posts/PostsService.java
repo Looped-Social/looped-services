@@ -28,6 +28,7 @@ import java.util.ArrayList;
 import java.util.Base64;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 
 @Service
@@ -268,8 +269,9 @@ public class PostsService {
         boolean hasVideo = false;
         boolean underReview = false;
         for (var row : rows) {
-            if (row.mimeType != null && row.mimeType.startsWith("image/")) hasImage = true;
-            else if (row.mimeType != null && row.mimeType.startsWith("video/")) hasVideo = true;
+            String mt = row.mimeType == null ? null : row.mimeType.toLowerCase(Locale.ROOT);
+            if (mt != null && mt.startsWith("image/")) hasImage = true;
+            else if (mt != null && mt.startsWith("video/")) hasVideo = true;
             else return MediaValidation.invalidType();
             if (row.removedAt != null) return MediaValidation.notFound();
             if (row.visibility != null && !row.visibility.equalsIgnoreCase("public")) underReview = true;

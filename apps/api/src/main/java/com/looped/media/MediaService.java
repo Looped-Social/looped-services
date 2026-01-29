@@ -19,6 +19,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Base64;
 import java.util.Map;
+import java.util.Locale;
 import java.util.Set;
 import java.util.UUID;
 
@@ -56,8 +57,9 @@ public class MediaService {
         if (contentType == null || contentType.isBlank()) {
             return PresignResult.badRequest("content_type_required");
         }
-        boolean isImage = ALLOWED_IMAGE.contains(contentType) || ALLOWED_IMAGE_HEIF.contains(contentType);
-        boolean isVideo = ALLOWED_VIDEO.contains(contentType);
+        String normalized = normalizeMimeType(contentType);
+        boolean isImage = ALLOWED_IMAGE.contains(normalized) || ALLOWED_IMAGE_HEIF.contains(normalized);
+        boolean isVideo = ALLOWED_VIDEO.contains(normalized);
         if (!isImage && !isVideo) {
             return PresignResult.badRequest("unsupported_content_type");
         }
@@ -67,14 +69,15 @@ public class MediaService {
         }
 
         String key = "media/original/" + UUID.randomUUID();
-        return presignKey(contentType, key);
+        return presignKey(normalized, key);
     }
 
     public PresignResult presignImage(String contentType, long sizeBytes, String prefix) {
         if (contentType == null || contentType.isBlank()) {
             return PresignResult.badRequest("content_type_required");
         }
-        if (!ALLOWED_IMAGE.contains(contentType)) {
+        String normalized = normalizeMimeType(contentType);
+        if (!ALLOWED_IMAGE.contains(normalized)) {
             return PresignResult.badRequest("unsupported_content_type");
         }
         if (sizeBytes <= 0 || sizeBytes > maxImageBytes) {
@@ -82,7 +85,7 @@ public class MediaService {
         }
         String resolvedPrefix = normalizePrefix(prefix);
         String key = resolvedPrefix + UUID.randomUUID();
-        return presignKey(contentType, key);
+        return presignKey(normalized, key);
     }
 
     private String normalizePrefix(String prefix) {
@@ -94,6 +97,15 @@ public class MediaService {
             resolved = resolved + "/";
         }
         return resolved;
+    }
+
+    public static String normalizeMimeType(String raw) {
+        if (raw == null) return null;
+        String trimmed = raw.trim();
+        if (trimmed.isBlank()) return null;
+        int semi = trimmed.indexOf(';');
+        String base = semi >= 0 ? trimmed.substring(0, semi) : trimmed;
+        return base.trim().toLowerCase(Locale.ROOT);
     }
 
     private PresignResult presignKey(String contentType, String key) {

@@ -1,5 +1,6 @@
 package com.looped.media;
 
+import com.fasterxml.jackson.annotation.JsonAlias;
 import com.looped.users.UserRepository;
 import com.looped.moderation.MediaModerationService;
 import jakarta.validation.constraints.NotEmpty;
@@ -62,9 +63,24 @@ public class MediaController {
             @RequestHeader(value = "X-Actor", required = false) String actor,
             @Validated @RequestBody CallbackRequest body
     ) {
+        String key = body.key();
+        if (key == null || !key.startsWith("media/")) {
+            return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of(
+                    "error", "invalid_key",
+                    "message", "key must start with media/"
+            ));
+        }
+        String normalizedMimeType = MediaService.normalizeMimeType(body.mimeType());
+        if (normalizedMimeType == null) {
+            return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of(
+                    "error", "invalid_mime_type",
+                    "message", "mimeType must be a valid MIME type"
+            ));
+        }
+
         // Verify signature if secret configured
         if (callbackSecret != null && !callbackSecret.isBlank()) {
-            String expected = MediaService.hmacSha256Base64(callbackSecret, body.key());
+            String expected = MediaService.hmacSha256Base64(callbackSecret, key);
             if (signature == null || !signature.equals(expected)) {
                 return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
                         "error", "invalid_signature"
@@ -88,25 +104,17 @@ public class MediaController {
             }
             ownerId = u.get().id;
         }
-        // Ensure key not already recorded
-        if (mediaRepository.existsByKey(body.key())) {
-            return ResponseEntity.ok(Map.of(
-                    "status", "exists"
-            ));
+        var existing = mediaRepository.findByKey(key);
+        if (existing.isPresent()) {
+            return ResponseEntity.ok(mediaPayload(existing.get(), cdnUrlFor(key), "exists"));
         }
-        Long id = mediaRepository.insert(ownerId, body.key(), body.mimeType(), body.width(), body.height(), body.durationSeconds());
-        String cdnUrl = null;
-        if (cloudfrontDomain != null && !cloudfrontDomain.isBlank()) {
-            cdnUrl = "https://" + cloudfrontDomain + "/" + body.key();
-        }
+
+        Long id = mediaRepository.insert(ownerId, key, normalizedMimeType, body.width(), body.height(), body.durationSeconds());
+        String cdnUrl = cdnUrlFor(key);
         try {
-            mediaModeration.moderateOnUpload(id, body.key(), body.mimeType(), cdnUrl);
+            mediaModeration.moderateOnUpload(id, key, normalizedMimeType, cdnUrl);
         } catch (RuntimeException ignored) {}
-        Map<String,Object> out = new HashMap<>();
-        out.put("id", id);
-        out.put("key", body.key());
-        out.put("mime_type", body.mimeType());
-        if (cdnUrl != null) out.put("cdn_url", cdnUrl);
+        Map<String,Object> out = new HashMap<>(mediaPayload(id, key, normalizedMimeType, body.width(), body.height(), body.durationSeconds(), cdnUrl, "created"));
         return new ResponseEntity<>(out, HttpStatus.CREATED);
     }
 
@@ -128,13 +136,29 @@ public class MediaController {
                 .filter(r -> (r.visibility != null && r.visibility.equalsIgnoreCase("public"))
                         || (requesterUserId != null && r.ownerId != null && r.ownerId.equals(requesterUserId)))
                 .map(r -> {
+                    String cdnUrl = null;
                     Map<String, Object> item = new HashMap<>();
                     item.put("id", r.id);
                     item.put("key", r.s3Key);
                     item.put("mime_type", r.mimeType);
-                    if (cloudfrontDomain != null && !cloudfrontDomain.isBlank()) {
-                        item.put("cdn_url", "https://" + cloudfrontDomain + "/" + r.s3Key);
+                    item.put("mimeType", r.mimeType);
+                    if (r.width != null) {
+                        item.put("width", r.width);
                     }
+                    if (r.height != null) {
+                        item.put("height", r.height);
+                    }
+                    if (r.durationSeconds != null) {
+                        item.put("duration_seconds", r.durationSeconds);
+                        item.put("durationSeconds", r.durationSeconds);
+                    }
+                    if (cloudfrontDomain != null && !cloudfrontDomain.isBlank()) {
+                        cdnUrl = "https://" + cloudfrontDomain + "/" + r.s3Key;
+                    } else {
+                        cdnUrl = mediaService.presignedGetUrl(r.s3Key, java.time.Duration.ofMinutes(5));
+                    }
+                    item.put("cdn_url", cdnUrl);
+                    item.put("cdnUrl", cdnUrl);
                     return item;
                 })
                 .toList();
@@ -142,7 +166,40 @@ public class MediaController {
         return ResponseEntity.ok(Map.of("items", items));
     }
 
-    public record PresignRequest(@NotBlank String contentType, @NotNull Long sizeBytes) {}
-    public record CallbackRequest(@NotBlank String key, @NotBlank String mimeType, Integer width, Integer height, Integer durationSeconds) {}
+    public record PresignRequest(@NotBlank @JsonAlias("content_type") String contentType, @NotNull @JsonAlias("size_bytes") Long sizeBytes) {}
+    public record CallbackRequest(@NotBlank String key,
+                                  @NotBlank @JsonAlias("mime_type") String mimeType,
+                                  Integer width,
+                                  Integer height,
+                                  @JsonAlias("duration_seconds") Integer durationSeconds) {}
     public record ResolveRequest(@NotEmpty List<Long> ids) {}
+
+    private String cdnUrlFor(String key) {
+        if (cloudfrontDomain != null && !cloudfrontDomain.isBlank()) {
+            return "https://" + cloudfrontDomain + "/" + key;
+        }
+        return mediaService.presignedGetUrl(key, java.time.Duration.ofMinutes(5));
+    }
+
+    private Map<String, Object> mediaPayload(MediaRepository.MediaRow row, String cdnUrl, String status) {
+        return mediaPayload(row.id, row.s3Key, row.mimeType, row.width, row.height, row.durationSeconds, cdnUrl, status);
+    }
+
+    private Map<String, Object> mediaPayload(Long id, String key, String mimeType, Integer width, Integer height, Integer durationSeconds, String cdnUrl, String status) {
+        Map<String, Object> out = new HashMap<>();
+        if (status != null) out.put("status", status);
+        out.put("id", id);
+        out.put("key", key);
+        out.put("mime_type", mimeType);
+        out.put("mimeType", mimeType);
+        if (width != null) out.put("width", width);
+        if (height != null) out.put("height", height);
+        if (durationSeconds != null) {
+            out.put("duration_seconds", durationSeconds);
+            out.put("durationSeconds", durationSeconds);
+        }
+        out.put("cdn_url", cdnUrl);
+        out.put("cdnUrl", cdnUrl);
+        return out;
+    }
 }

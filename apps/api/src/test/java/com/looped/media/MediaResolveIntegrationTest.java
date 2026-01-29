@@ -51,7 +51,8 @@ class MediaResolveIntegrationTest extends PostgresTestBase {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items.length()", equalTo(1)))
                 .andExpect(jsonPath("$.items[0].id", equalTo(publicId.intValue())))
+                .andExpect(jsonPath("$.items[0].mimeType", equalTo("image/jpeg")))
+                .andExpect(jsonPath("$.items[0].cdnUrl", equalTo("https://cdn.example.com/media/original/123e4567-e89b-12d3-a456-426614174999")))
                 .andExpect(jsonPath("$.items[0].cdn_url", equalTo("https://cdn.example.com/media/original/123e4567-e89b-12d3-a456-426614174999")));
     }
 }
-

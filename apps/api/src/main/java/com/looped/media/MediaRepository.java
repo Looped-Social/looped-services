@@ -34,13 +34,16 @@ public class MediaRepository {
 
     public java.util.Optional<MediaRow> findByKey(String s3Key) {
         var rows = jdbc.query(
-                "SELECT id, owner_id, s3_key, mime_type, visibility, quarantined_at, quarantine_reason, removed_at, removed_by, removed_reason FROM media_assets WHERE s3_key = ?",
+                "SELECT id, owner_id, s3_key, mime_type, width, height, duration_seconds, visibility, quarantined_at, quarantine_reason, removed_at, removed_by, removed_reason FROM media_assets WHERE s3_key = ?",
                 (rs, rowNum) -> {
                     MediaRow row = new MediaRow();
                     row.id = rs.getLong("id");
                     row.ownerId = rs.getObject("owner_id", Long.class);
                     row.s3Key = rs.getString("s3_key");
                     row.mimeType = rs.getString("mime_type");
+                    row.width = rs.getObject("width", Integer.class);
+                    row.height = rs.getObject("height", Integer.class);
+                    row.durationSeconds = rs.getObject("duration_seconds", Integer.class);
                     row.visibility = rs.getString("visibility");
                     row.quarantinedAt = rs.getObject("quarantined_at", OffsetDateTime.class);
                     row.quarantineReason = rs.getString("quarantine_reason");
@@ -62,13 +65,16 @@ public class MediaRepository {
 
     public Optional<MediaRow> findById(long mediaAssetId) {
         var rows = jdbc.query(
-                "SELECT id, owner_id, s3_key, mime_type, visibility, quarantined_at, quarantine_reason, removed_at, removed_by, removed_reason FROM media_assets WHERE id = ?",
+                "SELECT id, owner_id, s3_key, mime_type, width, height, duration_seconds, visibility, quarantined_at, quarantine_reason, removed_at, removed_by, removed_reason FROM media_assets WHERE id = ?",
                 (rs, rowNum) -> {
                     MediaRow row = new MediaRow();
                     row.id = rs.getLong("id");
                     row.ownerId = rs.getObject("owner_id", Long.class);
                     row.s3Key = rs.getString("s3_key");
                     row.mimeType = rs.getString("mime_type");
+                    row.width = rs.getObject("width", Integer.class);
+                    row.height = rs.getObject("height", Integer.class);
+                    row.durationSeconds = rs.getObject("duration_seconds", Integer.class);
                     row.visibility = rs.getString("visibility");
                     row.quarantinedAt = rs.getObject("quarantined_at", OffsetDateTime.class);
                     row.quarantineReason = rs.getString("quarantine_reason");
@@ -86,7 +92,7 @@ public class MediaRepository {
         if (mediaAssetIds == null || mediaAssetIds.isEmpty()) return List.of();
         String placeholders = String.join(",", java.util.Collections.nCopies(mediaAssetIds.size(), "?"));
         return jdbc.query(
-                "SELECT id, owner_id, s3_key, mime_type, visibility, quarantined_at, quarantine_reason, removed_at, removed_by, removed_reason " +
+                "SELECT id, owner_id, s3_key, mime_type, width, height, duration_seconds, visibility, quarantined_at, quarantine_reason, removed_at, removed_by, removed_reason " +
                         "FROM media_assets WHERE id IN (" + placeholders + ")",
                 (rs, rowNum) -> {
                     MediaRow row = new MediaRow();
@@ -94,6 +100,9 @@ public class MediaRepository {
                     row.ownerId = rs.getObject("owner_id", Long.class);
                     row.s3Key = rs.getString("s3_key");
                     row.mimeType = rs.getString("mime_type");
+                    row.width = rs.getObject("width", Integer.class);
+                    row.height = rs.getObject("height", Integer.class);
+                    row.durationSeconds = rs.getObject("duration_seconds", Integer.class);
                     row.visibility = rs.getString("visibility");
                     row.quarantinedAt = rs.getObject("quarantined_at", OffsetDateTime.class);
                     row.quarantineReason = rs.getString("quarantine_reason");
@@ -137,6 +146,9 @@ public class MediaRepository {
         public Long ownerId;
         public String s3Key;
         public String mimeType;
+        public Integer width;
+        public Integer height;
+        public Integer durationSeconds;
         public String visibility;
         public OffsetDateTime quarantinedAt;
         public String quarantineReason;

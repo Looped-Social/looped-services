@@ -1,5 +1,6 @@
 package com.looped.posts;
 
+import com.fasterxml.jackson.annotation.JsonAlias;
 import com.looped.polls.PollPayloads;
 import com.looped.polls.PollRequests;
 import com.looped.polls.PollsService;
@@ -318,11 +319,11 @@ public class PostsController {
     }
 
     public record CreateRequest(@NotBlank @Size(max = 1000) String content,
-                               Long mediaAssetId,
-                               @Size(max = 4) List<Long> mediaAssetIds,
-                               Long communityId,
-                               Long loopId,
-                               Boolean isAnon,
+                               @JsonAlias("media_asset_id") Long mediaAssetId,
+                               @Size(max = 4) @JsonAlias("media_asset_ids") List<Long> mediaAssetIds,
+                               @JsonAlias("community_id") Long communityId,
+                               @JsonAlias("loop_id") Long loopId,
+                               @JsonAlias("is_anon") Boolean isAnon,
                                @jakarta.validation.Valid PollRequests.PostPollCreate poll,
                                Long anonProfileId,
                                String anonCert,

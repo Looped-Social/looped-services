@@ -70,6 +70,8 @@ class MediaCallbackIntegrationTest extends PostgresTestBase {
                         .content(body))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.id", notNullValue()))
+                .andExpect(jsonPath("$.mimeType", equalTo("image/jpeg")))
+                .andExpect(jsonPath("$.cdnUrl", equalTo("https://cdn.example.com/" + key)))
                 .andExpect(jsonPath("$.cdn_url", equalTo("https://cdn.example.com/" + key)));
     }
 
@@ -86,6 +88,31 @@ class MediaCallbackIntegrationTest extends PostgresTestBase {
                         .content(body))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.id", notNullValue()))
+                .andExpect(jsonPath("$.mimeType", equalTo("image/jpeg")))
+                .andExpect(jsonPath("$.cdnUrl", equalTo("https://cdn.example.com/" + key)))
+                .andExpect(jsonPath("$.cdn_url", equalTo("https://cdn.example.com/" + key)));
+    }
+
+    @Test
+    void callback_persists_video_duration_seconds() throws Exception {
+        long companyId = jdbc.queryForObject("INSERT INTO companies(name, domain) VALUES ('Acme2','acme2.com') RETURNING id", Long.class);
+        jdbc.update("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?)", "uid-video", "vicky", companyId);
+
+        String key = "media/original/323e4567-e89b-12d3-a456-426614174000";
+        String sig = MediaService.hmacSha256Base64("secret123", key);
+        String body = "{\"key\":\"" + key + "\",\"mimeType\":\"video/mp4\",\"durationSeconds\":12}";
+
+        mockMvc.perform(post("/v1/media/callback")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + token("uid-video"))
+                        .header("X-Media-Signature", sig)
+                        .content(body))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.id", notNullValue()))
+                .andExpect(jsonPath("$.mimeType", equalTo("video/mp4")))
+                .andExpect(jsonPath("$.durationSeconds", equalTo(12)))
+                .andExpect(jsonPath("$.duration_seconds", equalTo(12)))
+                .andExpect(jsonPath("$.cdnUrl", equalTo("https://cdn.example.com/" + key)))
                 .andExpect(jsonPath("$.cdn_url", equalTo("https://cdn.example.com/" + key)));
     }
 }
