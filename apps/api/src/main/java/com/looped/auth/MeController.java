@@ -28,6 +28,7 @@ public class MeController {
         resp.put("sub", jwt.getSubject());
         resp.put("iss", jwt.getIssuer() != null ? jwt.getIssuer().toString() : null);
         resp.put("aud", jwt.getAudience());
+        resp.put("sign_in_provider", signInProvider(jwt));
         var loginStatus = users.onLogin(jwt.getSubject());
         if (loginStatus == UsersService.LoginStatus.PURGED) {
             resp.put("provisioned", false);
@@ -61,5 +62,12 @@ public class MeController {
         resp.put("provisioned", true);
         resp.put("user", UserPayloads.fromProfile(profile.get(), true, true, appConfig.defaultProfileImageUrl()));
         return resp;
+    }
+
+    private String signInProvider(Jwt jwt) {
+        Object firebase = jwt.getClaims().get("firebase");
+        if (!(firebase instanceof Map<?, ?> m)) return null;
+        Object provider = m.get("sign_in_provider");
+        return provider != null ? provider.toString() : null;
     }
 }

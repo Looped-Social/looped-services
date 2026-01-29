@@ -133,6 +133,33 @@ class PollsIntegrationTest extends PostgresTestBase {
     }
 
     @Test
+    void create_poll_post_allows_empty_caption() throws Exception {
+        OffsetDateTime closesAt = OffsetDateTime.now(ZoneOffset.UTC).plusDays(7).withNano(0);
+        String createBody = """
+                {
+                  "communityId": %d,
+                  "poll": {
+                    "question": "Where should we go?",
+                    "options": ["Tacos", "Salad"],
+                    "maxSelections": 1,
+                    "closesAt": "%s"
+                  }
+                }
+                """.formatted(communityId, closesAt);
+
+        mockMvc.perform(
+                        post("/v1/posts")
+                                .with(jwt().jwt(j -> j.subject(FIREBASE_UID)))
+                                .header("Idempotency-Key", "idem-empty-caption")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(createBody)
+                )
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.content").value(""))
+                .andExpect(jsonPath("$.poll").exists());
+    }
+
+    @Test
     void vote_rejects_too_many_selections_and_unknown_option_ids() throws Exception {
         OffsetDateTime closesAt = OffsetDateTime.now(ZoneOffset.UTC).plusDays(7).withNano(0);
         String createBody = """

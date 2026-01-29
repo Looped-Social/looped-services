@@ -83,6 +83,23 @@ public class PostsController {
     ) {
         Long communityId = body.communityId() != null ? body.communityId() : body.loopId();
         boolean isAnon = body.isAnon() != null && body.isAnon();
+        if (isAnon && body.content() == null) {
+            return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of(
+                    "error", "content_required",
+                    "message", "content is required (use empty string if no caption)"
+            ));
+        }
+        boolean hasText = body.content() != null && !body.content().isBlank();
+        boolean hasMedia = (body.mediaAssetId() != null && body.mediaAssetId() > 0)
+                || (body.mediaAssetIds() != null && !body.mediaAssetIds().isEmpty());
+        boolean hasPoll = body.poll() != null;
+        if (!hasText && !hasMedia && !hasPoll) {
+            return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of(
+                    "error", "content_required",
+                    "message", "Provide content, media, or poll"
+            ));
+        }
+        String content = body.content() == null ? "" : body.content();
         if (isAnon && jwt != null) {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of(
                     "error", "anon_jwt_not_allowed",
@@ -104,7 +121,7 @@ public class PostsController {
         var res = postsService.create(
                 jwt == null ? null : jwt.getSubject(),
                 idempotencyKey,
-                body.content(),
+                content,
                 body.mediaAssetId(),
                 body.mediaAssetIds(),
                 communityId,
@@ -148,6 +165,10 @@ public class PostsController {
             case INVALID_POLL -> ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of(
                     "error", "invalid_poll",
                     "message", "Invalid poll payload"
+            ));
+            case CONTENT_REQUIRED -> ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of(
+                    "error", "content_required",
+                    "message", "Provide content, media, or poll"
             ));
             case INVALID_ANON_PROOF -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
                     "error", "invalid_anon_proof",
@@ -318,7 +339,7 @@ public class PostsController {
         };
     }
 
-    public record CreateRequest(@NotBlank @Size(max = 1000) String content,
+    public record CreateRequest(@Size(max = 1000) String content,
                                @JsonAlias("media_asset_id") Long mediaAssetId,
                                @Size(max = 4) @JsonAlias("media_asset_ids") List<Long> mediaAssetIds,
                                @JsonAlias("community_id") Long communityId,

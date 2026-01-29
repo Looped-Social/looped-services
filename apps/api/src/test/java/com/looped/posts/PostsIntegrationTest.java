@@ -113,6 +113,41 @@ class PostsIntegrationTest extends PostgresTestBase {
     }
 
     @Test
+    void create_allows_media_only_post_without_caption() throws Exception {
+        long companyId = jdbc.queryForObject(
+                "INSERT INTO companies(name, domain) VALUES ('AcmeMedia', 'acmemedia.com') RETURNING id",
+                Long.class);
+        jdbc.update("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?)",
+                "uid-media-only", "mira", companyId);
+        long communityId = jdbc.queryForObject(
+                "INSERT INTO communities(kind, name) VALUES ('company', 'AcmeMedia') RETURNING id",
+                Long.class);
+        long userId = jdbc.queryForObject("SELECT id FROM users WHERE firebase_uid=?", Long.class, "uid-media-only");
+        jdbc.update("INSERT INTO principals(kind, user_id) VALUES ('user', ?)", userId);
+        jdbc.update("INSERT INTO community_verifications(user_id, community_id, method, verified, verified_at) VALUES (?,?,?,?, now())",
+                userId, communityId, "manual", true);
+        long mediaId = jdbc.queryForObject(
+                "INSERT INTO media_assets(owner_id, s3_key, mime_type) VALUES (?, ?, ?) RETURNING id",
+                Long.class,
+                userId,
+                "media/original/323e4567-e89b-12d3-a456-426614174999",
+                "image/jpeg"
+        );
+
+        String auth = "Bearer " + token("uid-media-only");
+        String body = "{\"communityId\": " + communityId + ", \"mediaAssetId\": " + mediaId + "}";
+
+        mockMvc.perform(post("/v1/posts")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", auth)
+                        .header("Idempotency-Key", "k-media-only")
+                        .content(body))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.content", equalTo("")))
+                .andExpect(jsonPath("$.media_asset_id", equalTo((int) mediaId)));
+    }
+
+    @Test
     void create_requires_idempotency_key() throws Exception {
         long companyId = jdbc.queryForObject(
                 "INSERT INTO companies(name, domain) VALUES ('Beta', 'beta.com') RETURNING id",

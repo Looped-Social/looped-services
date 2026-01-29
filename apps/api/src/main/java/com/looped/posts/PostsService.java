@@ -97,6 +97,7 @@ public class PostsService {
     public CreateResult create(String firebaseUid, String idempotencyKey, String content, Long mediaAssetId, List<Long> mediaAssetIds, Long communityId,
                                boolean isAnon, PollRequests.PostPollCreate poll, Long anonProfileId, String anonCert, String anonCertKid,
                                String anonSig, Long anonTimestamp) {
+        if (content == null) content = "";
         if (communityId == null) return CreateResult.communityRequired();
         var community = communities.findById(communityId);
         if (community.isEmpty()) return CreateResult.communityNotFound();
@@ -105,6 +106,12 @@ public class PostsService {
         if (pollValidation.isPresent()) return CreateResult.invalidPoll(pollValidation.get());
 
         List<Long> normalizedMediaIds = normalizeMediaIds(mediaAssetId, mediaAssetIds);
+        boolean hasText = !content.isBlank();
+        boolean hasMedia = !normalizedMediaIds.isEmpty();
+        boolean hasPoll = poll != null;
+        if (!hasText && !hasMedia && !hasPoll) {
+            return CreateResult.contentRequired();
+        }
         if (normalizedMediaIds.size() > 4) {
             return CreateResult.mediaTooMany();
         }
@@ -458,6 +465,7 @@ public class PostsService {
         USER_NOT_PROVISIONED,
         IDEMPOTENCY_IN_FLIGHT,
         IDEMPOTENCY_REQUIRED,
+        CONTENT_REQUIRED,
         INVALID_POLL,
         INVALID_ANON_PROOF,
         CONTENT_UNDER_REVIEW,
@@ -478,6 +486,7 @@ public class PostsService {
         static CreateResult userNotProvisioned() { return new CreateResult(Status.USER_NOT_PROVISIONED, null, false); }
         static CreateResult inFlight() { return new CreateResult(Status.IDEMPOTENCY_IN_FLIGHT, null, false); }
         static CreateResult idempotencyRequired() { return new CreateResult(Status.IDEMPOTENCY_REQUIRED, null, false); }
+        static CreateResult contentRequired() { return new CreateResult(Status.CONTENT_REQUIRED, null, false); }
         static CreateResult invalidPoll(String ignored) { return new CreateResult(Status.INVALID_POLL, null, false); }
         static CreateResult invalidAnonProof() { return new CreateResult(Status.INVALID_ANON_PROOF, null, false); }
         static CreateResult contentUnderReview() { return new CreateResult(Status.CONTENT_UNDER_REVIEW, null, false); }

@@ -5,6 +5,7 @@ import com.google.firebase.FirebaseApp;
 import com.google.firebase.FirebaseOptions;
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.auth.FirebaseAuthException;
+import com.google.firebase.auth.UserRecord;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -87,6 +88,34 @@ public class FirebaseAdminService {
         }
     }
 
+    public UnlinkProviderResult unlinkProvider(String firebaseUid, String providerId) {
+        if (firebaseUid == null || firebaseUid.isBlank()) {
+            return UnlinkProviderResult.failed("invalid_uid");
+        }
+        if (providerId == null || providerId.isBlank()) {
+            return UnlinkProviderResult.failed("invalid_provider");
+        }
+        if (!enabled) {
+            return UnlinkProviderResult.skipped(initError != null ? initError : "not_configured");
+        }
+        try {
+            UserRecord user = auth.getUser(firebaseUid);
+            boolean hasProvider = user.getProviderData() != null
+                    && java.util.Arrays.stream(user.getProviderData()).anyMatch(p -> providerId.equalsIgnoreCase(p.getProviderId()));
+            if (!hasProvider) {
+                return UnlinkProviderResult.ok(false);
+            }
+            auth.updateUser(new UserRecord.UpdateRequest(firebaseUid).setProvidersToUnlink(java.util.List.of(providerId)));
+            auth.revokeRefreshTokens(firebaseUid);
+            return UnlinkProviderResult.ok(true);
+        } catch (FirebaseAuthException e) {
+            String code = e.getErrorCode() != null ? e.getErrorCode().name() : null;
+            return UnlinkProviderResult.failed(code);
+        } catch (Exception e) {
+            return UnlinkProviderResult.failed(e.getMessage());
+        }
+    }
+
     public boolean isRequired() {
         return required;
     }
@@ -101,5 +130,13 @@ public class FirebaseAdminService {
         static DeleteResult failed(String error) { return new DeleteResult(DeleteStatus.FAILED, error); }
     }
 
+    public record UnlinkProviderResult(UnlinkProviderStatus status, boolean unlinked, String error) {
+        static UnlinkProviderResult ok(boolean unlinked) { return new UnlinkProviderResult(UnlinkProviderStatus.OK, unlinked, null); }
+        static UnlinkProviderResult skipped(String error) { return new UnlinkProviderResult(UnlinkProviderStatus.SKIPPED, false, error); }
+        static UnlinkProviderResult failed(String error) { return new UnlinkProviderResult(UnlinkProviderStatus.FAILED, false, error); }
+    }
+
     public enum DeleteStatus { OK, SKIPPED, FAILED }
+
+    public enum UnlinkProviderStatus { OK, SKIPPED, FAILED }
 }
