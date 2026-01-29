@@ -183,7 +183,7 @@ public class AdminCommunityLogosController {
             }
             mediaAssetId = existingMedia.get().id;
         } else {
-            mediaAssetId = mediaRepository.insert(null, key, body.mimeType(), body.width(), body.height(), body.durationSeconds());
+            mediaAssetId = mediaRepository.insert(null, key, body.mimeType(), body.width(), body.height(), body.durationSeconds(), null);
         }
 
         boolean linked = logoAssets.insert(id, mediaAssetId);

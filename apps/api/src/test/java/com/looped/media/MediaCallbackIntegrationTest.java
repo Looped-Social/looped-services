@@ -97,10 +97,19 @@ class MediaCallbackIntegrationTest extends PostgresTestBase {
     void callback_persists_video_duration_seconds() throws Exception {
         long companyId = jdbc.queryForObject("INSERT INTO companies(name, domain) VALUES ('Acme2','acme2.com') RETURNING id", Long.class);
         jdbc.update("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?)", "uid-video", "vicky", companyId);
+        Long userId = jdbc.queryForObject("SELECT id FROM users WHERE firebase_uid = 'uid-video'", Long.class);
+
+        Long thumbId = jdbc.queryForObject(
+                "INSERT INTO media_assets(owner_id, s3_key, mime_type, visibility) VALUES (?, ?, ?, 'public') RETURNING id",
+                Long.class,
+                userId,
+                "media/original/thumb-323e4567-e89b-12d3-a456-426614174000",
+                "image/jpeg"
+        );
 
         String key = "media/original/323e4567-e89b-12d3-a456-426614174000";
         String sig = MediaService.hmacSha256Base64("secret123", key);
-        String body = "{\"key\":\"" + key + "\",\"mimeType\":\"video/mp4\",\"durationSeconds\":12}";
+        String body = "{\"key\":\"" + key + "\",\"mimeType\":\"video/mp4\",\"durationSeconds\":12,\"thumbnailMediaAssetId\":" + thumbId + "}";
 
         mockMvc.perform(post("/v1/media/callback")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -112,6 +121,8 @@ class MediaCallbackIntegrationTest extends PostgresTestBase {
                 .andExpect(jsonPath("$.mimeType", equalTo("video/mp4")))
                 .andExpect(jsonPath("$.durationSeconds", equalTo(12)))
                 .andExpect(jsonPath("$.duration_seconds", equalTo(12)))
+                .andExpect(jsonPath("$.thumbnailMediaAssetId", equalTo(thumbId.intValue())))
+                .andExpect(jsonPath("$.thumbnail_media_asset_id", equalTo(thumbId.intValue())))
                 .andExpect(jsonPath("$.cdnUrl", equalTo("https://cdn.example.com/" + key)))
                 .andExpect(jsonPath("$.cdn_url", equalTo("https://cdn.example.com/" + key)));
     }

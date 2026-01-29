@@ -55,4 +55,33 @@ class MediaResolveIntegrationTest extends PostgresTestBase {
                 .andExpect(jsonPath("$.items[0].cdnUrl", equalTo("https://cdn.example.com/media/original/123e4567-e89b-12d3-a456-426614174999")))
                 .andExpect(jsonPath("$.items[0].cdn_url", equalTo("https://cdn.example.com/media/original/123e4567-e89b-12d3-a456-426614174999")));
     }
+
+    @Test
+    void resolve_includes_thumbnail_url_for_video_when_linked() throws Exception {
+        Long thumbId = jdbc.queryForObject(
+                "INSERT INTO media_assets(owner_id, s3_key, mime_type, visibility) VALUES (NULL, ?, ?, 'public') RETURNING id",
+                Long.class,
+                "media/original/thumb-vid-1",
+                "image/jpeg"
+        );
+        Long videoId = jdbc.queryForObject(
+                "INSERT INTO media_assets(owner_id, s3_key, mime_type, visibility, thumbnail_media_asset_id) VALUES (NULL, ?, ?, 'public', ?) RETURNING id",
+                Long.class,
+                "media/original/vid-1",
+                "video/mp4",
+                thumbId
+        );
+
+        String body = "{\"ids\":[" + videoId + "]}";
+        mockMvc.perform(post("/v1/media/resolve")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items.length()", equalTo(1)))
+                .andExpect(jsonPath("$.items[0].id", equalTo(videoId.intValue())))
+                .andExpect(jsonPath("$.items[0].mimeType", equalTo("video/mp4")))
+                .andExpect(jsonPath("$.items[0].thumbnailMediaAssetId", equalTo(thumbId.intValue())))
+                .andExpect(jsonPath("$.items[0].thumbnailUrl", equalTo("https://cdn.example.com/media/original/thumb-vid-1")))
+                .andExpect(jsonPath("$.items[0].thumbnail_url", equalTo("https://cdn.example.com/media/original/thumb-vid-1")));
+    }
 }
