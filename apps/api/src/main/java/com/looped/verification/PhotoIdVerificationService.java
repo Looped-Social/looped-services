@@ -161,6 +161,9 @@ public class PhotoIdVerificationService {
 
         String metadata = toJsonQuietly(java.util.Map.of("nonce", nonce));
         long requestId = requests.insertPhotoId(userId, communityId, email, "pending", selfieKey, idFrontKey, emptyToNull(idBackKey), metadata);
+        if (communityId != null) {
+            communityVerifications.markUnverified(userId, communityId, "photo_id");
+        }
         return SubmitResult.ok(requestId);
     }
 

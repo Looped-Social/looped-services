@@ -19,6 +19,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.time.OffsetDateTime;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 @RestController
@@ -117,7 +118,25 @@ public class CommunityVerificationController {
             item.put("verified_at", row.verifiedAt);
             item.put("expires_at", row.expiresAt);
             boolean active = row.verified && (row.expiresAt == null || row.expiresAt.isAfter(now));
+            boolean expired = row.verifiedAt != null && row.expiresAt != null && !row.expiresAt.isAfter(now);
+            String status;
+            if (active) {
+                status = "active";
+            } else if (expired) {
+                status = "expired";
+            } else {
+                String latest = row.latestRequestStatus != null ? row.latestRequestStatus.trim().toLowerCase(Locale.ROOT) : null;
+                if ("rejected".equals(latest)) {
+                    status = "rejected";
+                    if (row.latestRequestRejectReason != null) {
+                        item.put("reject_reason", row.latestRequestRejectReason);
+                    }
+                } else {
+                    status = "pending";
+                }
+            }
             item.put("active", active);
+            item.put("status", status);
             return item;
         }).toList();
         return ResponseEntity.ok(Map.of("items", items));

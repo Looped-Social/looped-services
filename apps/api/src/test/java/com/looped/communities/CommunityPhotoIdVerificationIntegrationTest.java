@@ -126,6 +126,16 @@ class CommunityPhotoIdVerificationIntegrationTest extends PostgresTestBase {
                 .andExpect(jsonPath("$.status", equalTo("pending_review")))
                 .andExpect(jsonPath("$.verification_request_id", notNullValue()));
 
+        // Pending submissions should show up in the settings "Verifications" list.
+        mockMvc.perform(get("/v1/communities/verifications")
+                        .header("Authorization", auth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].community_id", equalTo((int) communityA)))
+                .andExpect(jsonPath("$.items[0].method", equalTo("photo_id")))
+                .andExpect(jsonPath("$.items[0].verified", equalTo(false)))
+                .andExpect(jsonPath("$.items[0].active", equalTo(false)))
+                .andExpect(jsonPath("$.items[0].status", equalTo("pending")));
+
         String storedMetadata = jdbc.queryForObject(
                 "SELECT metadata FROM verification_requests WHERE user_id = ? AND community_id = ? ORDER BY id DESC LIMIT 1",
                 String.class,
@@ -150,5 +160,35 @@ class CommunityPhotoIdVerificationIntegrationTest extends PostgresTestBase {
                         .header("Authorization", auth))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.error", equalTo("already_pending")));
+    }
+
+    @Test
+    void rejected_community_verifications_return_status_and_reason() throws Exception {
+        long companyId = jdbc.queryForObject("INSERT INTO companies(name, domain) VALUES ('Beta', 'beta.com') RETURNING id", Long.class);
+        long userId = jdbc.queryForObject(
+                "INSERT INTO users(firebase_uid, handle, company_id) VALUES ('uid-rej','rhea',?) RETURNING id",
+                Long.class,
+                companyId
+        );
+        long communityId = jdbc.queryForObject(
+                "INSERT INTO communities(kind, name, description) VALUES ('school','Duke','Duke') RETURNING id",
+                Long.class
+        );
+        jdbc.update(
+                "INSERT INTO community_verifications(user_id, community_id, method, verified) VALUES (?,?,?,false)",
+                userId, communityId, "photo_id"
+        );
+        jdbc.update(
+                "INSERT INTO verification_requests(user_id, community_id, method, status, reject_reason) VALUES (?,?,?,?,?)",
+                userId, communityId, "photo_id", "rejected", "bad_photo"
+        );
+
+        String auth = "Bearer " + token("uid-rej");
+        mockMvc.perform(get("/v1/communities/verifications")
+                        .header("Authorization", auth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].community_id", equalTo((int) communityId)))
+                .andExpect(jsonPath("$.items[0].status", equalTo("rejected")))
+                .andExpect(jsonPath("$.items[0].reject_reason", equalTo("bad_photo")));
     }
 }

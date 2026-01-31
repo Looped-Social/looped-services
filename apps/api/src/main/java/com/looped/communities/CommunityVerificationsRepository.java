@@ -142,15 +142,15 @@ public class CommunityVerificationsRepository {
     public int expireAllExpiredNow() {
         return jdbc.update(
                 "UPDATE community_verifications " +
-                        "SET verified=false, email=NULL " +
-                        "WHERE verified=true AND expires_at IS NOT NULL AND expires_at <= now()"
+                        "SET email=NULL " +
+                        "WHERE verified=true AND email IS NOT NULL AND expires_at IS NOT NULL AND expires_at <= now()"
         );
     }
 
     public int expireExpiredForEmailNow(long communityId, String email) {
         return jdbc.update(
                 "UPDATE community_verifications " +
-                        "SET verified=false, email=NULL " +
+                        "SET email=NULL " +
                         "WHERE community_id=? AND email=? AND verified=true AND expires_at IS NOT NULL AND expires_at <= now()",
                 communityId, email
         );
@@ -170,9 +170,17 @@ public class CommunityVerificationsRepository {
     public List<UserVerificationRow> listForUser(long userId) {
         return jdbc.query(
                 "SELECT cv.community_id, cv.method, cv.verified, cv.verified_at, cv.expires_at, " +
-                        "c.name AS community_name, c.kind AS community_kind " +
+                        "c.name AS community_name, c.kind AS community_kind, " +
+                        "vr.status AS latest_request_status, vr.reject_reason AS latest_request_reject_reason " +
                         "FROM community_verifications cv " +
                         "JOIN communities c ON c.id = cv.community_id " +
+                        "LEFT JOIN LATERAL (" +
+                        "  SELECT vr.status, vr.reject_reason " +
+                        "  FROM verification_requests vr " +
+                        "  WHERE vr.user_id = cv.user_id AND vr.community_id = cv.community_id " +
+                        "  ORDER BY vr.submitted_at DESC, vr.id DESC " +
+                        "  LIMIT 1" +
+                        ") vr ON true " +
                         "WHERE cv.user_id = ? " +
                         "ORDER BY cv.verified DESC, cv.verified_at DESC, cv.community_id DESC",
                 (rs, rowNum) -> {
@@ -184,6 +192,8 @@ public class CommunityVerificationsRepository {
                     row.expiresAt = rs.getObject("expires_at", OffsetDateTime.class);
                     row.communityName = rs.getString("community_name");
                     row.communityKind = rs.getString("community_kind");
+                    row.latestRequestStatus = rs.getString("latest_request_status");
+                    row.latestRequestRejectReason = rs.getString("latest_request_reject_reason");
                     return row;
                 },
                 userId
@@ -200,5 +210,7 @@ public class CommunityVerificationsRepository {
         public OffsetDateTime expiresAt;
         public String communityName;
         public String communityKind;
+        public String latestRequestStatus;
+        public String latestRequestRejectReason;
     }
 }
