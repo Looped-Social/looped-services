@@ -24,7 +24,9 @@ import java.time.Instant;
 import java.util.List;
 
 import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.notNullValue;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -190,5 +192,40 @@ class CommunityPhotoIdVerificationIntegrationTest extends PostgresTestBase {
                 .andExpect(jsonPath("$.items[0].community_id", equalTo((int) communityId)))
                 .andExpect(jsonPath("$.items[0].status", equalTo("rejected")))
                 .andExpect(jsonPath("$.items[0].reject_reason", equalTo("bad_photo")));
+    }
+
+    @Test
+    void unverify_hides_community_from_settings_verifications_list() throws Exception {
+        long companyId = jdbc.queryForObject("INSERT INTO companies(name, domain) VALUES ('UnverifyCo', 'unverify.co') RETURNING id", Long.class);
+        long userId = jdbc.queryForObject(
+                "INSERT INTO users(firebase_uid, handle, company_id) VALUES ('uid-unverify','uma',?) RETURNING id",
+                Long.class,
+                companyId
+        );
+        long communityId = jdbc.queryForObject(
+                "INSERT INTO communities(kind, name, description) VALUES ('school','Unverify U','Unverify U') RETURNING id",
+                Long.class
+        );
+        jdbc.update(
+                "INSERT INTO community_verifications(user_id, community_id, method, verified, verified_at, expires_at) " +
+                        "VALUES (?,?,?,?, now(), now() + interval '10 days')",
+                userId, communityId, "email", true
+        );
+        jdbc.update(
+                "INSERT INTO verification_requests(user_id, community_id, method, status) VALUES (?,?,?,?)",
+                userId, communityId, "email", "approved"
+        );
+
+        String auth = "Bearer " + token("uid-unverify");
+
+        mockMvc.perform(delete("/v1/communities/" + communityId + "/verification")
+                        .header("Authorization", auth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status", equalTo("unverified")));
+
+        mockMvc.perform(get("/v1/communities/verifications")
+                        .header("Authorization", auth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items", hasSize(0)));
     }
 }

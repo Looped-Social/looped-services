@@ -21,6 +21,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 
 @RestController
 @RequestMapping("/v1/communities")
@@ -109,14 +110,6 @@ public class CommunityVerificationController {
         }
         OffsetDateTime now = OffsetDateTime.now();
         List<Map<String, Object>> items = verifications.listForUser(actor.get().id).stream().map(row -> {
-            Map<String, Object> item = new HashMap<>();
-            item.put("community_id", row.communityId);
-            item.put("community_name", row.communityName);
-            item.put("community_kind", row.communityKind);
-            item.put("method", row.method);
-            item.put("verified", row.verified);
-            item.put("verified_at", row.verifiedAt);
-            item.put("expires_at", row.expiresAt);
             boolean active = row.verified && (row.expiresAt == null || row.expiresAt.isAfter(now));
             boolean expired = row.verifiedAt != null && row.expiresAt != null && !row.expiresAt.isAfter(now);
             String status;
@@ -128,17 +121,29 @@ public class CommunityVerificationController {
                 String latest = row.latestRequestStatus != null ? row.latestRequestStatus.trim().toLowerCase(Locale.ROOT) : null;
                 if ("rejected".equals(latest)) {
                     status = "rejected";
-                    if (row.latestRequestRejectReason != null) {
-                        item.put("reject_reason", row.latestRequestRejectReason);
-                    }
-                } else {
+                } else if ("pending".equals(latest)) {
                     status = "pending";
+                } else {
+                    // "Unverified" rows should not render as "Pending" in Settings. We only show
+                    // communities that are active, expired, pending review, or rejected.
+                    return null;
                 }
             }
+            Map<String, Object> item = new HashMap<>();
+            item.put("community_id", row.communityId);
+            item.put("community_name", row.communityName);
+            item.put("community_kind", row.communityKind);
+            item.put("method", row.method);
+            item.put("verified", row.verified);
+            item.put("verified_at", row.verifiedAt);
+            item.put("expires_at", row.expiresAt);
             item.put("active", active);
             item.put("status", status);
+            if ("rejected".equals(status) && row.latestRequestRejectReason != null) {
+                item.put("reject_reason", row.latestRequestRejectReason);
+            }
             return item;
-        }).toList();
+        }).filter(Objects::nonNull).toList();
         return ResponseEntity.ok(Map.of("items", items));
     }
 
