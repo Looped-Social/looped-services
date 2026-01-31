@@ -31,14 +31,22 @@ public class FollowsController {
     public ResponseEntity<?> followers(
             @AuthenticationPrincipal Jwt jwt,
             @PathVariable("id") long id,
+            @RequestParam(value = "query", required = false) String query,
             @RequestParam(value = "cursor", required = false) String cursor,
             @RequestParam(value = "limit", required = false, defaultValue = "20") int limit
     ) {
+        if (jwt == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of(
+                    "error", "unauthorized",
+                    "message", "Authorization is required"
+            ));
+        }
         int lim = Math.max(1, Math.min(limit, 100));
-        var res = service.followers(jwt.getSubject(), id, cursor, lim);
+        var res = service.followers(jwt.getSubject(), id, query, cursor, lim);
         return switch (res.status()) {
             case USER_NOT_PROVISIONED -> ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "user_not_provisioned"));
             case NOT_FOUND -> ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "not_found"));
+            case FORBIDDEN -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "forbidden"));
             case OK -> {
                 String defaultProfileImageUrl = appConfig.defaultProfileImageUrl();
                 List<Map<String, Object>> items = res.users().stream()
@@ -57,14 +65,22 @@ public class FollowsController {
     public ResponseEntity<?> following(
             @AuthenticationPrincipal Jwt jwt,
             @PathVariable("id") long id,
+            @RequestParam(value = "query", required = false) String query,
             @RequestParam(value = "cursor", required = false) String cursor,
             @RequestParam(value = "limit", required = false, defaultValue = "20") int limit
     ) {
+        if (jwt == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of(
+                    "error", "unauthorized",
+                    "message", "Authorization is required"
+            ));
+        }
         int lim = Math.max(1, Math.min(limit, 100));
-        var res = service.following(jwt.getSubject(), id, cursor, lim);
+        var res = service.following(jwt.getSubject(), id, query, cursor, lim);
         return switch (res.status()) {
             case USER_NOT_PROVISIONED -> ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "user_not_provisioned"));
             case NOT_FOUND -> ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "not_found"));
+            case FORBIDDEN -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "forbidden"));
             case OK -> {
                 String defaultProfileImageUrl = appConfig.defaultProfileImageUrl();
                 List<Map<String, Object>> items = res.users().stream()
@@ -108,6 +124,7 @@ public class FollowsController {
         return switch (res.status()) {
             case USER_NOT_PROVISIONED -> ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "user_not_provisioned"));
             case NOT_FOUND -> ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "not_found"));
+            case FORBIDDEN -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "forbidden"));
             case INVALID_TARGET -> ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of(
                     "error", "invalid_target",
                     "message", "Cannot follow this user"
@@ -152,6 +169,7 @@ public class FollowsController {
         return switch (res.status()) {
             case USER_NOT_PROVISIONED -> ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "user_not_provisioned"));
             case NOT_FOUND -> ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "not_found"));
+            case FORBIDDEN -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "forbidden"));
             case INVALID_TARGET -> ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of(
                     "error", "invalid_target",
                     "message", "Cannot unfollow this user"

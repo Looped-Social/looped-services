@@ -346,6 +346,7 @@ public class AnonProfilesController {
     public ResponseEntity<?> followers(
             @AuthenticationPrincipal Jwt jwt,
             @PathVariable("id") long id,
+            @RequestParam(value = "query", required = false) String query,
             @RequestParam(value = "cursor", required = false) String cursor,
             @RequestParam(value = "limit", required = false, defaultValue = "20") int limit
     ) {
@@ -353,7 +354,7 @@ public class AnonProfilesController {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("error", "unauthorized"));
         }
         int lim = Math.max(1, Math.min(limit, 100));
-        var res = service.followers(jwt.getSubject(), id, cursor, lim);
+        var res = service.followers(jwt.getSubject(), id, query, cursor, lim);
         return switch (res.status()) {
             case USER_NOT_PROVISIONED -> ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "user_not_provisioned"));
             case NOT_FOUND -> ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "not_found"));
@@ -366,6 +367,7 @@ public class AnonProfilesController {
     public ResponseEntity<?> following(
             @AuthenticationPrincipal Jwt jwt,
             @PathVariable("id") long id,
+            @RequestParam(value = "query", required = false) String query,
             @RequestParam(value = "cursor", required = false) String cursor,
             @RequestParam(value = "limit", required = false, defaultValue = "20") int limit
     ) {
@@ -373,7 +375,7 @@ public class AnonProfilesController {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("error", "unauthorized"));
         }
         int lim = Math.max(1, Math.min(limit, 100));
-        var res = service.following(jwt.getSubject(), id, cursor, lim);
+        var res = service.following(jwt.getSubject(), id, query, cursor, lim);
         return switch (res.status()) {
             case USER_NOT_PROVISIONED -> ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "user_not_provisioned"));
             case NOT_FOUND -> ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "not_found"));

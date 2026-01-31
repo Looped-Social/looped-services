@@ -13,6 +13,9 @@ public final class PrincipalPayloads {
     public static Map<String, Object> directory(PrincipalProfilesRepository.PrincipalProfileRow row, String defaultProfileImageUrl) {
         Map<String, Object> out = new HashMap<>();
         out.put("principal_id", row.principalId);
+        out.put("kind", row.kind);
+        out.put("user_id", row.userId);
+        out.put("anon_profile_id", row.anonProfileId);
         out.put("id", row.kind.equals("anon") ? row.anonProfileId : row.userId);
         out.put("handle", row.handle);
         out.put("display_name", row.displayName);

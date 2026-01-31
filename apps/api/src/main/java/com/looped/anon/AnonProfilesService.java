@@ -511,15 +511,15 @@ public class AnonProfilesService {
         return RepliesForViewerResult.ok(rows, next);
     }
 
-    public FollowsResult followers(String firebaseUid, long anonProfileId, String cursor, int limit) {
-        return followList(firebaseUid, anonProfileId, cursor, limit, true);
+    public FollowsResult followers(String firebaseUid, long anonProfileId, String query, String cursor, int limit) {
+        return followList(firebaseUid, anonProfileId, query, cursor, limit, true);
     }
 
-    public FollowsResult following(String firebaseUid, long anonProfileId, String cursor, int limit) {
-        return followList(firebaseUid, anonProfileId, cursor, limit, false);
+    public FollowsResult following(String firebaseUid, long anonProfileId, String query, String cursor, int limit) {
+        return followList(firebaseUid, anonProfileId, query, cursor, limit, false);
     }
 
-    private FollowsResult followList(String firebaseUid, long anonProfileId, String cursor, int limit, boolean followersList) {
+    private FollowsResult followList(String firebaseUid, long anonProfileId, String query, String cursor, int limit, boolean followersList) {
         var actor = users.findByFirebaseUid(firebaseUid);
         if (actor.isEmpty() || actor.get().companyId == null) return FollowsResult.userNotProvisioned();
         var profile = profiles.findById(anonProfileId);
@@ -540,9 +540,9 @@ public class AnonProfilesService {
 
         List<PrincipalProfilesRepository.PrincipalProfileRow> rows;
         if (followersList) {
-            rows = follows.followers(principal.id, cTs, cId, limit);
+            rows = follows.followers(principal.id, cTs, cId, limit, query);
         } else {
-            rows = follows.following(principal.id, cTs, cId, limit);
+            rows = follows.following(principal.id, cTs, cId, limit, query);
         }
         String next = null;
         if (rows.size() == limit) {

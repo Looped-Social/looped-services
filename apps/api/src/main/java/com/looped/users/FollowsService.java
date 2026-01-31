@@ -33,17 +33,19 @@ public class FollowsService {
         this.notifications = notifications;
     }
 
-    public ListResult followers(String firebaseUid, long targetUserId, String cursor, int limit) {
-        var actor = users.findByFirebaseUid(firebaseUid);
+    public ListResult followers(String firebaseUid, long targetUserId, String query, String cursor, int limit) {
+        var actor = requireProvisionedUser(firebaseUid);
         if (actor.isEmpty()) return ListResult.userNotProvisioned();
 
         var target = users.findById(targetUserId);
         if (target.isEmpty()) return ListResult.notFound();
+        if (target.get().companyId == null || !actor.get().companyId.equals(target.get().companyId)) return ListResult.forbidden();
+        if (actor.get().id != targetUserId && !target.get().showFollowerCount) return ListResult.forbidden();
 
         var targetPrincipal = principals.createForUser(targetUserId);
 
         var cursorParts = decodeCursor(cursor);
-        var rows = profiles.followers(targetPrincipal.id, cursorParts.timestamp, cursorParts.principalId, limit);
+        var rows = profiles.followers(targetPrincipal.id, cursorParts.timestamp, cursorParts.principalId, limit, query);
         String next = null;
         if (rows.size() == limit) {
             var last = rows.get(rows.size() - 1);
@@ -52,17 +54,19 @@ public class FollowsService {
         return ListResult.ok(rows, next);
     }
 
-    public ListResult following(String firebaseUid, long targetUserId, String cursor, int limit) {
-        var actor = users.findByFirebaseUid(firebaseUid);
+    public ListResult following(String firebaseUid, long targetUserId, String query, String cursor, int limit) {
+        var actor = requireProvisionedUser(firebaseUid);
         if (actor.isEmpty()) return ListResult.userNotProvisioned();
 
         var target = users.findById(targetUserId);
         if (target.isEmpty()) return ListResult.notFound();
+        if (target.get().companyId == null || !actor.get().companyId.equals(target.get().companyId)) return ListResult.forbidden();
+        if (actor.get().id != targetUserId && !target.get().showFollowerCount) return ListResult.forbidden();
 
         var targetPrincipal = principals.createForUser(targetUserId);
 
         var cursorParts = decodeCursor(cursor);
-        var rows = profiles.following(targetPrincipal.id, cursorParts.timestamp, cursorParts.principalId, limit);
+        var rows = profiles.following(targetPrincipal.id, cursorParts.timestamp, cursorParts.principalId, limit, query);
         String next = null;
         if (rows.size() == limit) {
             var last = rows.get(rows.size() - 1);
@@ -81,11 +85,15 @@ public class FollowsService {
         if (anonProof != null && anonProof.anonProfileId() != null) {
             var verified = anonProofs.verifyActionAnyTarget(anonProof, "follow", targetPrincipal.id, targetUserId);
             if (verified.status() != AnonProofService.Status.OK) return FollowResult.invalidSignature();
+            if (verified.actor().companyId() == null || target.get().companyId == null || !verified.actor().companyId().equals(target.get().companyId)) {
+                return FollowResult.forbidden();
+            }
             actorPrincipalId = verified.actor().principalId();
         } else {
             if (firebaseUid == null) return FollowResult.userNotProvisioned();
-            var actorUser = users.findByFirebaseUid(firebaseUid);
+            var actorUser = requireProvisionedUser(firebaseUid);
             if (actorUser.isEmpty()) return FollowResult.userNotProvisioned();
+            if (!actorUser.get().companyId.equals(target.get().companyId)) return FollowResult.forbidden();
             var principal = principals.createForUser(actorUser.get().id);
             actorPrincipalId = principal.id;
         }
@@ -110,11 +118,15 @@ public class FollowsService {
         if (anonProof != null && anonProof.anonProfileId() != null) {
             var verified = anonProofs.verifyActionAnyTarget(anonProof, "unfollow", targetPrincipal.id, targetUserId);
             if (verified.status() != AnonProofService.Status.OK) return FollowResult.invalidSignature();
+            if (verified.actor().companyId() == null || target.get().companyId == null || !verified.actor().companyId().equals(target.get().companyId)) {
+                return FollowResult.forbidden();
+            }
             actorPrincipalId = verified.actor().principalId();
         } else {
             if (firebaseUid == null) return FollowResult.userNotProvisioned();
-            var actorUser = users.findByFirebaseUid(firebaseUid);
+            var actorUser = requireProvisionedUser(firebaseUid);
             if (actorUser.isEmpty()) return FollowResult.userNotProvisioned();
+            if (!actorUser.get().companyId.equals(target.get().companyId)) return FollowResult.forbidden();
             var principal = principals.createForUser(actorUser.get().id);
             actorPrincipalId = principal.id;
         }
@@ -138,11 +150,18 @@ public class FollowsService {
 
     private record CursorParts(OffsetDateTime timestamp, Long principalId) {}
 
-    public enum Status { OK, USER_NOT_PROVISIONED, NOT_FOUND, INVALID_TARGET, INVALID_SIGNATURE }
+    private Optional<UserRepository.UserRow> requireProvisionedUser(String firebaseUid) {
+        var user = users.findByFirebaseUid(firebaseUid);
+        if (user.isEmpty() || user.get().companyId == null) return Optional.empty();
+        return user;
+    }
+
+    public enum Status { OK, USER_NOT_PROVISIONED, NOT_FOUND, FORBIDDEN, INVALID_TARGET, INVALID_SIGNATURE }
     public record FollowResult(Status status, boolean following, boolean changed) {
         static FollowResult ok(boolean following, boolean changed) { return new FollowResult(Status.OK, following, changed); }
         static FollowResult userNotProvisioned() { return new FollowResult(Status.USER_NOT_PROVISIONED, false, false); }
         static FollowResult notFound() { return new FollowResult(Status.NOT_FOUND, false, false); }
+        static FollowResult forbidden() { return new FollowResult(Status.FORBIDDEN, false, false); }
         static FollowResult invalidTarget() { return new FollowResult(Status.INVALID_TARGET, false, false); }
         static FollowResult invalidSignature() { return new FollowResult(Status.INVALID_SIGNATURE, false, false); }
     }
@@ -151,5 +170,6 @@ public class FollowsService {
         static ListResult ok(java.util.List<com.looped.principals.PrincipalProfilesRepository.PrincipalProfileRow> users, String next) { return new ListResult(Status.OK, users, next); }
         static ListResult userNotProvisioned() { return new ListResult(Status.USER_NOT_PROVISIONED, java.util.List.of(), null); }
         static ListResult notFound() { return new ListResult(Status.NOT_FOUND, java.util.List.of(), null); }
+        static ListResult forbidden() { return new ListResult(Status.FORBIDDEN, java.util.List.of(), null); }
     }
 }

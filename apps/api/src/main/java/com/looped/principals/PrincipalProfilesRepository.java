@@ -7,7 +7,9 @@ import org.springframework.stereotype.Repository;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.OffsetDateTime;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 
 @Repository
 public class PrincipalProfilesRepository {
@@ -39,27 +41,63 @@ public class PrincipalProfilesRepository {
     };
 
     public List<PrincipalProfileRow> followers(long followeePrincipalId, OffsetDateTime cursorTs, Long cursorPrincipalId, int limit) {
-        if (cursorTs == null || cursorPrincipalId == null) {
-            return jdbc.query(baseFollowersQuery() +
-                            " ORDER BY f.created_at DESC, p.id DESC LIMIT ?",
-                    MAPPER, followeePrincipalId, limit);
+        return followers(followeePrincipalId, cursorTs, cursorPrincipalId, limit, null);
+    }
+
+    public List<PrincipalProfileRow> followers(long followeePrincipalId, OffsetDateTime cursorTs, Long cursorPrincipalId, int limit, String query) {
+        String like = normalizeLikeQuery(query);
+        boolean hasQuery = like != null;
+
+        var sql = new StringBuilder(baseFollowersQuery());
+        var params = new ArrayList<>();
+        params.add(followeePrincipalId);
+
+        if (hasQuery) {
+            sql.append(" AND (LOWER(COALESCE(u.handle, ap.handle)) LIKE ? OR LOWER(COALESCE(u.display_name, '')) LIKE ?)");
+            params.add(like);
+            params.add(like);
         }
-        return jdbc.query(baseFollowersQuery() +
-                        " AND (f.created_at < ? OR (f.created_at = ? AND p.id < ?)) " +
-                        " ORDER BY f.created_at DESC, p.id DESC LIMIT ?",
-                MAPPER, followeePrincipalId, cursorTs, cursorTs, cursorPrincipalId, limit);
+
+        if (cursorTs != null && cursorPrincipalId != null) {
+            sql.append(" AND (f.created_at < ? OR (f.created_at = ? AND p.id < ?))");
+            params.add(cursorTs);
+            params.add(cursorTs);
+            params.add(cursorPrincipalId);
+        }
+
+        sql.append(" ORDER BY f.created_at DESC, p.id DESC LIMIT ?");
+        params.add(limit);
+        return jdbc.query(sql.toString(), MAPPER, params.toArray());
     }
 
     public List<PrincipalProfileRow> following(long followerPrincipalId, OffsetDateTime cursorTs, Long cursorPrincipalId, int limit) {
-        if (cursorTs == null || cursorPrincipalId == null) {
-            return jdbc.query(baseFollowingQuery() +
-                            " ORDER BY f.created_at DESC, p.id DESC LIMIT ?",
-                    MAPPER, followerPrincipalId, limit);
+        return following(followerPrincipalId, cursorTs, cursorPrincipalId, limit, null);
+    }
+
+    public List<PrincipalProfileRow> following(long followerPrincipalId, OffsetDateTime cursorTs, Long cursorPrincipalId, int limit, String query) {
+        String like = normalizeLikeQuery(query);
+        boolean hasQuery = like != null;
+
+        var sql = new StringBuilder(baseFollowingQuery());
+        var params = new ArrayList<>();
+        params.add(followerPrincipalId);
+
+        if (hasQuery) {
+            sql.append(" AND (LOWER(COALESCE(u.handle, ap.handle)) LIKE ? OR LOWER(COALESCE(u.display_name, '')) LIKE ?)");
+            params.add(like);
+            params.add(like);
         }
-        return jdbc.query(baseFollowingQuery() +
-                        " AND (f.created_at < ? OR (f.created_at = ? AND p.id < ?)) " +
-                        " ORDER BY f.created_at DESC, p.id DESC LIMIT ?",
-                MAPPER, followerPrincipalId, cursorTs, cursorTs, cursorPrincipalId, limit);
+
+        if (cursorTs != null && cursorPrincipalId != null) {
+            sql.append(" AND (f.created_at < ? OR (f.created_at = ? AND p.id < ?))");
+            params.add(cursorTs);
+            params.add(cursorTs);
+            params.add(cursorPrincipalId);
+        }
+
+        sql.append(" ORDER BY f.created_at DESC, p.id DESC LIMIT ?");
+        params.add(limit);
+        return jdbc.query(sql.toString(), MAPPER, params.toArray());
     }
 
     public List<PrincipalProfileRow> blocked(long blockerPrincipalId, OffsetDateTime cursorTs, Long cursorPrincipalId, int limit) {
@@ -85,7 +123,7 @@ public class PrincipalProfilesRepository {
                 "JOIN principals p ON p.id = f.follower_principal_id " +
                 "LEFT JOIN users u ON u.id = p.user_id AND u.deleted_at IS NULL " +
                 "LEFT JOIN anonymous_profiles ap ON ap.id = p.anon_profile_id " +
-                "WHERE f.followee_principal_id = ?";
+                "WHERE f.followee_principal_id = ? AND (p.kind = 'anon' OR u.id IS NOT NULL)";
     }
 
     private String baseFollowingQuery() {
@@ -99,7 +137,7 @@ public class PrincipalProfilesRepository {
                 "JOIN principals p ON p.id = f.followee_principal_id " +
                 "LEFT JOIN users u ON u.id = p.user_id AND u.deleted_at IS NULL " +
                 "LEFT JOIN anonymous_profiles ap ON ap.id = p.anon_profile_id " +
-                "WHERE f.follower_principal_id = ?";
+                "WHERE f.follower_principal_id = ? AND (p.kind = 'anon' OR u.id IS NOT NULL)";
     }
 
     private String baseBlockedQuery() {
@@ -113,7 +151,15 @@ public class PrincipalProfilesRepository {
                 "JOIN principals p ON p.id = b.blocked_principal_id " +
                 "LEFT JOIN users u ON u.id = p.user_id AND u.deleted_at IS NULL " +
                 "LEFT JOIN anonymous_profiles ap ON ap.id = p.anon_profile_id " +
-                "WHERE b.blocker_principal_id = ?";
+                "WHERE b.blocker_principal_id = ? AND (p.kind = 'anon' OR u.id IS NOT NULL)";
+    }
+
+    private String normalizeLikeQuery(String query) {
+        if (query == null) return null;
+        String trimmed = query.trim().toLowerCase(Locale.ROOT);
+        if (trimmed.isBlank()) return null;
+        if (trimmed.length() > 100) trimmed = trimmed.substring(0, 100);
+        return "%" + trimmed + "%";
     }
 
     public static class PrincipalProfileRow {

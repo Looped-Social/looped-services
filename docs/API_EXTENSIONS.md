@@ -42,7 +42,9 @@
   - `GET /v1/users?cursor=&limit=` default directory ordered by join date/activity.
   - Items: `{ id, handle, username, display_name, bio, company_id, profile_image_url }` + `next_cursor` when more.
 - **Blocks**
-  - `GET /v1/users/blocked?cursor=&limit=` → `{ items: [{ principal_id, id, handle, display_name, profile_image_url, company_id, is_anonymous }], next_cursor }`
+  - `GET /v1/users/blocked?cursor=&limit=` → `{ items: [{ principal_id, kind, user_id, anon_profile_id, id, handle, display_name, profile_image_url, company_id, is_anonymous }], next_cursor }`
+    - `kind` is `"user"` or `"anon"`.
+    - `id` mirrors `user_id` when `kind="user"`, otherwise `anon_profile_id`.
   - `POST /v1/users/{id}/block` → `{ user_id, blocked: true }` (201 when created, 200 when already blocked)
     - **JWT mode**: requires `Authorization: Bearer ...`
     - **Anon mode**: omit `Authorization`, send body `{ "asAnon": true, "anonProfileId": <int>, "anonCert": "<b64>", "anonCertKid": "<kid>", "anonSig": "<b64>" }`
@@ -54,6 +56,12 @@
     - Supports **JWT mode** and **Anon mode** (same body rules as above).
   - `DELETE /v1/principals/{id}/block` → `{ principal_id, blocked: false }`
   - Errors: `401 unauthorized` (missing JWT in JWT mode), `409 user_not_provisioned`, `404 not_found`, `422 invalid_target` (self-block), `403 invalid_anon_proof`, `400 anon_jwt_not_allowed`
+- **Follows**
+  - `GET /v1/users/{id}/followers?query=&cursor=&limit=` → `{ items: [{ principal_id, kind, user_id, anon_profile_id, id, handle, display_name, profile_image_url, company_id, is_anonymous }], next_cursor }`
+  - `GET /v1/users/{id}/following?query=&cursor=&limit=` → `{ items: [{ principal_id, kind, user_id, anon_profile_id, id, handle, display_name, profile_image_url, company_id, is_anonymous }], next_cursor }`
+  - `query` is optional; when present, it filters by `handle` (users + anon) and `display_name` (users).
+  - Includes anonymous principals (`kind="anon"`) when users follow as anon.
+  - Errors: `401 unauthorized`, `409 user_not_provisioned`, `404 not_found`, `403 forbidden` (cross-company or `show_follower_count=false` and not self)
 - **Direct messages (DMs) with polling**
   - `GET /v1/conversations?cursor=&limit=` → `{ items: [{ id, other_user_id, other_user_profile, last_message, last_message_timestamp, unread_count }], next_cursor }`
   - `POST /v1/conversations` → `{ id, other_user_id, other_user_profile, last_message, last_message_timestamp, unread_count }`
