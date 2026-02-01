@@ -12,6 +12,7 @@ Create these *once* (per AWS account). Store **secret values** here (not in Open
 - `firebase_admin_secret_arn`: secret value = Firebase service-account JSON (single string)
 - `openai_moderation_secret_arn`: secret value = OpenAI API key (single string)
 - `db_credentials_secret_arn`: secret value = JSON: `{"username":"...","password":"..."}`
+- (Push) `apns_auth_key_p8_secret_arn`: secret value = **base64-encoded** APNs Auth Key (`.p8`)
 
 You can create them in the AWS Console or via CLI:
 
@@ -19,6 +20,8 @@ You can create them in the AWS Console or via CLI:
 aws secretsmanager create-secret --name looped/firebase-admin --secret-string '{"type":"service_account", ... }'
 aws secretsmanager create-secret --name looped/openai/moderation --secret-string 'sk-...'
 aws secretsmanager create-secret --name looped/db/credentials --secret-string '{"username":"...","password":"..."}'
+aws secretsmanager create-secret --name looped/staging/apns/auth-key-p8 --secret-string '<base64-of-AuthKey_XXXXXX.p8>'
+aws secretsmanager create-secret --name looped/prod/apns/auth-key-p8 --secret-string '<base64-of-AuthKey_XXXXXX.p8>'
 ```
 
 ## 2) Create ACM certificates (for ALB HTTPS)
@@ -60,6 +63,7 @@ Fill in:
 - `*_secret_arn` values from Secrets Manager
 - `acm_certificate_arn` (if using HTTPS)
 - `cors_allowed_origins` (admin/iOS dev origins)
+- (Push) `enable_push_notifications=true` + `enable_notif_worker=true` + APNs config (`apns_*`)
 
 Repeat for prod.
 
@@ -97,6 +101,12 @@ After `tofu apply`, subscribe to the `alerts_topic_arn` output for email/Slack/P
 Your deploy workflow should point at the new ECS cluster/service (see OpenTofu outputs):
 - `ecs_cluster_name`
 - `ecs_service_name`
+
+For push notifications, there are two deploy targets:
+- API: `.github/workflows/deploy-api.yml` and `.github/workflows/deploy-prod.yml`
+- notif-worker:
+  - staging: `.github/workflows/deploy-notif-worker.yml`
+  - prod: `.github/workflows/deploy-notif-worker-prod.yml`
 
 Recommended model:
 - OpenTofu manages infra + baseline task definition (including a stable image tag, e.g. `:main` or `:prod`).

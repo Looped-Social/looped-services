@@ -45,3 +45,19 @@ moderation_openai_base_url            = "https://api.openai.com/v1"
 moderation_openai_timeout_millis      = 5000
 moderation_openai_category_blocklist  = "hate,hate/threatening,sexual,sexual/minors,self-harm,self-harm/intent,self-harm/instructions,violence,violence/graphic"
 moderation_report_quarantine_threshold = 10
+
+# Push notifications (APNs via SQS + notif-worker)
+# - enable_push_notifications controls whether the API enqueues push jobs to SQS.
+# - enable_notif_worker controls whether we deploy the SQS consumer that actually sends APNs pushes.
+enable_push_notifications = true
+enable_notif_worker       = true
+
+# NOTE: For staging, APNs sandbox is common for Xcode/dev builds. If staging uses TestFlight/App Store builds,
+# set this to false.
+apns_sandbox = true
+
+# Required when enable_notif_worker=true
+apns_bundle_id              = "com.yourcompany.looped.staging"
+apns_team_id                = "YOUR_TEAM_ID"
+apns_key_id                 = "YOUR_KEY_ID"
+apns_auth_key_p8_secret_arn = "arn:aws:secretsmanager:us-east-1:179388324981:secret:looped/staging/apns/auth-key-p8-XXXXXX"
