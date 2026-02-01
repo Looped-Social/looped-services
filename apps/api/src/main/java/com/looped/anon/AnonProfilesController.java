@@ -8,6 +8,8 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -342,6 +344,112 @@ public class AnonProfilesController {
         };
     }
 
+    @PostMapping("/{id}/follow")
+    public ResponseEntity<?> follow(
+            @AuthenticationPrincipal Jwt jwt,
+            @RequestHeader(value = "X-Actor", required = false) String actor,
+            @PathVariable("id") long id,
+            @RequestBody(required = false) FollowRequest body
+    ) {
+        boolean asAnon = body != null && Boolean.TRUE.equals(body.asAnon());
+        if (asAnon && (body == null || !body.hasAnonProof())) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
+                    "error", "invalid_anon_proof",
+                    "message", "Invalid anonymous proof"
+            ));
+        }
+        if (asAnon && (actor == null || !actor.equalsIgnoreCase("anon"))) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of(
+                    "error", "invalid_actor",
+                    "message", "X-Actor: anon is required for anonymous follows"
+            ));
+        }
+        if (asAnon && jwt != null) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of(
+                    "error", "anon_jwt_not_allowed",
+                    "message", "Do not send Authorization for anonymous actions"
+            ));
+        }
+        if (!asAnon && jwt == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of(
+                    "error", "unauthorized",
+                    "message", "Authorization is required"
+            ));
+        }
+        var res = service.followAnonProfile(jwt == null ? null : jwt.getSubject(), id, body == null ? null : body.toAnonProof());
+        return switch (res.status()) {
+            case USER_NOT_PROVISIONED -> ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "user_not_provisioned"));
+            case NOT_FOUND -> ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "not_found"));
+            case FORBIDDEN -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "forbidden"));
+            case INVALID_TARGET -> ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of(
+                    "error", "invalid_target",
+                    "message", "Cannot follow this anonymous profile"
+            ));
+            case INVALID_SIGNATURE -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
+                    "error", "invalid_anon_proof",
+                    "message", "Invalid anonymous proof"
+            ));
+            case OK -> new ResponseEntity<>(Map.of(
+                    "anon_profile_id", id,
+                    "id", id,
+                    "following", true
+            ), res.changed() ? HttpStatus.CREATED : HttpStatus.OK);
+        };
+    }
+
+    @DeleteMapping("/{id}/follow")
+    public ResponseEntity<?> unfollow(
+            @AuthenticationPrincipal Jwt jwt,
+            @RequestHeader(value = "X-Actor", required = false) String actor,
+            @PathVariable("id") long id,
+            @RequestBody(required = false) FollowRequest body
+    ) {
+        boolean asAnon = body != null && Boolean.TRUE.equals(body.asAnon());
+        if (asAnon && (body == null || !body.hasAnonProof())) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
+                    "error", "invalid_anon_proof",
+                    "message", "Invalid anonymous proof"
+            ));
+        }
+        if (asAnon && (actor == null || !actor.equalsIgnoreCase("anon"))) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of(
+                    "error", "invalid_actor",
+                    "message", "X-Actor: anon is required for anonymous follows"
+            ));
+        }
+        if (asAnon && jwt != null) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of(
+                    "error", "anon_jwt_not_allowed",
+                    "message", "Do not send Authorization for anonymous actions"
+            ));
+        }
+        if (!asAnon && jwt == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of(
+                    "error", "unauthorized",
+                    "message", "Authorization is required"
+            ));
+        }
+        var res = service.unfollowAnonProfile(jwt == null ? null : jwt.getSubject(), id, body == null ? null : body.toAnonProof());
+        return switch (res.status()) {
+            case USER_NOT_PROVISIONED -> ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "user_not_provisioned"));
+            case NOT_FOUND -> ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "not_found"));
+            case FORBIDDEN -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "forbidden"));
+            case INVALID_TARGET -> ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of(
+                    "error", "invalid_target",
+                    "message", "Cannot unfollow this anonymous profile"
+            ));
+            case INVALID_SIGNATURE -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
+                    "error", "invalid_anon_proof",
+                    "message", "Invalid anonymous proof"
+            ));
+            case OK -> ResponseEntity.ok(Map.of(
+                    "anon_profile_id", id,
+                    "id", id,
+                    "following", false
+            ));
+        };
+    }
+
     @GetMapping("/{id}/followers")
     public ResponseEntity<?> followers(
             @AuthenticationPrincipal Jwt jwt,
@@ -443,6 +551,27 @@ public class AnonProfilesController {
     public record DisplayCommunityRequest(Long communityId, Boolean asAnon, Long anonProfileId,
                                           String anonCert, String anonCertKid, String anonSig) {
         AnonProofService.AnonActionProof toAnonProof() {
+            return new AnonProofService.AnonActionProof(anonProfileId, anonCert, anonCertKid, anonSig);
+        }
+
+        boolean hasAnonProof() {
+            return anonProfileId != null
+                    && anonCert != null && !anonCert.isBlank()
+                    && anonCertKid != null && !anonCertKid.isBlank()
+                    && anonSig != null && !anonSig.isBlank()
+                    && Boolean.TRUE.equals(asAnon);
+        }
+    }
+
+    public record FollowRequest(
+            @JsonAlias("as_anon") Boolean asAnon,
+            @JsonAlias("anon_profile_id") Long anonProfileId,
+            @JsonAlias("anon_cert") String anonCert,
+            @JsonAlias("anon_cert_kid") String anonCertKid,
+            @JsonAlias("anon_sig") String anonSig
+    ) {
+        AnonProofService.AnonActionProof toAnonProof() {
+            if (asAnon == null || !asAnon) return null;
             return new AnonProofService.AnonActionProof(anonProfileId, anonCert, anonCertKid, anonSig);
         }
 

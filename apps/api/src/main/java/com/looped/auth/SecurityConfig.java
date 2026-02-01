@@ -86,6 +86,8 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.GET, "/v1/anon/*/posts/liked").permitAll()
                 .requestMatchers(HttpMethod.GET, "/v1/anon/*/posts/saved").permitAll()
                 .requestMatchers(HttpMethod.GET, "/v1/anon/*/replies").permitAll()
+                .requestMatchers(HttpMethod.POST, "/v1/anon/*/follow").permitAll()
+                .requestMatchers(HttpMethod.DELETE, "/v1/anon/*/follow").permitAll()
                 .requestMatchers(HttpMethod.POST, "/v1/users/*/follow").permitAll()
                 .requestMatchers(HttpMethod.DELETE, "/v1/users/*/follow").permitAll()
                 .requestMatchers(HttpMethod.POST, "/v1/users/*/block").permitAll()

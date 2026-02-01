@@ -13,6 +13,7 @@ import com.looped.principals.PrincipalRepository;
 import com.looped.principals.PrincipalStatsRepository;
 import com.looped.settings.AppConfigService;
 import com.looped.shared.Pagination;
+import com.looped.users.FollowsRepository;
 import com.looped.users.UserPayloads;
 import com.looped.users.UserRepository;
 import org.springframework.stereotype.Service;
@@ -29,6 +30,7 @@ public class AnonProfilesService {
     private final PrincipalStatsRepository stats;
     private final PostRepository posts;
     private final PrincipalProfilesRepository follows;
+    private final FollowsRepository followEdges;
     private final LikesRepository likes;
     private final SavedPostsRepository savedPosts;
     private final RepostsRepository reposts;
@@ -46,6 +48,7 @@ public class AnonProfilesService {
                                PrincipalStatsRepository stats,
                                PostRepository posts,
                                PrincipalProfilesRepository follows,
+                               FollowsRepository followEdges,
                                LikesRepository likes,
                                SavedPostsRepository savedPosts,
                                RepostsRepository reposts,
@@ -62,6 +65,7 @@ public class AnonProfilesService {
         this.stats = stats;
         this.posts = posts;
         this.follows = follows;
+        this.followEdges = followEdges;
         this.likes = likes;
         this.savedPosts = savedPosts;
         this.reposts = reposts;
@@ -511,6 +515,58 @@ public class AnonProfilesService {
         return RepliesForViewerResult.ok(rows, next);
     }
 
+    public FollowToggleResult followAnonProfile(String firebaseUid, long targetAnonProfileId, AnonProofService.AnonActionProof anonProof) {
+        var targetProfile = profiles.findById(targetAnonProfileId);
+        if (targetProfile.isEmpty()) return FollowToggleResult.notFound();
+        if (targetProfile.get().companyId == null) return FollowToggleResult.forbidden();
+        var targetPrincipal = principals.createForAnon(targetAnonProfileId);
+
+        long actorPrincipalId;
+        if (anonProof != null && anonProof.anonProfileId() != null) {
+            var verified = proofs.verifyActionAnyTarget(anonProof, "follow_anon", targetAnonProfileId, targetPrincipal.id);
+            if (verified.status() != AnonProofService.Status.OK) return FollowToggleResult.invalidSignature();
+            if (verified.actor().companyId() == null || !verified.actor().companyId().equals(targetProfile.get().companyId)) {
+                return FollowToggleResult.forbidden();
+            }
+            actorPrincipalId = verified.actor().principalId();
+        } else {
+            var actor = users.findByFirebaseUid(firebaseUid);
+            if (actor.isEmpty() || actor.get().companyId == null) return FollowToggleResult.userNotProvisioned();
+            if (!actor.get().companyId.equals(targetProfile.get().companyId)) return FollowToggleResult.forbidden();
+            actorPrincipalId = principals.createForUser(actor.get().id).id;
+        }
+
+        if (actorPrincipalId == targetPrincipal.id) return FollowToggleResult.invalidTarget();
+        boolean created = followEdges.insertIfAbsent(actorPrincipalId, targetPrincipal.id);
+        return FollowToggleResult.ok(true, created);
+    }
+
+    public FollowToggleResult unfollowAnonProfile(String firebaseUid, long targetAnonProfileId, AnonProofService.AnonActionProof anonProof) {
+        var targetProfile = profiles.findById(targetAnonProfileId);
+        if (targetProfile.isEmpty()) return FollowToggleResult.notFound();
+        if (targetProfile.get().companyId == null) return FollowToggleResult.forbidden();
+        var targetPrincipal = principals.createForAnon(targetAnonProfileId);
+
+        long actorPrincipalId;
+        if (anonProof != null && anonProof.anonProfileId() != null) {
+            var verified = proofs.verifyActionAnyTarget(anonProof, "unfollow_anon", targetAnonProfileId, targetPrincipal.id);
+            if (verified.status() != AnonProofService.Status.OK) return FollowToggleResult.invalidSignature();
+            if (verified.actor().companyId() == null || !verified.actor().companyId().equals(targetProfile.get().companyId)) {
+                return FollowToggleResult.forbidden();
+            }
+            actorPrincipalId = verified.actor().principalId();
+        } else {
+            var actor = users.findByFirebaseUid(firebaseUid);
+            if (actor.isEmpty() || actor.get().companyId == null) return FollowToggleResult.userNotProvisioned();
+            if (!actor.get().companyId.equals(targetProfile.get().companyId)) return FollowToggleResult.forbidden();
+            actorPrincipalId = principals.createForUser(actor.get().id).id;
+        }
+
+        if (actorPrincipalId == targetPrincipal.id) return FollowToggleResult.invalidTarget();
+        boolean deleted = followEdges.delete(actorPrincipalId, targetPrincipal.id);
+        return FollowToggleResult.ok(false, deleted);
+    }
+
     public FollowsResult followers(String firebaseUid, long anonProfileId, String query, String cursor, int limit) {
         return followList(firebaseUid, anonProfileId, query, cursor, limit, true);
     }
@@ -640,6 +696,17 @@ public class AnonProfilesService {
         static FollowsResult userNotProvisioned() { return new FollowsResult(Status.USER_NOT_PROVISIONED, List.of(), null); }
         static FollowsResult notFound() { return new FollowsResult(Status.NOT_FOUND, List.of(), null); }
         static FollowsResult forbidden() { return new FollowsResult(Status.FORBIDDEN, List.of(), null); }
+    }
+
+    public enum FollowStatus { OK, USER_NOT_PROVISIONED, NOT_FOUND, FORBIDDEN, INVALID_TARGET, INVALID_SIGNATURE }
+
+    public record FollowToggleResult(FollowStatus status, boolean following, boolean changed) {
+        static FollowToggleResult ok(boolean following, boolean changed) { return new FollowToggleResult(FollowStatus.OK, following, changed); }
+        static FollowToggleResult userNotProvisioned() { return new FollowToggleResult(FollowStatus.USER_NOT_PROVISIONED, false, false); }
+        static FollowToggleResult notFound() { return new FollowToggleResult(FollowStatus.NOT_FOUND, false, false); }
+        static FollowToggleResult forbidden() { return new FollowToggleResult(FollowStatus.FORBIDDEN, false, false); }
+        static FollowToggleResult invalidTarget() { return new FollowToggleResult(FollowStatus.INVALID_TARGET, false, false); }
+        static FollowToggleResult invalidSignature() { return new FollowToggleResult(FollowStatus.INVALID_SIGNATURE, false, false); }
     }
 
     public record AnonProfile(long id, String handle, Long companyId, OffsetDateTime createdAt,

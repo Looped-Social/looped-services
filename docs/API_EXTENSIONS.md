@@ -62,6 +62,12 @@
   - `query` is optional; when present, it filters by `handle` (users + anon) and `display_name` (users).
   - Includes anonymous principals (`kind="anon"`) when users follow as anon.
   - Errors: `401 unauthorized`, `409 user_not_provisioned`, `404 not_found`, `403 forbidden` (cross-company or `show_follower_count=false` and not self)
+  - Follow/unfollow anon profiles:
+    - `POST /v1/anon/{id}/follow` / `DELETE /v1/anon/{id}/follow`
+      - **JWT mode**: requires `Authorization: Bearer ...` (body optional)
+      - **Anon mode**: omit `Authorization`, send header `X-Actor: anon`, and body `{ "as_anon": true, "anon_profile_id": <int>, "anon_cert": "<b64>", "anon_cert_kid": "<kid>", "anon_sig": "<b64>" }`
+      - Proof action strings: `follow_anon|v1|{anonProfileId}` and `unfollow_anon|v1|{anonProfileId}`
+      - Response: `{ "anon_profile_id": <int>, "id": <int>, "following": true|false }` (201 when created, otherwise 200)
 - **Direct messages (DMs) with polling**
   - `GET /v1/conversations?cursor=&limit=` → `{ items: [{ id, other_user_id, other_user_profile, last_message, last_message_timestamp, unread_count }], next_cursor }`
   - `POST /v1/conversations` → `{ id, other_user_id, other_user_profile, last_message, last_message_timestamp, unread_count }`
@@ -162,6 +168,7 @@
     - `POST /v1/posts/{id}/save` with `{ asAnon: true, anonProfileId, anonCert, anonCertKid, anonSig }`
     - `DELETE /v1/posts/{id}/save` with `{ asAnon: true, anonProfileId, anonCert, anonCertKid, anonSig }`
     - `POST /v1/users/{id}/follow` / `DELETE /v1/users/{id}/follow` with `{ asAnon: true, anonProfileId, anonCert, anonCertKid, anonSig }`
+    - `POST /v1/anon/{id}/follow` / `DELETE /v1/anon/{id}/follow` with header `X-Actor: anon` and `{ as_anon: true, anon_profile_id, anon_cert, anon_cert_kid, anon_sig }`
     - `POST /v1/users/{id}/block` / `DELETE /v1/users/{id}/block` with `{ asAnon: true, anonProfileId, anonCert, anonCertKid, anonSig }`
     - `POST /v1/principals/{id}/block` / `DELETE /v1/principals/{id}/block` with `{ asAnon: true, anonProfileId, anonCert, anonCertKid, anonSig }`
     - `GET /v1/anon/{id}/posts/liked?asAnon=true&anonProfileId=&anonCert=&anonCertKid=&anonSig=`
