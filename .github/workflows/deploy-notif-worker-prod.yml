@@ -119,7 +119,7 @@ jobs:
             desired="$(echo "${status_json}" | jq -r '.desired')"
             running="$(echo "${status_json}" | jq -r '.running')"
             pending="$(echo "${status_json}" | jq -r '.pending')"
-            rollout_state="$(echo "${status_json}" | jq -r '.primary.rolloutState // \"\"')"
+            rollout_state="$(echo "${status_json}" | jq -r '.primary.rolloutState // ""')"
 
             echo "desired=${desired} running=${running} pending=${pending} rollout=${rollout_state}"
 
@@ -170,7 +170,7 @@ jobs:
             desired="$(echo "${status_json}" | jq -r '.desired')"
             running="$(echo "${status_json}" | jq -r '.running')"
             pending="$(echo "${status_json}" | jq -r '.pending')"
-            rollout_state="$(echo "${status_json}" | jq -r '.primary.rolloutState // \"\"')"
+            rollout_state="$(echo "${status_json}" | jq -r '.primary.rolloutState // ""')"
 
             echo "desired=${desired} running=${running} pending=${pending} rollout=${rollout_state}"
 
@@ -185,4 +185,3 @@ jobs:
           echo "ERROR: rollback did not become stable within 30 minutes."
           echo "${status_json}" | jq .
           exit 1
-
