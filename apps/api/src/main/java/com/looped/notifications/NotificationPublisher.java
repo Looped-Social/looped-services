@@ -5,6 +5,7 @@ import com.looped.devices.DeviceRepository;
 import com.looped.principals.PrincipalRepository;
 import com.looped.posts.PostRepository;
 import com.looped.settings.AppConfigService;
+import com.looped.users.BlocksRepository;
 import com.looped.users.ProfileImageUrls;
 import com.looped.users.UserRepository;
 import org.springframework.stereotype.Service;
@@ -24,6 +25,7 @@ public class NotificationPublisher {
     private final PushQueuePublisher pushQueue;
     private final UserRepository users;
     private final AppConfigService appConfig;
+    private final BlocksRepository blocks;
 
     public NotificationPublisher(NotificationRepository notifications,
                                  NotificationPreferencesService preferences,
@@ -31,7 +33,8 @@ public class NotificationPublisher {
                                  DeviceRepository devices,
                                  PushQueuePublisher pushQueue,
                                  UserRepository users,
-                                 AppConfigService appConfig) {
+                                 AppConfigService appConfig,
+                                 BlocksRepository blocks) {
         this.notifications = notifications;
         this.preferences = preferences;
         this.principals = principals;
@@ -39,6 +42,7 @@ public class NotificationPublisher {
         this.pushQueue = pushQueue;
         this.users = users;
         this.appConfig = appConfig;
+        this.blocks = blocks;
     }
 
     public void notifyFollow(long targetUserId, long actorPrincipalId) {
@@ -116,6 +120,7 @@ public class NotificationPublisher {
 
     private void publishToUser(long userId, NotificationType type, Map<String, Object> payload) {
         if (userId <= 0 || payload == null) return;
+        if (isBlocked(payload, userId)) return;
         NotificationPreferences prefs = preferences.preferencesForUserId(userId);
         boolean allowInApp = prefs.allows(NotificationChannel.IN_APP, type);
         boolean allowPush = prefs.allows(NotificationChannel.PUSH, type);
@@ -136,8 +141,9 @@ public class NotificationPublisher {
 
     private void publishToUsers(List<Long> userIds, NotificationType type, Map<String, Object> payload) {
         if (userIds == null || userIds.isEmpty() || payload == null) return;
-        Map<Long, List<String>> tokensByUser = pushQueue.enabled() ? tokensByUser(userIds) : Map.of();
-        for (Long userId : userIds) {
+        List<Long> filteredUserIds = filterBlockedUsers(payload, userIds);
+        Map<Long, List<String>> tokensByUser = pushQueue.enabled() ? tokensByUser(filteredUserIds) : Map.of();
+        for (Long userId : filteredUserIds) {
             if (userId == null || userId <= 0) continue;
             NotificationPreferences prefs = preferences.preferencesForUserId(userId);
             boolean allowInApp = prefs.allows(NotificationChannel.IN_APP, type);
@@ -156,6 +162,34 @@ public class NotificationPublisher {
                 enqueuePush(userId, notificationId, type, enriched, tokens);
             }
         }
+    }
+
+    private boolean isBlocked(Map<String, Object> payload, long targetUserId) {
+        if (payload == null || targetUserId <= 0) return false;
+        Long actorPrincipalId = asLong(payload.get("actor_principal_id"));
+        if (actorPrincipalId == null || actorPrincipalId <= 0) return false;
+        long targetPrincipalId = principals.createForUser(targetUserId).id;
+        return blocks.existsEitherDirection(actorPrincipalId, targetPrincipalId);
+    }
+
+    private List<Long> filterBlockedUsers(Map<String, Object> payload, List<Long> userIds) {
+        if (userIds == null || userIds.isEmpty()) return List.of();
+        Long actorPrincipalId = payload == null ? null : asLong(payload.get("actor_principal_id"));
+        var ids = userIds.stream().filter(id -> id != null && id > 0).distinct().toList();
+        if (ids.isEmpty() || actorPrincipalId == null || actorPrincipalId <= 0) return ids;
+
+        var principalByUser = principals.principalIdsByUserIds(ids);
+        if (principalByUser.isEmpty()) return ids;
+        var otherPrincipalIds = principalByUser.values().stream().distinct().toList();
+        var blockedPrincipalIds = blocks.otherPrincipalsBlockedEitherDirection(actorPrincipalId, otherPrincipalIds);
+        if (blockedPrincipalIds.isEmpty()) return ids;
+
+        return ids.stream()
+                .filter(userId -> {
+                    Long principalId = principalByUser.get(userId);
+                    return principalId == null || !blockedPrincipalIds.contains(principalId);
+                })
+                .toList();
     }
 
     private void enqueuePush(long userId,

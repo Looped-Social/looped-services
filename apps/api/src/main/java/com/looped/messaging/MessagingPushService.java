@@ -5,6 +5,8 @@ import com.looped.notifications.NotificationChannel;
 import com.looped.notifications.NotificationPreferencesService;
 import com.looped.notifications.NotificationType;
 import com.looped.notifications.PushQueuePublisher;
+import com.looped.principals.PrincipalRepository;
+import com.looped.users.BlocksRepository;
 import com.looped.users.UserRepository;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -25,8 +27,11 @@ public class MessagingPushService {
     private final DeviceRepository devices;
     private final ConversationRepository conversations;
     private final MessageRequestRepository messageRequests;
+    private final ConversationPreferencesRepository conversationPreferences;
     private final ChannelRepository channels;
     private final ChannelPreferencesRepository channelPreferences;
+    private final PrincipalRepository principals;
+    private final BlocksRepository blocks;
     private final UserRepository users;
     private final int maxChannelPushRecipients;
 
@@ -35,8 +40,11 @@ public class MessagingPushService {
                                DeviceRepository devices,
                                ConversationRepository conversations,
                                MessageRequestRepository messageRequests,
+                               ConversationPreferencesRepository conversationPreferences,
                                ChannelRepository channels,
                                ChannelPreferencesRepository channelPreferences,
+                               PrincipalRepository principals,
+                               BlocksRepository blocks,
                                UserRepository users,
                                @Value("${messaging.push.maxChannelRecipients:" + DEFAULT_MAX_CHANNEL_PUSH_RECIPIENTS + "}") int maxChannelPushRecipients) {
         this.pushQueue = pushQueue;
@@ -44,8 +52,11 @@ public class MessagingPushService {
         this.devices = devices;
         this.conversations = conversations;
         this.messageRequests = messageRequests;
+        this.conversationPreferences = conversationPreferences;
         this.channels = channels;
         this.channelPreferences = channelPreferences;
+        this.principals = principals;
+        this.blocks = blocks;
         this.users = users;
         this.maxChannelPushRecipients = Math.max(0, maxChannelPushRecipients);
     }
@@ -57,6 +68,8 @@ public class MessagingPushService {
         long senderId = message.senderId;
         List<Long> recipients = conversations.listOtherParticipantIds(conversationId, senderId);
         if (recipients == null || recipients.isEmpty()) return;
+
+        Set<Long> mutedUserIds = conversationPreferences.mutedUserIdsForConversation(conversationId);
 
         var sender = users.findById(senderId).orElse(null);
         String senderName = null;
@@ -79,7 +92,9 @@ public class MessagingPushService {
         var tokensByUser = tokensByUserIds(recipients);
         for (Long recipientId : recipients) {
             if (recipientId == null || recipientId <= 0) continue;
+            if (mutedUserIds.contains(recipientId)) continue;
             if (!canReceiveDm(conversationId, recipientId)) continue;
+            if (isBlockedBetweenUsers(senderId, recipientId)) continue;
             if (!notificationPreferences.preferencesForUserId(recipientId).allows(NotificationChannel.PUSH, NotificationType.DM_MESSAGE)) {
                 continue;
             }
@@ -148,8 +163,11 @@ public class MessagingPushService {
         String deeplink = "looped://channels/" + channelId + "?messageId=" + message.id;
         String traceId = UUID.randomUUID().toString();
 
-        var tokensByUser = tokensByUserIds(recipients.stream().toList());
+        var recipientIds = recipients.stream().toList();
+        var tokensByUser = tokensByUserIds(recipientIds);
+        var blockedRecipientIds = blockedRecipientUserIds(senderId, recipientIds);
         for (Long recipientId : recipients) {
+            if (blockedRecipientIds.contains(recipientId)) continue;
             if (!notificationPreferences.preferencesForUserId(recipientId).allows(NotificationChannel.PUSH, NotificationType.CHANNEL_MESSAGE)) {
                 continue;
             }
@@ -189,6 +207,30 @@ public class MessagingPushService {
             out.computeIfAbsent(row.userId, ignored -> new java.util.ArrayList<>()).add(row.apnsToken);
         }
         return out;
+    }
+
+    private boolean isBlockedBetweenUsers(long userA, long userB) {
+        if (userA <= 0 || userB <= 0) return false;
+        long principalA = principals.createForUser(userA).id;
+        long principalB = principals.createForUser(userB).id;
+        return blocks.existsEitherDirection(principalA, principalB);
+    }
+
+    private Set<Long> blockedRecipientUserIds(long senderUserId, List<Long> recipientUserIds) {
+        if (senderUserId <= 0 || recipientUserIds == null || recipientUserIds.isEmpty()) return Set.of();
+        long senderPrincipalId = principals.createForUser(senderUserId).id;
+        Map<Long, Long> principalByUser = principals.principalIdsByUserIds(recipientUserIds);
+        if (principalByUser.isEmpty()) return Set.of();
+        var otherPrincipalIds = principalByUser.values().stream().distinct().toList();
+        Set<Long> blockedPrincipalIds = blocks.otherPrincipalsBlockedEitherDirection(senderPrincipalId, otherPrincipalIds);
+        if (blockedPrincipalIds.isEmpty()) return Set.of();
+        Set<Long> blockedUserIds = new HashSet<>();
+        for (var entry : principalByUser.entrySet()) {
+            if (blockedPrincipalIds.contains(entry.getValue())) {
+                blockedUserIds.add(entry.getKey());
+            }
+        }
+        return blockedUserIds;
     }
 
     private static String preview(String content) {

@@ -2,6 +2,7 @@ package com.looped.messaging;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -140,6 +141,22 @@ public class ConversationsController {
         return ResponseEntity.status(HttpStatus.CREATED).body(toMessage(res.message()));
     }
 
+    @PutMapping("/{id}/preferences")
+    public ResponseEntity<?> preferences(
+            @AuthenticationPrincipal Jwt jwt,
+            @PathVariable("id") long id,
+            @Validated @RequestBody PreferencesRequest body
+    ) {
+        var res = service.setPreferences(jwt.getSubject(), id, Boolean.TRUE.equals(body.muted()));
+        return switch (res.status()) {
+            case USER_NOT_PROVISIONED -> ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "user_not_provisioned"));
+            case ANONYMOUS_NOT_ALLOWED -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "anonymous_not_allowed"));
+            case FORBIDDEN -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "forbidden"));
+            case NOT_FOUND -> ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "not_found"));
+            case OK -> ResponseEntity.ok(Map.of("conversation_id", id, "muted", res.muted()));
+        };
+    }
+
     private Map<String, Object> toMessage(ConversationRepository.MessageRow row) {
         Map<String, Object> map = new HashMap<>();
         map.put("id", row.id);
@@ -152,4 +169,5 @@ public class ConversationsController {
 
     public record StartRequest(long participantUserId) {}
     public record SendRequest(@NotBlank String content, JsonNode attachments) {}
+    public record PreferencesRequest(@NotNull Boolean muted) {}
 }

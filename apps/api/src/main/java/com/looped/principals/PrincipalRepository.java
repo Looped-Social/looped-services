@@ -7,6 +7,9 @@ import org.springframework.stereotype.Repository;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.OffsetDateTime;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 @Repository
@@ -78,6 +81,22 @@ public class PrincipalRepository {
             return findByUserId(userId).orElseThrow();
         }
         return findById(id).orElseThrow();
+    }
+
+    public Map<Long, Long> principalIdsByUserIds(List<Long> userIds) {
+        if (userIds == null || userIds.isEmpty()) return Map.of();
+        var ids = userIds.stream().filter(id -> id != null && id > 0).distinct().toList();
+        if (ids.isEmpty()) return Map.of();
+        String placeholders = String.join(",", java.util.Collections.nCopies(ids.size(), "?"));
+        Object[] params = ids.toArray();
+        var rows = jdbc.query(
+                "SELECT user_id, id FROM principals WHERE user_id IN (" + placeholders + ")",
+                (rs, rowNum) -> java.util.Map.entry(rs.getLong("user_id"), rs.getLong("id")),
+                params
+        );
+        Map<Long, Long> out = new HashMap<>();
+        for (var entry : rows) out.put(entry.getKey(), entry.getValue());
+        return out;
     }
 
     public static class PrincipalRow {

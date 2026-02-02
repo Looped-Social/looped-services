@@ -31,6 +31,7 @@ public class ConversationService {
     private final FollowsRepository follows;
     private final PrincipalRepository principals;
     private final MessageRequestRepository messageRequests;
+    private final ConversationPreferencesRepository conversationPreferences;
     private final MessagingPushService push;
     private final NotificationPublisher notifications;
     private final AppConfigService appConfig;
@@ -40,6 +41,7 @@ public class ConversationService {
                                FollowsRepository follows,
                                PrincipalRepository principals,
                                MessageRequestRepository messageRequests,
+                               ConversationPreferencesRepository conversationPreferences,
                                MessagingPushService push,
                                NotificationPublisher notifications,
                                AppConfigService appConfig) {
@@ -48,6 +50,7 @@ public class ConversationService {
         this.follows = follows;
         this.principals = principals;
         this.messageRequests = messageRequests;
+        this.conversationPreferences = conversationPreferences;
         this.push = push;
         this.notifications = notifications;
         this.appConfig = appConfig;
@@ -72,11 +75,15 @@ public class ConversationService {
             next = Pagination.encode(last.activityAt, last.id);
         }
 
+        List<Long> conversationIds = rows.stream().mapToLong(r -> r.id).boxed().toList();
+        var mutedByConversationId = conversationPreferences.mutedByConversationIds(actor.get().id, conversationIds);
+
         String defaultProfileImageUrl = appConfig.defaultProfileImageUrl();
         List<Map<String, Object>> items = rows.stream().map(row -> {
             Map<String, Object> out = new HashMap<>();
             out.put("id", row.id);
             out.put("other_user_id", row.otherUserId);
+            out.put("muted", mutedByConversationId.getOrDefault(row.id, false));
             Map<String, Object> profile = new HashMap<>();
             profile.put("id", row.otherUserId);
             profile.put("handle", row.otherUserHandle);
@@ -92,6 +99,16 @@ public class ConversationService {
             return out;
         }).toList();
         return ConversationListResult.ok(items, next);
+    }
+
+    public PreferencesResult setPreferences(String firebaseUid, long conversationId, boolean muted) {
+        var actor = requireProvisionedUser(firebaseUid);
+        if (actor.isEmpty()) return PreferencesResult.userNotProvisioned();
+        if (actor.get().isAnonymous) return PreferencesResult.anonymousNotAllowed();
+        if (conversations.conversationCompany(conversationId).isEmpty()) return PreferencesResult.notFound();
+        if (!conversations.isParticipant(conversationId, actor.get().id)) return PreferencesResult.forbidden();
+        conversationPreferences.upsertMuted(conversationId, actor.get().id, muted);
+        return PreferencesResult.ok(muted);
     }
 
     public StartResult start(String firebaseUid, long participantUserId) {
@@ -130,6 +147,7 @@ public class ConversationService {
         payload.put("last_message", summary.lastMessage);
         payload.put("last_message_timestamp", summary.lastMessageAt);
         payload.put("unread_count", summary.unreadCount);
+        payload.put("muted", conversationPreferences.isMuted(conversationId, actor.get().id));
         return StartResult.ok(payload);
     }
 
@@ -211,6 +229,16 @@ public class ConversationService {
         static ConversationListResult ok(List<Map<String, Object>> items, String next) { return new ConversationListResult(Status.OK, items, next); }
         static ConversationListResult userNotProvisioned() { return new ConversationListResult(Status.USER_NOT_PROVISIONED, List.of(), null); }
         static ConversationListResult anonymousNotAllowed() { return new ConversationListResult(Status.ANONYMOUS_NOT_ALLOWED, List.of(), null); }
+    }
+
+    public enum PreferencesStatus { OK, USER_NOT_PROVISIONED, FORBIDDEN, NOT_FOUND, ANONYMOUS_NOT_ALLOWED }
+
+    public record PreferencesResult(PreferencesStatus status, Boolean muted) {
+        static PreferencesResult ok(boolean muted) { return new PreferencesResult(PreferencesStatus.OK, muted); }
+        static PreferencesResult userNotProvisioned() { return new PreferencesResult(PreferencesStatus.USER_NOT_PROVISIONED, null); }
+        static PreferencesResult forbidden() { return new PreferencesResult(PreferencesStatus.FORBIDDEN, null); }
+        static PreferencesResult notFound() { return new PreferencesResult(PreferencesStatus.NOT_FOUND, null); }
+        static PreferencesResult anonymousNotAllowed() { return new PreferencesResult(PreferencesStatus.ANONYMOUS_NOT_ALLOWED, null); }
     }
 
     public record StartResult(Status status, Map<String, Object> conversation) {

@@ -3,6 +3,10 @@ package com.looped.users;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
+
 @Repository
 public class BlocksRepository {
     private final JdbcTemplate jdbc;
@@ -37,5 +41,41 @@ public class BlocksRepository {
                 principalA, principalB, principalB, principalA
         );
         return count != null && count > 0;
+    }
+
+    public Set<Long> otherPrincipalsBlockedEitherDirection(long principalId, List<Long> otherPrincipalIds) {
+        if (principalId <= 0 || otherPrincipalIds == null || otherPrincipalIds.isEmpty()) return Set.of();
+        var ids = otherPrincipalIds.stream().filter(id -> id != null && id > 0).distinct().toList();
+        if (ids.isEmpty()) return Set.of();
+        String placeholders = String.join(",", java.util.Collections.nCopies(ids.size(), "?"));
+        Object[] params = new Object[ids.size() + 3];
+        params[0] = principalId;
+        params[1] = principalId;
+        params[2] = principalId;
+        for (int i = 0; i < ids.size(); i++) params[i + 3] = ids.get(i);
+
+        String sql =
+                "SELECT CASE " +
+                        "WHEN blocker_principal_id = ? THEN blocked_principal_id " +
+                        "ELSE blocker_principal_id " +
+                        "END AS other_principal_id " +
+                        "FROM principal_blocks " +
+                        "WHERE (blocker_principal_id = ? AND blocked_principal_id IN (" + placeholders + ")) " +
+                        "OR (blocked_principal_id = ? AND blocker_principal_id IN (" + placeholders + "))";
+
+        // We reuse the same ids twice: once for blocked_principal_id IN (...) and once for blocker_principal_id IN (...).
+        Object[] fullParams = new Object[3 + ids.size() + ids.size()];
+        fullParams[0] = params[0];
+        fullParams[1] = params[1];
+        for (int i = 0; i < ids.size(); i++) fullParams[2 + i] = ids.get(i);
+        fullParams[2 + ids.size()] = params[2];
+        for (int i = 0; i < ids.size(); i++) fullParams[3 + ids.size() + i] = ids.get(i);
+
+        var rows = jdbc.query(
+                sql,
+                (rs, rowNum) -> rs.getLong("other_principal_id"),
+                fullParams
+        );
+        return new HashSet<>(rows);
     }
 }

@@ -1,6 +1,7 @@
 package com.looped.integration;
 
 import com.looped.auth.TestSecurityConfig;
+import com.looped.notifications.NotificationPublisher;
 import com.looped.support.PostgresTestBase;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -39,6 +40,9 @@ class ExtendedEndpointsIntegrationTest extends PostgresTestBase {
 
     @Autowired
     JdbcTemplate jdbc;
+
+    @Autowired
+    NotificationPublisher notificationPublisher;
 
     private String token(String sub) {
         Instant now = Instant.now();
@@ -124,6 +128,72 @@ class ExtendedEndpointsIntegrationTest extends PostgresTestBase {
                         .header("Authorization", auth))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items", hasSize(0)));
+    }
+
+    @Test
+    void conversations_preferences_mute_roundtrip() throws Exception {
+        long companyId = jdbc.queryForObject("INSERT INTO companies(name, domain) VALUES ('MuteCo','mute.co') RETURNING id", Long.class);
+        long userA = jdbc.queryForObject("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?) RETURNING id",
+                Long.class, "uid-mute-a", "mutea", companyId);
+        long userB = jdbc.queryForObject("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?) RETURNING id",
+                Long.class, "uid-mute-b", "muteb", companyId);
+
+        String authA = "Bearer " + token("uid-mute-a");
+
+        var startResp = mockMvc.perform(post("/v1/conversations")
+                        .header("Authorization", authA)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"participantUserId\":" + userB + "}"))
+                .andExpect(status().isCreated())
+                .andReturn();
+        String conversationId = new com.fasterxml.jackson.databind.ObjectMapper()
+                .readTree(startResp.getResponse().getContentAsString())
+                .get("id").asText();
+
+        mockMvc.perform(put("/v1/conversations/" + conversationId + "/preferences")
+                        .header("Authorization", authA)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"muted\":true}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.muted", equalTo(true)));
+
+        mockMvc.perform(get("/v1/conversations")
+                        .header("Authorization", authA))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].muted", equalTo(true)));
+
+        mockMvc.perform(put("/v1/conversations/" + conversationId + "/preferences")
+                        .header("Authorization", authA)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"muted\":false}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.muted", equalTo(false)));
+
+        mockMvc.perform(get("/v1/conversations")
+                        .header("Authorization", authA))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].muted", equalTo(false)));
+    }
+
+    @Test
+    void blocked_users_do_not_generate_notifications() {
+        long companyId = jdbc.queryForObject("INSERT INTO companies(name, domain) VALUES ('BlockCo','block.co') RETURNING id", Long.class);
+        long targetUserId = jdbc.queryForObject("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?) RETURNING id",
+                Long.class, "uid-block-target", "target", companyId);
+        long actorUserId = jdbc.queryForObject("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?) RETURNING id",
+                Long.class, "uid-block-actor", "actor", companyId);
+
+        long targetPrincipalId = jdbc.queryForObject("INSERT INTO principals(kind, user_id) VALUES ('user', ?) RETURNING id", Long.class, targetUserId);
+        long actorPrincipalId = jdbc.queryForObject("INSERT INTO principals(kind, user_id) VALUES ('user', ?) RETURNING id", Long.class, actorUserId);
+
+        // Target blocks actor.
+        jdbc.update("INSERT INTO principal_blocks(blocker_principal_id, blocked_principal_id) VALUES (?,?)",
+                targetPrincipalId, actorPrincipalId);
+
+        notificationPublisher.notifyFollow(targetUserId, actorPrincipalId);
+
+        Integer count = jdbc.queryForObject("SELECT COUNT(*) FROM notifications WHERE user_id = ?", Integer.class, targetUserId);
+        org.junit.jupiter.api.Assertions.assertEquals(0, count);
     }
 
     @Test
