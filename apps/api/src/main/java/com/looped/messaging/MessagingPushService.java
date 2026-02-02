@@ -59,11 +59,20 @@ public class MessagingPushService {
         if (recipients == null || recipients.isEmpty()) return;
 
         var sender = users.findById(senderId).orElse(null);
-        String senderHandle = sender != null ? sender.handle : null;
+        String senderName = null;
+        if (sender != null) {
+            if (sender.displayName != null && !sender.displayName.isBlank()) {
+                senderName = sender.displayName;
+            } else if (sender.handle != null && !sender.handle.isBlank()) {
+                senderName = sender.handle;
+            }
+        }
 
         String preview = preview(message.content);
-        String title = senderHandle != null && !senderHandle.isBlank() ? senderHandle : "New message";
-        String body = preview.isBlank() ? "Tap to view" : preview;
+        String title = "New message";
+        String body = preview.isBlank()
+                ? ((senderName != null && !senderName.isBlank()) ? senderName + " sent a message" : "Tap to view")
+                : ((senderName != null && !senderName.isBlank()) ? senderName + ": " + preview : preview);
         String deeplink = "looped://conversations/" + conversationId + "?messageId=" + message.id;
         String traceId = UUID.randomUUID().toString();
 
@@ -81,7 +90,7 @@ public class MessagingPushService {
             userInfo.put("conversation_id", conversationId);
             userInfo.put("message_id", message.id);
             userInfo.put("sender_id", senderId);
-            if (senderHandle != null && !senderHandle.isBlank()) userInfo.put("sender_handle", senderHandle);
+            if (senderName != null && !senderName.isBlank()) userInfo.put("sender_name", senderName);
             if (!preview.isBlank()) userInfo.put("preview", preview);
 
             for (String token : tokens) {
@@ -122,12 +131,19 @@ public class MessagingPushService {
         if (recipients.isEmpty()) return;
 
         var sender = users.findById(senderId).orElse(null);
-        String senderHandle = sender != null ? sender.handle : null;
+        String senderName = null;
+        if (sender != null) {
+            if (sender.displayName != null && !sender.displayName.isBlank()) {
+                senderName = sender.displayName;
+            } else if (sender.handle != null && !sender.handle.isBlank()) {
+                senderName = sender.handle;
+            }
+        }
 
         String preview = preview(message.content);
         String title = channel.name != null && !channel.name.isBlank() ? channel.name : "New message";
-        String body = senderHandle != null && !senderHandle.isBlank()
-                ? senderHandle + (preview.isBlank() ? ": (message)" : ": " + preview)
+        String body = senderName != null && !senderName.isBlank()
+                ? senderName + (preview.isBlank() ? ": (message)" : ": " + preview)
                 : (preview.isBlank() ? "New message" : preview);
         String deeplink = "looped://channels/" + channelId + "?messageId=" + message.id;
         String traceId = UUID.randomUUID().toString();
@@ -144,7 +160,7 @@ public class MessagingPushService {
             userInfo.put("channel_id", channelId);
             userInfo.put("message_id", message.id);
             userInfo.put("sender_id", senderId);
-            if (senderHandle != null && !senderHandle.isBlank()) userInfo.put("sender_handle", senderHandle);
+            if (senderName != null && !senderName.isBlank()) userInfo.put("sender_name", senderName);
             if (!preview.isBlank()) userInfo.put("preview", preview);
 
             for (String token : tokens) {
