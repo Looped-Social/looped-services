@@ -3,6 +3,7 @@ package com.looped.posts;
 import com.looped.anon.AnonProofService;
 import com.looped.communities.CommunitiesRepository;
 import com.looped.communities.CommunityVerificationsRepository;
+import com.looped.communities.SpecializationJoinsRepository;
 import com.looped.discovery.HashtagParser;
 import com.looped.discovery.HashtagPostsRepository;
 import com.looped.discovery.HashtagsRepository;
@@ -38,6 +39,7 @@ public class PostsService {
     private final PrincipalRepository principals;
     private final CommunitiesRepository communities;
     private final CommunityVerificationsRepository communityVerifications;
+    private final SpecializationJoinsRepository specializationJoins;
     private final MediaRepository media;
     private final PostMediaAssetsRepository postMediaAssets;
     private final StringRedisTemplate redis;
@@ -58,6 +60,7 @@ public class PostsService {
                         PrincipalRepository principals,
                         CommunitiesRepository communities,
                         CommunityVerificationsRepository communityVerifications,
+                        SpecializationJoinsRepository specializationJoins,
                         MediaRepository media,
                         PostMediaAssetsRepository postMediaAssets,
                         StringRedisTemplate redis,
@@ -77,6 +80,7 @@ public class PostsService {
         this.principals = principals;
         this.communities = communities;
         this.communityVerifications = communityVerifications;
+        this.specializationJoins = specializationJoins;
         this.media = media;
         this.postMediaAssets = postMediaAssets;
         this.redis = redis;
@@ -174,6 +178,9 @@ public class PostsService {
 
         if (communityBans.isBanned(userId, communityId)) {
             return CreateResult.communityBanned();
+        }
+        if (requiresSpecializationJoin(community.get()) && !specializationJoins.exists(userId, communityId)) {
+            return CreateResult.specializationNotJoined();
         }
         if (requiresVerification(community.get()) && !communityVerifications.isVerified(userId, communityId)) {
             return CreateResult.notVerified();
@@ -425,6 +432,14 @@ public class PostsService {
         return community != null && !"specialization".equalsIgnoreCase(community.kind);
     }
 
+    private boolean requiresSpecializationJoin(CommunitiesRepository.CommunityRow community) {
+        if (community == null || community.kind == null) return false;
+        if (!"specialization".equalsIgnoreCase(community.kind)) return false;
+        if (community.specializationType == null) return false;
+        String t = community.specializationType.trim().toLowerCase(java.util.Locale.ROOT);
+        return t.equals("major") || t.equals("field");
+    }
+
     private void indexHashtags(long postId, long companyId, String content) {
         var tags = HashtagParser.extract(content);
         if (tags.isEmpty()) return;
@@ -479,7 +494,8 @@ public class PostsService {
         COMMUNITY_REQUIRED,
         COMMUNITY_NOT_FOUND,
         COMMUNITY_BANNED,
-        NOT_VERIFIED
+        NOT_VERIFIED,
+        SPECIALIZATION_NOT_JOINED
     }
     public record CreateResult(Status status, PostRepository.PostRow post, boolean created) {
         static CreateResult ok(PostRepository.PostRow post, boolean created) { return new CreateResult(Status.OK, post, created); }
@@ -499,6 +515,7 @@ public class PostsService {
         static CreateResult communityNotFound() { return new CreateResult(Status.COMMUNITY_NOT_FOUND, null, false); }
         static CreateResult communityBanned() { return new CreateResult(Status.COMMUNITY_BANNED, null, false); }
         static CreateResult notVerified() { return new CreateResult(Status.NOT_VERIFIED, null, false); }
+        static CreateResult specializationNotJoined() { return new CreateResult(Status.SPECIALIZATION_NOT_JOINED, null, false); }
     }
 
     public enum EditStatus { OK, USER_NOT_PROVISIONED, NOT_FOUND, FORBIDDEN, INVALID_ANON_PROOF, POST_REMOVED, CONTENT_UNDER_REVIEW }

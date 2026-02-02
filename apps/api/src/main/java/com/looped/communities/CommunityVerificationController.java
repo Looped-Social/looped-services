@@ -30,15 +30,18 @@ public class CommunityVerificationController {
     private final UserRepository users;
     private final CommunitiesRepository communities;
     private final CommunityVerificationsRepository verifications;
+    private final SpecializationJoinsRepository specializationJoins;
 
     public CommunityVerificationController(CommunityVerificationService service,
                                            UserRepository users,
                                            CommunitiesRepository communities,
-                                           CommunityVerificationsRepository verifications) {
+                                           CommunityVerificationsRepository verifications,
+                                           SpecializationJoinsRepository specializationJoins) {
         this.service = service;
         this.users = users;
         this.communities = communities;
         this.verifications = verifications;
+        this.specializationJoins = specializationJoins;
     }
 
     @PostMapping("/{communityId}/verification/start")
@@ -158,12 +161,30 @@ public class CommunityVerificationController {
         if (community.isEmpty()) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "community_not_found"));
         }
-        boolean requiresVerification = !"specialization".equalsIgnoreCase(community.get().kind);
-        boolean canPost = !requiresVerification || verifications.isVerified(actor.get().id, communityId);
+        boolean isSpecialization = "specialization".equalsIgnoreCase(community.get().kind);
+        boolean isJoinableSpecialization = isSpecialization && requiresSpecializationJoin(community.get().specializationType);
+        boolean requiresVerification = !isSpecialization;
+        boolean requiresJoin = isJoinableSpecialization;
+        boolean canPost;
+        if (isJoinableSpecialization) {
+            canPost = specializationJoins.exists(actor.get().id, communityId);
+        } else if (isSpecialization) {
+            canPost = true;
+        } else {
+            canPost = verifications.isVerified(actor.get().id, communityId);
+        }
         return ResponseEntity.ok(Map.of(
                 "can_post", canPost,
-                "requires_verification", requiresVerification
+                "requires_verification", requiresVerification,
+                "requires_join", requiresJoin,
+                "requiresJoin", requiresJoin
         ));
+    }
+
+    private boolean requiresSpecializationJoin(String specializationType) {
+        if (specializationType == null) return false;
+        String t = specializationType.trim().toLowerCase(java.util.Locale.ROOT);
+        return t.equals("major") || t.equals("field");
     }
 
     @DeleteMapping("/{communityId}/verification")

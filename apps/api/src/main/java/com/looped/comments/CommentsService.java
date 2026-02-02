@@ -3,6 +3,7 @@ package com.looped.comments;
 import com.looped.anon.AnonProofService;
 import com.looped.communities.CommunitiesRepository;
 import com.looped.communities.CommunityVerificationsRepository;
+import com.looped.communities.SpecializationJoinsRepository;
 import com.looped.media.MediaRepository;
 import com.looped.moderation.ContentModerationService;
 import com.looped.moderation.QuarantineService;
@@ -26,6 +27,7 @@ public class CommentsService {
     private final UserRepository users;
     private final CommunitiesRepository communities;
     private final CommunityVerificationsRepository communityVerifications;
+    private final SpecializationJoinsRepository specializationJoins;
     private final PrincipalRepository principals;
     private final AnonProofService anonProofs;
     private final NotificationPublisher notifications;
@@ -39,6 +41,7 @@ public class CommentsService {
                            UserRepository users,
                            CommunitiesRepository communities,
                            CommunityVerificationsRepository communityVerifications,
+                           SpecializationJoinsRepository specializationJoins,
                            PrincipalRepository principals,
                            AnonProofService anonProofs,
                            NotificationPublisher notifications,
@@ -51,6 +54,7 @@ public class CommentsService {
         this.users = users;
         this.communities = communities;
         this.communityVerifications = communityVerifications;
+        this.specializationJoins = specializationJoins;
         this.principals = principals;
         this.anonProofs = anonProofs;
         this.notifications = notifications;
@@ -134,10 +138,9 @@ public class CommentsService {
             if (communityBans.isBanned(actor.get().id, post.get().communityId)) {
                 return CreateResult.communityBanned();
             }
-            if (requiresVerification(post.get().communityId)
-                    && !communityVerifications.isVerified(actor.get().id, post.get().communityId)) {
-                return CreateResult.notVerified();
-            }
+            AccessStatus access = checkAccess(actor.get().id, post.get().communityId);
+            if (access == AccessStatus.NOT_VERIFIED) return CreateResult.notVerified();
+            if (access == AccessStatus.SPECIALIZATION_NOT_JOINED) return CreateResult.specializationNotJoined();
             actorPrincipalId = principals.createForUser(actor.get().id).id;
             actorUserId = actor.get().id;
             effectiveCompanyId = actor.get().companyId;
@@ -242,11 +245,24 @@ public class CommentsService {
         return RepliesResult.ok(rows, next);
     }
 
-    private boolean requiresVerification(Long communityId) {
-        if (communityId == null) return false;
-        var community = communities.findById(communityId);
-        return community.isPresent() && !"specialization".equalsIgnoreCase(community.get().kind);
+    private AccessStatus checkAccess(long userId, Long communityId) {
+        if (communityId == null) return AccessStatus.OK;
+        var community = communities.findById(communityId).orElse(null);
+        if (community == null || community.kind == null) return AccessStatus.OK;
+        if ("specialization".equalsIgnoreCase(community.kind)) {
+            if (!requiresSpecializationJoin(community.specializationType)) return AccessStatus.OK;
+            return specializationJoins.exists(userId, communityId) ? AccessStatus.OK : AccessStatus.SPECIALIZATION_NOT_JOINED;
+        }
+        return communityVerifications.isVerified(userId, communityId) ? AccessStatus.OK : AccessStatus.NOT_VERIFIED;
     }
+
+    private boolean requiresSpecializationJoin(String specializationType) {
+        if (specializationType == null) return false;
+        String t = specializationType.trim().toLowerCase(java.util.Locale.ROOT);
+        return t.equals("major") || t.equals("field");
+    }
+
+    private enum AccessStatus { OK, NOT_VERIFIED, SPECIALIZATION_NOT_JOINED }
 
     public RepliesResult userReplies(String firebaseUid, long targetUserId, String cursor, int limit, AnonProofService.AnonActionProof anonProof) {
         java.util.Optional<UserRepository.UserRow> actor = java.util.Optional.empty();
@@ -392,10 +408,9 @@ public class CommentsService {
             if (post.get().communityId != null && communityBans.isBanned(actor.get().id, post.get().communityId)) {
                 return LikeResult.communityBanned();
             }
-            if (requiresVerification(post.get().communityId)
-                    && !communityVerifications.isVerified(actor.get().id, post.get().communityId)) {
-                return LikeResult.notVerified();
-            }
+            AccessStatus access = checkAccess(actor.get().id, post.get().communityId);
+            if (access == AccessStatus.NOT_VERIFIED) return LikeResult.notVerified();
+            if (access == AccessStatus.SPECIALIZATION_NOT_JOINED) return LikeResult.specializationNotJoined();
             actorPrincipalId = principals.createForUser(actor.get().id).id;
             actorUserId = actor.get().id;
         }
@@ -436,10 +451,9 @@ public class CommentsService {
             if (post.get().communityId != null && communityBans.isBanned(actor.get().id, post.get().communityId)) {
                 return UnlikeResult.communityBanned();
             }
-            if (requiresVerification(post.get().communityId)
-                    && !communityVerifications.isVerified(actor.get().id, post.get().communityId)) {
-                return UnlikeResult.notVerified();
-            }
+            AccessStatus access = checkAccess(actor.get().id, post.get().communityId);
+            if (access == AccessStatus.NOT_VERIFIED) return UnlikeResult.notVerified();
+            if (access == AccessStatus.SPECIALIZATION_NOT_JOINED) return UnlikeResult.specializationNotJoined();
             actorPrincipalId = principals.createForUser(actor.get().id).id;
         }
         if (post.get().visibility != null && !post.get().visibility.equalsIgnoreCase("public")
@@ -482,6 +496,7 @@ public class CommentsService {
         COMMUNITY_NOT_FOUND,
         COMMUNITY_BANNED,
         NOT_VERIFIED,
+        SPECIALIZATION_NOT_JOINED,
         INVALID_ANON_PROOF,
         ANON_MEDIA_NOT_ALLOWED,
         CONTENT_UNDER_REVIEW,
@@ -505,6 +520,7 @@ public class CommentsService {
         static CreateResult communityNotFound() { return new CreateResult(Status.COMMUNITY_NOT_FOUND, null); }
         static CreateResult communityBanned() { return new CreateResult(Status.COMMUNITY_BANNED, null); }
         static CreateResult notVerified() { return new CreateResult(Status.NOT_VERIFIED, null); }
+        static CreateResult specializationNotJoined() { return new CreateResult(Status.SPECIALIZATION_NOT_JOINED, null); }
         static CreateResult invalidAnonProof() { return new CreateResult(Status.INVALID_ANON_PROOF, null); }
         static CreateResult anonMediaNotAllowed() { return new CreateResult(Status.ANON_MEDIA_NOT_ALLOWED, null); }
         static CreateResult contentUnderReview() { return new CreateResult(Status.CONTENT_UNDER_REVIEW, null); }
@@ -525,6 +541,7 @@ public class CommentsService {
         static LikeResult commentNotFound() { return new LikeResult(Status.COMMENT_NOT_FOUND, false, 0, false, false); }
         static LikeResult communityBanned() { return new LikeResult(Status.COMMUNITY_BANNED, false, 0, false, false); }
         static LikeResult notVerified() { return new LikeResult(Status.NOT_VERIFIED, false, 0, false, false); }
+        static LikeResult specializationNotJoined() { return new LikeResult(Status.SPECIALIZATION_NOT_JOINED, false, 0, false, false); }
         static LikeResult invalidAnonProof() { return new LikeResult(Status.INVALID_ANON_PROOF, false, 0, false, false); }
     }
 
@@ -572,6 +589,7 @@ public class CommentsService {
         COMMENT_NOT_FOUND,
         COMMUNITY_BANNED,
         NOT_VERIFIED,
+        SPECIALIZATION_NOT_JOINED,
         INVALID_ANON_PROOF
     }
 
@@ -583,6 +601,7 @@ public class CommentsService {
         static UnlikeResult commentNotFound() { return new UnlikeResult(UnlikeStatus.COMMENT_NOT_FOUND, false, 0, false, false); }
         static UnlikeResult communityBanned() { return new UnlikeResult(UnlikeStatus.COMMUNITY_BANNED, false, 0, false, false); }
         static UnlikeResult notVerified() { return new UnlikeResult(UnlikeStatus.NOT_VERIFIED, false, 0, false, false); }
+        static UnlikeResult specializationNotJoined() { return new UnlikeResult(UnlikeStatus.SPECIALIZATION_NOT_JOINED, false, 0, false, false); }
         static UnlikeResult invalidAnonProof() { return new UnlikeResult(UnlikeStatus.INVALID_ANON_PROOF, false, 0, false, false); }
     }
 }

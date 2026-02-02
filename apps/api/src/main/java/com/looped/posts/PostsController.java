@@ -154,6 +154,10 @@ public class PostsController {
                     "error", "community_not_verified",
                     "message", "You must be verified to post to this community"
             ));
+            case SPECIALIZATION_NOT_JOINED -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
+                    "error", "specialization_not_joined",
+                    "message", "You must join this specialization to post"
+            ));
             case IDEMPOTENCY_IN_FLIGHT -> ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
                     "error", "idempotency_in_flight",
                     "message", "A request with this Idempotency-Key is in flight"

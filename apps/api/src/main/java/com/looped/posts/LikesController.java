@@ -62,6 +62,10 @@ public class LikesController {
                     "error", "community_not_verified",
                     "message", "You must be verified to react in this community"
             ));
+            case SPECIALIZATION_NOT_JOINED -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
+                    "error", "specialization_not_joined",
+                    "message", "You must join this specialization to react"
+            ));
             case INVALID_SIGNATURE -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
                     "error", "invalid_anon_proof",
                     "message", "Invalid anonymous proof"
@@ -112,6 +116,10 @@ public class LikesController {
             case NOT_VERIFIED -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
                     "error", "community_not_verified",
                     "message", "You must be verified to react in this community"
+            ));
+            case SPECIALIZATION_NOT_JOINED -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
+                    "error", "specialization_not_joined",
+                    "message", "You must join this specialization to react"
             ));
             case INVALID_SIGNATURE -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
                     "error", "invalid_anon_proof",
