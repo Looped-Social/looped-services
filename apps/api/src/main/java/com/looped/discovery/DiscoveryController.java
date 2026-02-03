@@ -224,6 +224,57 @@ public class DiscoveryController {
         return ResponseEntity.ok(Map.of("items", items));
     }
 
+    @GetMapping("/specializations/browse")
+    public ResponseEntity<?> browseSpecializations(
+            @AuthenticationPrincipal Jwt jwt,
+            @RequestParam(value = "type", required = false) String type,
+            @RequestParam(value = "specializationType", required = false) String specializationTypeAlt,
+            @RequestParam(value = "specialization_type", required = false) String specializationType,
+            @RequestParam(value = "cursor", required = false) String cursor,
+            @RequestParam(value = "limit", required = false, defaultValue = "20") int limit
+    ) {
+        int lim = Math.max(1, Math.min(limit, 100));
+        String requested = type != null ? type : (specializationTypeAlt != null ? specializationTypeAlt : specializationType);
+        String normalized = normalizeBrowseSpecializationType(requested);
+        if (normalized == null) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of(
+                    "error", "invalid_specialization_type",
+                    "message", "type must be major or field"
+            ));
+        }
+
+        var res = service.browseSpecializations(jwt.getSubject(), normalized, cursor, lim);
+        return switch (res.status()) {
+            case USER_NOT_PROVISIONED -> ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
+                    "error", "user_not_provisioned",
+                    "message", "Complete onboarding before browsing specializations"
+            ));
+            case OK -> {
+                var fallback = logos.resolveFallbacks(res.items().stream()
+                        .map(row -> new CommunityLogoResolver.CommunityRef(row.id, row.kind, row.imageUrl))
+                        .toList());
+                Long userId = users.findByFirebaseUid(jwt.getSubject()).map(u -> u.id).orElse(null);
+                java.util.Set<Long> followedIds = userId == null ? java.util.Set.of()
+                        : follows.followedIds(userId, res.items().stream().map(r -> r.id).toList());
+                java.util.Set<Long> joinedIds = userId == null ? java.util.Set.of()
+                        : specializationJoins.joinedIds(userId, res.items().stream().map(r -> r.id).toList());
+                List<Map<String, Object>> items = res.items().stream()
+                        .map(row -> communityPayload(
+                                row,
+                                fallback,
+                                followedIds.contains(row.id),
+                                joinedIds.contains(row.id),
+                                row.memberCount
+                        ))
+                        .toList();
+                Map<String, Object> body = new HashMap<>();
+                body.put("items", items);
+                if (res.nextCursor() != null) body.put("next_cursor", res.nextCursor());
+                yield ResponseEntity.ok(body);
+            }
+        };
+    }
+
     @GetMapping("/loops/search")
     public ResponseEntity<?> searchLoops(
             @AuthenticationPrincipal Jwt jwt,
@@ -384,6 +435,14 @@ public class DiscoveryController {
         if (raw == null) return "all";
         String normalized = raw.trim().toLowerCase(Locale.ROOT);
         if (normalized.isBlank() || "all".equals(normalized)) return "all";
+        if ("major".equals(normalized) || "field".equals(normalized)) return normalized;
+        return null;
+    }
+
+    private String normalizeBrowseSpecializationType(String raw) {
+        if (raw == null) return null;
+        String normalized = raw.trim().toLowerCase(Locale.ROOT);
+        if (normalized.isBlank()) return null;
         if ("major".equals(normalized) || "field".equals(normalized)) return normalized;
         return null;
     }

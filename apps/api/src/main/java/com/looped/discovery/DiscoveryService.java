@@ -66,6 +66,33 @@ public class DiscoveryService {
         return CommunitySearchResult.ok(rows, next);
     }
 
+    public CommunitySearchResult browseSpecializations(String firebaseUid,
+                                                       String specializationType,
+                                                       String cursor,
+                                                       int limit) {
+        var actor = users.findByFirebaseUid(firebaseUid);
+        if (actor.isEmpty()) return CommunitySearchResult.userNotProvisioned();
+
+        RankPagination.Cursor rankedCursor = null;
+        if (cursor != null && !cursor.isBlank()) {
+            try {
+                rankedCursor = RankPagination.decode(cursor);
+            } catch (IllegalArgumentException ignored) {}
+        }
+        OffsetDateTime asOf = rankedCursor == null ? OffsetDateTime.now() : rankedCursor.asOf();
+        Long memberCount = rankedCursor == null ? null : rankedCursor.score();
+        OffsetDateTime cTs = rankedCursor == null ? null : rankedCursor.timestamp();
+        Long cId = rankedCursor == null ? null : rankedCursor.id();
+
+        var rows = communities.browseSpecializationsByMemberCount(specializationType, asOf, memberCount, cTs, cId, limit);
+        String next = null;
+        if (rows.size() == limit) {
+            var last = rows.get(rows.size() - 1);
+            next = RankPagination.encode(asOf, last.memberCount, last.createdAt, last.id);
+        }
+        return CommunitySearchResult.ok(rows, next);
+    }
+
     public RecommendedCommunitiesResult recommendedCommunities(String firebaseUid, String kind,
                                                                String specializationType, int limit) {
         var actor = users.findByFirebaseUid(firebaseUid);

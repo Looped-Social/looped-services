@@ -111,6 +111,72 @@ public class CommunitiesRepository {
         return jdbc.query(sql, MAPPER, args.toArray());
     }
 
+    public List<CommunityRow> browseByPopularity(String kind,
+                                                 String specializationType,
+                                                 Long cursorMemberCount,
+                                                 OffsetDateTime cursorCreatedAt,
+                                                 Long cursorId,
+                                                 int limit) {
+        String sql = "SELECT " + BASE_COLUMNS + " FROM communities c WHERE 1=1 ";
+        List<Object> args = new ArrayList<>();
+        if (kind != null && !kind.isBlank()) {
+            sql += "AND c.kind = ? ";
+            args.add(kind);
+        }
+        if (specializationType != null && !specializationType.isBlank()) {
+            sql += "AND c.specialization_type = ? ";
+            args.add(specializationType);
+        }
+        if (cursorMemberCount != null && cursorCreatedAt != null && cursorId != null) {
+            sql += "AND (c.member_count < ? OR (c.member_count = ? AND (c.created_at < ? OR (c.created_at = ? AND c.id < ?)))) ";
+            args.add(cursorMemberCount);
+            args.add(cursorMemberCount);
+            args.add(cursorCreatedAt);
+            args.add(cursorCreatedAt);
+            args.add(cursorId);
+        }
+        sql += "ORDER BY c.member_count DESC, c.created_at DESC, c.id DESC LIMIT ?";
+        args.add(limit);
+        return jdbc.query(sql, MAPPER, args.toArray());
+    }
+
+    public List<CommunityRow> browseSpecializationsByMemberCount(String specializationType,
+                                                                 OffsetDateTime asOf,
+                                                                 Long cursorMemberCount,
+                                                                 OffsetDateTime cursorCreatedAt,
+                                                                 Long cursorId,
+                                                                 int limit) {
+        String sql = """
+                WITH base AS (
+                    SELECT c.id, c.kind, c.name, c.description,
+                           COUNT(j.user_id) FILTER (WHERE u.deleted_at IS NULL) AS member_count,
+                           c.image_url, c.specialization_type, c.created_at, c.verification_ttl_days, c.short_name, c.specialization_join_cooldown_months
+                    FROM communities c
+                    LEFT JOIN specialization_joins j ON j.specialization_id = c.id AND j.created_at <= ?
+                    LEFT JOIN users u ON u.id = j.user_id
+                    WHERE c.kind = 'specialization' AND c.specialization_type = ? AND c.created_at <= ?
+                    GROUP BY c.id, c.kind, c.name, c.description,
+                             c.image_url, c.specialization_type, c.created_at, c.verification_ttl_days, c.short_name, c.specialization_join_cooldown_months
+                )
+                SELECT * FROM base
+                """;
+        List<Object> args = new ArrayList<>();
+        args.add(asOf);
+        args.add(specializationType);
+        args.add(asOf);
+        if (cursorMemberCount != null && cursorCreatedAt != null && cursorId != null) {
+            sql += "WHERE (member_count < ? OR (member_count = ? AND (created_at < ? OR (created_at = ? AND id < ?)))) ";
+            args.add(cursorMemberCount);
+            args.add(cursorMemberCount);
+            args.add(cursorCreatedAt);
+            args.add(cursorCreatedAt);
+            args.add(cursorId);
+        }
+        sql += "ORDER BY member_count DESC, created_at DESC, id DESC LIMIT ?";
+        args.add(limit);
+        return jdbc.query(sql, MAPPER, args.toArray());
+    }
+
     private List<ScoredCommunityRow> searchRankedByKind(String kind, String specializationType,
                                                         String query, String prefixQuery, OffsetDateTime asOf,
                                                         Long cursorScore, OffsetDateTime cursorTs, Long cursorId, int limit) {
