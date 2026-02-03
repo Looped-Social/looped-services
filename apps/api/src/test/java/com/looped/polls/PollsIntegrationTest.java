@@ -272,4 +272,71 @@ class PollsIntegrationTest extends PostgresTestBase {
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.error").value("poll_closed"));
     }
+
+    @Test
+    void vote_requires_join_for_field_specialization() throws Exception {
+        String authorUid = "firebase_author_uid";
+        String viewerUid = "firebase_viewer_uid";
+        long authorId = jdbc.queryForObject(
+                "INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,1) RETURNING id",
+                Long.class,
+                authorUid, "author"
+        );
+        long viewerId = jdbc.queryForObject(
+                "INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,1) RETURNING id",
+                Long.class,
+                viewerUid, "viewer"
+        );
+        long fieldId = jdbc.queryForObject(
+                "INSERT INTO communities(kind, name, specialization_type) VALUES ('specialization', 'Test Field', 'field') RETURNING id",
+                Long.class
+        );
+        jdbc.update(
+                "INSERT INTO specialization_joins(user_id, specialization_id) VALUES (?, ?)",
+                authorId, fieldId
+        );
+
+        OffsetDateTime closesAt = OffsetDateTime.now(ZoneOffset.UTC).plusDays(7).withNano(0);
+        String createBody = """
+                {
+                  "content": "Field poll",
+                  "communityId": %d,
+                  "poll": {
+                    "question": "Pick one",
+                    "options": ["A", "B"],
+                    "maxSelections": 1,
+                    "closesAt": "%s"
+                  }
+                }
+                """.formatted(fieldId, closesAt);
+
+        MvcResult created = mockMvc.perform(
+                        post("/v1/posts")
+                                .with(jwt().jwt(j -> j.subject(authorUid)))
+                                .header("Idempotency-Key", "idem-field-1")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(createBody)
+                )
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.poll").exists())
+                .andReturn();
+
+        String postJson = created.getResponse().getContentAsString();
+        long pollId = ((Number) JsonPath.read(postJson, "$.poll.id")).longValue();
+        long opt1 = ((Number) JsonPath.read(postJson, "$.poll.options[0].id")).longValue();
+
+        String voteBody = """
+                { "selectedOptionIds": [%d] }
+                """.formatted(opt1);
+        mockMvc.perform(
+                        put("/v1/polls/{pollId}/vote", pollId)
+                                .with(jwt().jwt(j -> j.subject(viewerUid)))
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(voteBody)
+                )
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error").value("specialization_not_joined"));
+
+        assertThat(viewerId).isPositive();
+    }
 }

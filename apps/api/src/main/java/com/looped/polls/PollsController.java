@@ -42,6 +42,18 @@ public class PollsController {
                     "error", "forbidden",
                     "message", "You do not have access to this poll"
             ));
+            case COMMUNITY_BANNED -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
+                    "error", "community_banned",
+                    "message", "You are banned from this community"
+            ));
+            case NOT_VERIFIED -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
+                    "error", "community_not_verified",
+                    "message", "You must be verified to vote in this community"
+            ));
+            case SPECIALIZATION_NOT_JOINED -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
+                    "error", "specialization_not_joined",
+                    "message", "You must join this specialization to vote"
+            ));
             case POLL_CLOSED -> ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
                     "error", "poll_closed",
                     "message", "Poll is closed"
@@ -54,4 +66,3 @@ public class PollsController {
         };
     }
 }
-

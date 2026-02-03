@@ -2,7 +2,9 @@ package com.looped.polls;
 
 import com.looped.communities.CommunitiesRepository;
 import com.looped.communities.CommunityVerificationsRepository;
+import com.looped.communities.SpecializationJoinsRepository;
 import com.looped.principals.PrincipalRepository;
+import com.looped.users.UserCommunityBanRepository;
 import com.looped.users.UserRepository;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.dao.DataRetrievalFailureException;
@@ -25,6 +27,8 @@ public class PollsService {
     private final PrincipalRepository principals;
     private final CommunitiesRepository communities;
     private final CommunityVerificationsRepository communityVerifications;
+    private final SpecializationJoinsRepository specializationJoins;
+    private final UserCommunityBanRepository communityBans;
     private final ApplicationEventPublisher events;
 
     public PollsService(PollRepository polls,
@@ -32,12 +36,16 @@ public class PollsService {
                         PrincipalRepository principals,
                         CommunitiesRepository communities,
                         CommunityVerificationsRepository communityVerifications,
+                        SpecializationJoinsRepository specializationJoins,
+                        UserCommunityBanRepository communityBans,
                         ApplicationEventPublisher events) {
         this.polls = polls;
         this.users = users;
         this.principals = principals;
         this.communities = communities;
         this.communityVerifications = communityVerifications;
+        this.specializationJoins = specializationJoins;
+        this.communityBans = communityBans;
         this.events = events;
     }
 
@@ -155,11 +163,19 @@ public class PollsService {
         if (pollWithPost.get().companyId != companyId) return VoteResult.forbidden();
 
         if (pollWithPost.get().communityId != null) {
+            if (communityBans.isBanned(userId, pollWithPost.get().communityId)) {
+                return VoteResult.communityBanned();
+            }
             var community = communities.findById(pollWithPost.get().communityId);
             if (community.isEmpty()) return VoteResult.forbidden();
-            boolean requiresVerification = !"specialization".equalsIgnoreCase(community.get().kind);
-            if (requiresVerification && !communityVerifications.isVerified(userId, pollWithPost.get().communityId)) {
-                return VoteResult.forbidden();
+            var c = community.get();
+            if ("specialization".equalsIgnoreCase(c.kind)) {
+                if (requiresSpecializationJoin(c.specializationType)
+                        && !specializationJoins.exists(userId, pollWithPost.get().communityId)) {
+                    return VoteResult.specializationNotJoined();
+                }
+            } else if (!communityVerifications.isVerified(userId, pollWithPost.get().communityId)) {
+                return VoteResult.notVerified();
             }
         }
 
@@ -199,6 +215,12 @@ public class PollsService {
         }
 
         return VoteResult.ok(updated);
+    }
+
+    private boolean requiresSpecializationJoin(String specializationType) {
+        if (specializationType == null) return false;
+        String t = specializationType.trim().toLowerCase(java.util.Locale.ROOT);
+        return t.equals("major") || t.equals("field");
     }
 
     @Transactional
@@ -292,6 +314,9 @@ public class PollsService {
         USER_NOT_PROVISIONED,
         NOT_FOUND,
         FORBIDDEN,
+        COMMUNITY_BANNED,
+        NOT_VERIFIED,
+        SPECIALIZATION_NOT_JOINED,
         POLL_CLOSED,
         INVALID_SELECTION
     }
@@ -301,6 +326,9 @@ public class PollsService {
         static VoteResult userNotProvisioned() { return new VoteResult(VoteStatus.USER_NOT_PROVISIONED, null); }
         static VoteResult notFound() { return new VoteResult(VoteStatus.NOT_FOUND, null); }
         static VoteResult forbidden() { return new VoteResult(VoteStatus.FORBIDDEN, null); }
+        static VoteResult communityBanned() { return new VoteResult(VoteStatus.COMMUNITY_BANNED, null); }
+        static VoteResult notVerified() { return new VoteResult(VoteStatus.NOT_VERIFIED, null); }
+        static VoteResult specializationNotJoined() { return new VoteResult(VoteStatus.SPECIALIZATION_NOT_JOINED, null); }
         static VoteResult pollClosed() { return new VoteResult(VoteStatus.POLL_CLOSED, null); }
         static VoteResult invalidSelection() { return new VoteResult(VoteStatus.INVALID_SELECTION, null); }
     }
