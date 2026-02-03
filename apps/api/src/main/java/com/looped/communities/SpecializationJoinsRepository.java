@@ -105,6 +105,39 @@ public class SpecializationJoinsRepository {
         return Set.copyOf(rows);
     }
 
+    public int countMembers(long specializationId) {
+        Integer count = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM specialization_joins j " +
+                        "JOIN users u ON u.id = j.user_id " +
+                        "WHERE j.specialization_id = ? AND u.deleted_at IS NULL",
+                Integer.class,
+                specializationId
+        );
+        return count == null ? 0 : count;
+    }
+
+    public Map<Long, Integer> countMembersBySpecializationIds(Collection<Long> specializationIds) {
+        if (specializationIds == null || specializationIds.isEmpty()) return Map.of();
+        String placeholders = String.join(",", java.util.Collections.nCopies(specializationIds.size(), "?"));
+        java.util.List<Object> args = new java.util.ArrayList<>();
+        args.addAll(specializationIds);
+        return jdbc.query(
+                "SELECT j.specialization_id, COUNT(*) AS cnt " +
+                        "FROM specialization_joins j " +
+                        "JOIN users u ON u.id = j.user_id " +
+                        "WHERE j.specialization_id IN (" + placeholders + ") AND u.deleted_at IS NULL " +
+                        "GROUP BY j.specialization_id",
+                rs -> {
+                    Map<Long, Integer> out = new java.util.HashMap<>();
+                    while (rs.next()) {
+                        out.put(rs.getLong("specialization_id"), rs.getInt("cnt"));
+                    }
+                    return out;
+                },
+                args.toArray()
+        );
+    }
+
     public record JoinRow(long joinId, long specializationId, String name, String shortName, String kind,
                           String specializationType, int memberCount, OffsetDateTime createdAt) {}
 

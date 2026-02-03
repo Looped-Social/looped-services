@@ -206,4 +206,62 @@ class CommunityFollowsIntegrationTest extends PostgresTestBase {
                 .andExpect(jsonPath("$.error", equalTo("specialization_join_cooldown")))
                 .andExpect(jsonPath("$.specialization_type", equalTo("major")));
     }
+
+    @Test
+    void specialization_member_count_reflects_joins() throws Exception {
+        long companyId = jdbc.queryForObject(
+                "INSERT INTO companies(name, domain) VALUES ('MemberCo', 'member.co') RETURNING id",
+                Long.class);
+        jdbc.update("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?)",
+                "uid-members-1", "alex", companyId);
+        jdbc.update("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?)",
+                "uid-members-2", "blair", companyId);
+
+        long userOneId = jdbc.queryForObject("SELECT id FROM users WHERE firebase_uid=?", Long.class, "uid-members-1");
+        long userTwoId = jdbc.queryForObject("SELECT id FROM users WHERE firebase_uid=?", Long.class, "uid-members-2");
+
+        long schoolId = jdbc.queryForObject(
+                "INSERT INTO communities(kind, name) VALUES ('school', 'Member University') RETURNING id",
+                Long.class
+        );
+        jdbc.update(
+                "INSERT INTO community_verifications(user_id, community_id, method, verified, expires_at) VALUES (?,?,?,?, NULL)",
+                userOneId, schoolId, "manual", true
+        );
+        jdbc.update(
+                "INSERT INTO community_verifications(user_id, community_id, method, verified, expires_at) VALUES (?,?,?,?, NULL)",
+                userTwoId, schoolId, "manual", true
+        );
+
+        long economics = jdbc.queryForObject(
+                "INSERT INTO communities(kind, specialization_type, name) VALUES ('specialization','major','Economics') RETURNING id",
+                Long.class);
+
+        String authOne = "Bearer " + token("uid-members-1");
+        String authTwo = "Bearer " + token("uid-members-2");
+
+        mockMvc.perform(post("/v1/specializations/" + economics + "/join")
+                        .header("Authorization", authOne))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.joined").value(true));
+
+        mockMvc.perform(post("/v1/specializations/" + economics + "/join")
+                        .header("Authorization", authTwo))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.joined").value(true));
+
+        mockMvc.perform(get("/v1/communities/" + economics)
+                        .header("Authorization", authOne))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.member_count").value(2));
+
+        mockMvc.perform(get("/v1/specializations/recommended")
+                        .param("type", "major")
+                        .param("limit", "10")
+                        .header("Authorization", authOne))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items", hasSize(1)))
+                .andExpect(jsonPath("$.items[0].id").value((int) economics))
+                .andExpect(jsonPath("$.items[0].member_count").value(2));
+    }
 }

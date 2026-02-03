@@ -20,12 +20,12 @@ import java.util.Map;
 @RequestMapping("/v1")
 public class CommunityFollowsController {
     private final CommunityFollowsService service;
-    private final CommunityVerificationsRepository verifications;
+    private final CommunityMemberCountService memberCounts;
 
     public CommunityFollowsController(CommunityFollowsService service,
-                                      CommunityVerificationsRepository verifications) {
+                                      CommunityMemberCountService memberCounts) {
         this.service = service;
-        this.verifications = verifications;
+        this.memberCounts = memberCounts;
     }
 
     @GetMapping("/me/followed/communities")
@@ -46,8 +46,10 @@ public class CommunityFollowsController {
         if (res.status() != CommunityFollowsService.Status.OK) {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
-        var memberCounts = verifications.countActiveVerifiedMembersByCommunityIds(
-                res.follows().stream().map(r -> r.communityId).toList()
+        var memberCounts = this.memberCounts.memberCountsByCommunityRefs(
+                res.follows().stream()
+                        .map(r -> new CommunityMemberCountService.Ref(r.communityId, r.kind))
+                        .toList()
         );
         List<Map<String, Object>> items = res.follows().stream()
                 .map(row -> payload(row, memberCounts))

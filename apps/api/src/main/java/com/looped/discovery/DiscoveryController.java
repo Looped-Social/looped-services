@@ -1,9 +1,9 @@
 package com.looped.discovery;
 
 import com.looped.communities.CommunitiesRepository;
+import com.looped.communities.CommunityMemberCountService;
 import com.looped.communities.CommunityFollowsRepository;
 import com.looped.communities.CommunityLogoResolver;
-import com.looped.communities.CommunityVerificationsRepository;
 import com.looped.communities.SpecializationJoinsRepository;
 import com.looped.posts.PostPayloads;
 import com.looped.users.UserRepository;
@@ -32,20 +32,20 @@ public class DiscoveryController {
     private final UserRepository users;
     private final CommunityFollowsRepository follows;
     private final SpecializationJoinsRepository specializationJoins;
-    private final CommunityVerificationsRepository verifications;
+    private final CommunityMemberCountService memberCounts;
 
     public DiscoveryController(DiscoveryService service,
                                CommunityLogoResolver logos,
                                UserRepository users,
                                CommunityFollowsRepository follows,
                                SpecializationJoinsRepository specializationJoins,
-                               CommunityVerificationsRepository verifications) {
+                               CommunityMemberCountService memberCounts) {
         this.service = service;
         this.logos = logos;
         this.users = users;
         this.follows = follows;
         this.specializationJoins = specializationJoins;
-        this.verifications = verifications;
+        this.memberCounts = memberCounts;
     }
 
     @GetMapping("/communities/search")
@@ -91,8 +91,10 @@ public class DiscoveryController {
                         : follows.followedIds(userId, res.items().stream().map(r -> r.id).toList());
                 java.util.Set<Long> joinedIds = userId == null ? java.util.Set.of()
                         : specializationJoins.joinedIds(userId, res.items().stream().map(r -> r.id).toList());
-                var memberCounts = verifications.countActiveVerifiedMembersByCommunityIds(
-                        res.items().stream().map(r -> r.id).toList()
+                var memberCounts = this.memberCounts.memberCountsByCommunityRefs(
+                        res.items().stream()
+                                .map(r -> new CommunityMemberCountService.Ref(r.id, r.kind))
+                                .toList()
                 );
                 List<Map<String, Object>> items = res.items().stream()
                         .map(row -> communityPayload(row, fallback,
@@ -147,8 +149,10 @@ public class DiscoveryController {
                 var fallback = logos.resolveFallbacks(res.items().stream()
                         .map(row -> new CommunityLogoResolver.CommunityRef(row.id, row.kind, row.imageUrl))
                         .toList());
-                var memberCounts = verifications.countActiveVerifiedMembersByCommunityIds(
-                        res.items().stream().map(r -> r.id).toList()
+                var memberCounts = this.memberCounts.memberCountsByCommunityRefs(
+                        res.items().stream()
+                                .map(r -> new CommunityMemberCountService.Ref(r.id, r.kind))
+                                .toList()
                 );
                 List<Map<String, Object>> items = res.items().stream()
                         .map(row -> recommendedPayload(row, fallback, memberCounts.getOrDefault(row.id, 0)))
@@ -187,12 +191,12 @@ public class DiscoveryController {
                             .map(row -> new CommunityLogoResolver.CommunityRef(row.id, row.kind, row.imageUrl))
                             .toList()
             );
-            var memberCounts = verifications.countActiveVerifiedMembersByCommunityIds(
+            var memberCounts = this.memberCounts.memberCountsByCommunityRefs(
                     java.util.stream.Stream.concat(
                                     majorsRes.items().stream(),
                                     fieldsRes.items().stream()
                             )
-                            .map(row -> row.id)
+                            .map(row -> new CommunityMemberCountService.Ref(row.id, row.kind))
                             .toList()
             );
             List<Map<String, Object>> majors = majorsRes.items().stream()
@@ -211,8 +215,8 @@ public class DiscoveryController {
         var fallback = logos.resolveFallbacks(res.items().stream()
                 .map(row -> new CommunityLogoResolver.CommunityRef(row.id, row.kind, row.imageUrl))
                 .toList());
-        var memberCounts = verifications.countActiveVerifiedMembersByCommunityIds(
-                res.items().stream().map(r -> r.id).toList()
+        var memberCounts = this.memberCounts.memberCountsByCommunityRefs(
+                res.items().stream().map(r -> new CommunityMemberCountService.Ref(r.id, r.kind)).toList()
         );
         List<Map<String, Object>> items = res.items().stream()
                 .map(row -> recommendedPayload(row, fallback, memberCounts.getOrDefault(row.id, 0)))

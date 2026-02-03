@@ -23,16 +23,16 @@ public class SpecializationsController {
     private final CommunityFollowsService communityFollows;
     private final SpecializationMembershipService memberships;
     private final CommunitiesRepository communities;
-    private final CommunityVerificationsRepository verifications;
+    private final CommunityMemberCountService memberCounts;
 
     public SpecializationsController(CommunityFollowsService communityFollows,
                                      SpecializationMembershipService memberships,
                                      CommunitiesRepository communities,
-                                     CommunityVerificationsRepository verifications) {
+                                     CommunityMemberCountService memberCounts) {
         this.communityFollows = communityFollows;
         this.memberships = memberships;
         this.communities = communities;
-        this.verifications = verifications;
+        this.memberCounts = memberCounts;
     }
 
     @PostMapping("/specializations/{id}/follow")
@@ -157,8 +157,10 @@ public class SpecializationsController {
         if (res.status() != SpecializationMembershipService.Status.OK) {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
-        var memberCounts = verifications.countActiveVerifiedMembersByCommunityIds(
-                res.items().stream().map(SpecializationJoinsRepository.JoinRow::specializationId).toList()
+        var memberCounts = this.memberCounts.memberCountsByCommunityRefs(
+                res.items().stream()
+                        .map(r -> new CommunityMemberCountService.Ref(r.specializationId(), r.kind()))
+                        .toList()
         );
         List<Map<String, Object>> items = res.items().stream().map(row -> payload(row, memberCounts)).toList();
         Map<String, Object> body = new HashMap<>();

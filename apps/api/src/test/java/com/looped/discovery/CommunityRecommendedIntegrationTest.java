@@ -72,14 +72,8 @@ class CommunityRecommendedIntegrationTest extends PostgresTestBase {
                 "INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?) RETURNING id",
                 Long.class, "uid-rec-b", "recb", companyId
         );
-        jdbc.update(
-                "INSERT INTO community_verifications(user_id, community_id, method, verified, expires_at) VALUES (?,?,?,?, NULL)",
-                otherUserA, majorId, "manual", true
-        );
-        jdbc.update(
-                "INSERT INTO community_verifications(user_id, community_id, method, verified, expires_at) VALUES (?,?,?,?, NULL)",
-                otherUserB, majorId, "manual", true
-        );
+        jdbc.update("INSERT INTO specialization_joins(user_id, specialization_id) VALUES (?, ?)", otherUserA, majorId);
+        jdbc.update("INSERT INTO specialization_joins(user_id, specialization_id) VALUES (?, ?)", otherUserB, majorId);
 
         String auth = "Bearer " + token("uid-rec-1");
         mockMvc.perform(get("/v1/communities/recommended")
