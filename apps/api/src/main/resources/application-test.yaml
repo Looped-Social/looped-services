@@ -1,2 +1,6 @@
 rate-limit:
   enabled: false
+
+notifications:
+  celebrations:
+    enabled: false

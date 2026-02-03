@@ -118,6 +118,17 @@ public class NotificationPublisher {
         publishToUsers(userIds, NotificationType.ANNOUNCEMENT, normalized);
     }
 
+    public int notifyAnnouncementOnce(List<Long> userIds, String eventKey, Map<String, Object> payload) {
+        if (userIds == null || userIds.isEmpty() || payload == null) return 0;
+        if (eventKey == null || eventKey.isBlank()) return 0;
+        Map<String, Object> normalized = new HashMap<>(payload);
+        Object rawDeeplink = normalized.remove("deeplink");
+        if (rawDeeplink instanceof String s && !s.isBlank()) {
+            normalized.put("action_deeplink", s);
+        }
+        return publishToUsersIdempotent(userIds, NotificationType.ANNOUNCEMENT, eventKey.trim(), normalized);
+    }
+
     private void publishToUser(long userId, NotificationType type, Map<String, Object> payload) {
         if (userId <= 0 || payload == null) return;
         if (isBlocked(payload, userId)) return;
@@ -162,6 +173,39 @@ public class NotificationPublisher {
                 enqueuePush(userId, notificationId, type, enriched, tokens);
             }
         }
+    }
+
+    private int publishToUsersIdempotent(List<Long> userIds,
+                                         NotificationType type,
+                                         String eventKey,
+                                         Map<String, Object> payload) {
+        if (userIds == null || userIds.isEmpty() || payload == null) return 0;
+        if (eventKey == null || eventKey.isBlank()) return 0;
+        int created = 0;
+        List<Long> filteredUserIds = filterBlockedUsers(payload, userIds);
+        Map<Long, List<String>> tokensByUser = pushQueue.enabled() ? tokensByUser(filteredUserIds) : Map.of();
+        for (Long userId : filteredUserIds) {
+            if (userId == null || userId <= 0) continue;
+            NotificationPreferences prefs = preferences.preferencesForUserId(userId);
+            boolean allowInApp = prefs.allows(NotificationChannel.IN_APP, type);
+            boolean allowPush = prefs.allows(NotificationChannel.PUSH, type);
+            boolean pushEnabled = allowPush && pushQueue.enabled();
+            if (!allowInApp && !pushEnabled) continue;
+
+            Map<String, Object> enriched = new HashMap<>(payload);
+            enriched.put("event_key", eventKey);
+            applyDeeplink(enriched, type, null);
+            long notificationId = notifications.insertIdempotent(userId, type.value(), enriched, eventKey);
+            if (notificationId <= 0) continue;
+            ensureDeeplink(notificationId, type, enriched);
+            created += 1;
+
+            if (pushEnabled) {
+                List<String> tokens = tokensByUser.get(userId);
+                enqueuePush(userId, notificationId, type, enriched, tokens);
+            }
+        }
+        return created;
     }
 
     private boolean isBlocked(Map<String, Object> payload, long targetUserId) {
@@ -337,6 +381,9 @@ public class NotificationPublisher {
         Object companyId = payload.get("company_id");
         if (companyId instanceof Number n) {
             return "announcement-" + n.longValue();
+        }
+        if (payload.get("event_key") instanceof String s && !s.isBlank()) {
+            return "announcement-" + s.trim();
         }
         return "announcement";
     }

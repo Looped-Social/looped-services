@@ -9,6 +9,7 @@ import org.springframework.stereotype.Repository;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.OffsetDateTime;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -72,6 +73,23 @@ public class NotificationRepository {
         String payloadJson = toJson(payload);
         Long id = jdbc.query(
                 "INSERT INTO notifications(user_id, type, payload) VALUES (?,?, ?::jsonb) RETURNING id",
+                rs -> rs.next() ? rs.getLong(1) : null,
+                userId, type, payloadJson
+        );
+        return id == null ? 0L : id;
+    }
+
+    public long insertIdempotent(long userId, String type, Map<String, Object> payload, String eventKey) {
+        if (eventKey == null || eventKey.isBlank()) {
+            return insert(userId, type, payload);
+        }
+        Map<String, Object> enriched = payload == null ? new HashMap<>() : new HashMap<>(payload);
+        enriched.put("event_key", eventKey.trim());
+        String payloadJson = toJson(enriched);
+        Long id = jdbc.query(
+                "INSERT INTO notifications(user_id, type, payload) VALUES (?,?, ?::jsonb) " +
+                        "ON CONFLICT (user_id, type, (payload->>'event_key')) WHERE (payload ? 'event_key') DO NOTHING " +
+                        "RETURNING id",
                 rs -> rs.next() ? rs.getLong(1) : null,
                 userId, type, payloadJson
         );

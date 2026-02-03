@@ -80,6 +80,14 @@ sqs:
   notifQueueUrl: ${SQS_NOTIF_QUEUE_URL:}
   region: ${AWS_REGION:us-east-1}
 
+notifications:
+  celebrations:
+    enabled: ${NOTIFICATIONS_CELEBRATIONS_ENABLED:true}
+    birthday-enabled: ${NOTIFICATIONS_BIRTHDAY_ENABLED:true}
+    anniversary-enabled: ${NOTIFICATIONS_ANNIVERSARY_ENABLED:true}
+    batch-size: ${NOTIFICATIONS_CELEBRATIONS_BATCH_SIZE:500}
+    cron: "${NOTIFICATIONS_CELEBRATIONS_CRON:0 0 14 * * *}"
+
 rate-limit:
   per-ip:
     window-seconds: ${RL_IP_WINDOW_SECONDS:60}
