@@ -215,3 +215,33 @@ variable "sqs_notif_queue_arn" {
   description = "Optional SQS queue ARN used for IAM permissions (sqs:SendMessage)."
   default     = ""
 }
+
+variable "rate_limit_enabled" {
+  type        = bool
+  description = "Enable per-IP/per-user request rate limiting."
+  default     = true
+}
+
+variable "rl_ip_window_seconds" {
+  type        = number
+  description = "Sliding window size for per-IP rate limiting."
+  default     = 60
+}
+
+variable "rl_ip_max_requests" {
+  type        = number
+  description = "Max requests per IP within rl_ip_window_seconds."
+  default     = 120
+}
+
+variable "rl_user_window_seconds" {
+  type        = number
+  description = "Sliding window size for per-user rate limiting."
+  default     = 60
+}
+
+variable "rl_user_max_requests" {
+  type        = number
+  description = "Max requests per user within rl_user_window_seconds."
+  default     = 180
+}

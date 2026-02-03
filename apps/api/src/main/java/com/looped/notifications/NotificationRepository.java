@@ -88,7 +88,9 @@ public class NotificationRepository {
         String payloadJson = toJson(enriched);
         Long id = jdbc.query(
                 "INSERT INTO notifications(user_id, type, payload) VALUES (?,?, ?::jsonb) " +
-                        "ON CONFLICT (user_id, type, (payload->>'event_key')) WHERE (payload ? 'event_key') DO NOTHING " +
+                        "ON CONFLICT (user_id, type, (payload->>'event_key')) " +
+                        "WHERE (payload->>'event_key') IS NOT NULL " +
+                        "DO NOTHING " +
                         "RETURNING id",
                 rs -> rs.next() ? rs.getLong(1) : null,
                 userId, type, payloadJson

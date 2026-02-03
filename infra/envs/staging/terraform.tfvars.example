@@ -61,3 +61,10 @@ apns_bundle_id              = "com.yourcompany.looped.staging"
 apns_team_id                = "YOUR_TEAM_ID"
 apns_key_id                 = "YOUR_KEY_ID"
 apns_auth_key_p8_secret_arn = "arn:aws:secretsmanager:us-east-1:179388324981:secret:looped/staging/apns/auth-key-p8-XXXXXX"
+
+# Rate limits (optional overrides; defaults are 120/ip/min and 180/user/min)
+rate_limit_enabled     = true
+rl_ip_window_seconds   = 60
+rl_ip_max_requests     = 5000
+rl_user_window_seconds = 60
+rl_user_max_requests   = 600

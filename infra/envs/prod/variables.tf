@@ -165,6 +165,36 @@ variable "moderation_report_quarantine_threshold" {
   default = 10
 }
 
+variable "rate_limit_enabled" {
+  type        = bool
+  description = "Enable per-IP/per-user request rate limiting."
+  default     = true
+}
+
+variable "rl_ip_window_seconds" {
+  type        = number
+  description = "Sliding window size for per-IP rate limiting."
+  default     = 60
+}
+
+variable "rl_ip_max_requests" {
+  type        = number
+  description = "Max requests per IP within rl_ip_window_seconds."
+  default     = 120
+}
+
+variable "rl_user_window_seconds" {
+  type        = number
+  description = "Sliding window size for per-user rate limiting."
+  default     = 60
+}
+
+variable "rl_user_max_requests" {
+  type        = number
+  description = "Max requests per user within rl_user_window_seconds."
+  default     = 180
+}
+
 variable "logo_dev_token" {
   type        = string
   description = "Logo.dev public token used to generate default community logos. Leave empty to disable logo.dev fallback."
