@@ -19,6 +19,7 @@ import java.util.List;
 
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.hasSize;
+import static org.hamcrest.Matchers.notNullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -98,5 +99,45 @@ class CommunityRecommendedIntegrationTest extends PostgresTestBase {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items", hasSize(1)))
                 .andExpect(jsonPath("$.items[0].is_following", equalTo(false)));
+    }
+
+    @Test
+    void recommended_supports_cursor_pagination() throws Exception {
+        long companyId = jdbc.queryForObject(
+                "INSERT INTO companies(name, domain) VALUES ('RecPageCo', 'recpage.com') RETURNING id",
+                Long.class);
+        jdbc.update("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?)",
+                "uid-rec-page-1", "pagey", companyId);
+
+        jdbc.update("INSERT INTO communities(kind, name, member_count, created_at) VALUES ('company','TopCo', 30, '2025-01-01T00:00:00Z')");
+        jdbc.update("INSERT INTO communities(kind, name, member_count, created_at) VALUES ('company','MidCo', 20, '2025-01-01T00:00:00Z')");
+        jdbc.update("INSERT INTO communities(kind, name, member_count, created_at) VALUES ('company','LowCo', 10, '2025-01-01T00:00:00Z')");
+
+        String auth = "Bearer " + token("uid-rec-page-1");
+
+        var r1 = mockMvc.perform(get("/v1/communities/recommended")
+                        .param("kind", "company")
+                        .param("limit", "2")
+                        .header("Authorization", auth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items", hasSize(2)))
+                .andExpect(jsonPath("$.items[0].name", equalTo("TopCo")))
+                .andExpect(jsonPath("$.items[1].name", equalTo("MidCo")))
+                .andExpect(jsonPath("$.next_cursor", notNullValue()))
+                .andReturn();
+
+        String next = new com.fasterxml.jackson.databind.ObjectMapper()
+                .readTree(r1.getResponse().getContentAsString())
+                .get("next_cursor").asText();
+
+        mockMvc.perform(get("/v1/communities/recommended")
+                        .param("kind", "company")
+                        .param("limit", "2")
+                        .param("cursor", next)
+                        .header("Authorization", auth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items", hasSize(1)))
+                .andExpect(jsonPath("$.items[0].name", equalTo("LowCo")))
+                .andExpect(jsonPath("$.next_cursor").doesNotExist());
     }
 }

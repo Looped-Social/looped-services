@@ -95,13 +95,35 @@ public class DiscoveryService {
 
     public RecommendedCommunitiesResult recommendedCommunities(String firebaseUid, String kind,
                                                                String specializationType, int limit) {
+        return recommendedCommunities(firebaseUid, kind, specializationType, null, limit);
+    }
+
+    public RecommendedCommunitiesResult recommendedCommunities(String firebaseUid, String kind,
+                                                               String specializationType, String cursor, int limit) {
         var actor = users.findByFirebaseUid(firebaseUid);
         Long userId = null;
         if (actor.isPresent() && actor.get().companyId != null) {
             userId = actor.get().id;
         }
-        var rows = communities.recommended(userId, kind, specializationType, limit);
-        return RecommendedCommunitiesResult.ok(rows);
+
+        RankPagination.Cursor rankedCursor = null;
+        if (cursor != null && !cursor.isBlank()) {
+            try {
+                rankedCursor = RankPagination.decode(cursor);
+            } catch (IllegalArgumentException ignored) {}
+        }
+        OffsetDateTime asOf = rankedCursor == null ? OffsetDateTime.now() : rankedCursor.asOf();
+        Long memberCount = rankedCursor == null ? null : rankedCursor.score();
+        OffsetDateTime cTs = rankedCursor == null ? null : rankedCursor.timestamp();
+        Long cId = rankedCursor == null ? null : rankedCursor.id();
+
+        var rows = communities.recommended(userId, kind, specializationType, asOf, memberCount, cTs, cId, limit);
+        String next = null;
+        if (rows.size() == limit) {
+            var last = rows.get(rows.size() - 1);
+            next = RankPagination.encode(asOf, last.memberCount, last.createdAt, last.id);
+        }
+        return RecommendedCommunitiesResult.ok(rows, next);
     }
 
     public HashtagSearchResult searchHashtags(String firebaseUid, String query, String cursor, int limit) {
@@ -165,9 +187,13 @@ public class DiscoveryService {
         static CommunitySearchResult userNotProvisioned() { return new CommunitySearchResult(Status.USER_NOT_PROVISIONED, List.of(), null); }
     }
 
-    public record RecommendedCommunitiesResult(RecommendedStatus status, List<CommunitiesRepository.RecommendedRow> items) {
-        static RecommendedCommunitiesResult ok(List<CommunitiesRepository.RecommendedRow> items) { return new RecommendedCommunitiesResult(RecommendedStatus.OK, items); }
-        static RecommendedCommunitiesResult userNotProvisioned() { return new RecommendedCommunitiesResult(RecommendedStatus.USER_NOT_PROVISIONED, List.of()); }
+    public record RecommendedCommunitiesResult(RecommendedStatus status, List<CommunitiesRepository.RecommendedRow> items, String nextCursor) {
+        static RecommendedCommunitiesResult ok(List<CommunitiesRepository.RecommendedRow> items, String nextCursor) {
+            return new RecommendedCommunitiesResult(RecommendedStatus.OK, items, nextCursor);
+        }
+        static RecommendedCommunitiesResult userNotProvisioned() {
+            return new RecommendedCommunitiesResult(RecommendedStatus.USER_NOT_PROVISIONED, List.of(), null);
+        }
     }
 
     public record HashtagSearchResult(Status status, List<HashtagsRepository.HashtagRow> items, String nextCursor) {

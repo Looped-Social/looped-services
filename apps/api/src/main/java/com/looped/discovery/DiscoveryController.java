@@ -124,6 +124,7 @@ public class DiscoveryController {
     public ResponseEntity<?> recommendedCommunities(
             @AuthenticationPrincipal Jwt jwt,
             @RequestParam(value = "kind", required = false) String kind,
+            @RequestParam(value = "cursor", required = false) String cursor,
             @RequestParam(value = "limit", required = false, defaultValue = "8") int limit
     ) {
         int lim = Math.max(1, Math.min(limit, 50));
@@ -139,7 +140,7 @@ public class DiscoveryController {
         if ("unknown".equals(normalizedKind)) {
             normalizedKind = null;
         }
-        var res = service.recommendedCommunities(jwt.getSubject(), normalizedKind, specializationType, lim);
+        var res = service.recommendedCommunities(jwt.getSubject(), normalizedKind, specializationType, cursor, lim);
         return switch (res.status()) {
             case USER_NOT_PROVISIONED -> ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
                     "error", "user_not_provisioned",
@@ -157,7 +158,10 @@ public class DiscoveryController {
                 List<Map<String, Object>> items = res.items().stream()
                         .map(row -> recommendedPayload(row, fallback, memberCounts.getOrDefault(row.id, 0)))
                         .toList();
-                yield ResponseEntity.ok(Map.of("items", items));
+                Map<String, Object> body = new HashMap<>();
+                body.put("items", items);
+                if (res.nextCursor() != null) body.put("next_cursor", res.nextCursor());
+                yield ResponseEntity.ok(body);
             }
         };
     }

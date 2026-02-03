@@ -416,8 +416,17 @@ public class CommunitiesRepository {
     }
 
     public List<RecommendedRow> recommended(Long userId, String kind, String specializationType, int limit) {
+        return recommended(userId, kind, specializationType, OffsetDateTime.now(), null, null, null, limit);
+    }
+
+    public List<RecommendedRow> recommended(Long userId, String kind, String specializationType,
+                                            OffsetDateTime asOf,
+                                            Long cursorMemberCount,
+                                            OffsetDateTime cursorCreatedAt,
+                                            Long cursorId,
+                                            int limit) {
         StringBuilder sql = new StringBuilder(
-                "SELECT c.id, c.kind, c.name, c.short_name, c.description, c.member_count, c.image_url, c.specialization_type, c.verification_ttl_days, " +
+                "SELECT c.id, c.kind, c.name, c.short_name, c.description, c.member_count, c.image_url, c.specialization_type, c.verification_ttl_days, c.created_at, " +
                         "CASE WHEN cf.user_id IS NULL THEN false ELSE true END AS is_following, " +
                         "CASE WHEN sj.user_id IS NULL THEN false ELSE true END AS is_joined " +
                         "FROM communities c " +
@@ -428,8 +437,14 @@ public class CommunitiesRepository {
         params.add(userId);
         params.add(userId);
         boolean hasWhere = false;
+        if (asOf != null) {
+            sql.append("WHERE c.created_at <= ? ");
+            params.add(asOf);
+            hasWhere = true;
+        }
         if (kind != null && !kind.isBlank()) {
-            sql.append("WHERE c.kind = ? ");
+            sql.append(hasWhere ? "AND " : "WHERE ");
+            sql.append("c.kind = ? ");
             params.add(kind);
             hasWhere = true;
         }
@@ -437,6 +452,16 @@ public class CommunitiesRepository {
             sql.append(hasWhere ? "AND " : "WHERE ");
             sql.append("c.specialization_type = ? ");
             params.add(specializationType);
+            hasWhere = true;
+        }
+        if (cursorMemberCount != null && cursorCreatedAt != null && cursorId != null) {
+            sql.append(hasWhere ? "AND " : "WHERE ");
+            sql.append("(c.member_count < ? OR (c.member_count = ? AND (c.created_at < ? OR (c.created_at = ? AND c.id < ?)))) ");
+            params.add(cursorMemberCount);
+            params.add(cursorMemberCount);
+            params.add(cursorCreatedAt);
+            params.add(cursorCreatedAt);
+            params.add(cursorId);
         }
         sql.append("ORDER BY c.member_count DESC, c.created_at DESC, c.id DESC LIMIT ?");
         params.add(limit);
@@ -454,6 +479,7 @@ public class CommunitiesRepository {
                     row.specializationType = rs.getString("specialization_type");
                     int ttlDays = rs.getInt("verification_ttl_days");
                     row.verificationTtlDays = rs.wasNull() ? null : ttlDays;
+                    row.createdAt = rs.getObject("created_at", OffsetDateTime.class);
                     row.isFollowing = rs.getBoolean("is_following");
                     row.isJoined = rs.getBoolean("is_joined");
                     return row;
@@ -522,6 +548,7 @@ public class CommunitiesRepository {
         public boolean isFollowing;
         public boolean isJoined;
         public Integer verificationTtlDays;
+        public OffsetDateTime createdAt;
     }
 
     public boolean updateVerificationTtlDays(long communityId, Integer ttlDays) {
