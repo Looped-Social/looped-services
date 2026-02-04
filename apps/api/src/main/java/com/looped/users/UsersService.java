@@ -408,16 +408,32 @@ public class UsersService {
         Long cId = rankedCursor == null ? null : rankedCursor.id();
 
         String prefixQuery = UsersSearchQuery.toPrefixTsquery(query);
-        var scoredRows = users.searchCompanyUsersRanked(
-                actor.get().companyId,
-                query,
-                prefixQuery,
-                asOf,
-                score,
-                cTs,
-                cId,
-                limit
-        );
+        java.util.List<UserRepository.ScoredUserRow> scoredRows;
+        try {
+            scoredRows = users.searchCompanyUsersRankedV2(
+                    actor.get().companyId,
+                    actor.get().id,
+                    query,
+                    prefixQuery,
+                    asOf,
+                    score,
+                    cTs,
+                    cId,
+                    limit
+            );
+        } catch (org.springframework.jdbc.BadSqlGrammarException e) {
+            // If pg_trgm isn't available in the DB (or migration hasn't run yet), fall back to v1 ranking.
+            scoredRows = users.searchCompanyUsersRanked(
+                    actor.get().companyId,
+                    query,
+                    prefixQuery,
+                    asOf,
+                    score,
+                    cTs,
+                    cId,
+                    limit
+            );
+        }
         var rows = scoredRows.stream().map(r -> r.user).toList();
         String next = null;
         if (scoredRows.size() == limit) {

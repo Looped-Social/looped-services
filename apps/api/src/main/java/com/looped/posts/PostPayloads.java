@@ -70,8 +70,6 @@ public final class PostPayloads {
         out.put("likes_count", row.likesCount);
         out.put("comments_count", row.commentsCount);
         out.put("share_count", row.shareCount);
-        out.put("repost_count", row.repostCount);
-        out.put("repostCount", row.repostCount);
         boolean isUnderReview = row.visibility != null && row.visibility.equalsIgnoreCase("quarantined");
         out.put("is_under_review", isUnderReview);
         out.put("isUnderReview", isUnderReview);

@@ -27,6 +27,7 @@ import java.util.Base64;
 import java.util.List;
 
 import static org.hamcrest.Matchers.equalTo;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
@@ -120,8 +121,9 @@ class AnonRepostToggleIntegrationTest extends PostgresTestBase {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(repostBody))
                 .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.repost_count", equalTo(1)))
+                .andExpect(jsonPath("$.repost_count").doesNotExist())
                 .andExpect(jsonPath("$.viewer_has_reposted", equalTo(true)));
+        assertEquals(1, jdbc.queryForObject("SELECT repost_count FROM posts WHERE id = ?", Integer.class, postId));
 
         byte[] unrepostMsg = AnonCrypto.actionMessage("unrepost", postId);
         String unrepostSigB64 = Base64.getEncoder().encodeToString(signEd25519(ed.getPrivate(), unrepostMsg));
@@ -138,8 +140,9 @@ class AnonRepostToggleIntegrationTest extends PostgresTestBase {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(unrepostBody))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.repost_count", equalTo(0)))
+                .andExpect(jsonPath("$.repost_count").doesNotExist())
                 .andExpect(jsonPath("$.viewer_has_reposted", equalTo(false)));
+        assertEquals(0, jdbc.queryForObject("SELECT repost_count FROM posts WHERE id = ?", Integer.class, postId));
     }
 
     @Test
@@ -201,4 +204,3 @@ class AnonRepostToggleIntegrationTest extends PostgresTestBase {
                 .andExpect(jsonPath("$.items[0].id", equalTo((int) postId)));
     }
 }
-

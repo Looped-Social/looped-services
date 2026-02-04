@@ -21,6 +21,7 @@ import java.util.List;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.notNullValue;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
@@ -71,32 +72,36 @@ class RepostsIntegrationTest extends PostgresTestBase {
 
         mockMvc.perform(put("/v1/posts/" + postId + "/repost").header("Authorization", auth))
                 .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.repost_count", equalTo(1)))
+                .andExpect(jsonPath("$.repost_count").doesNotExist())
                 .andExpect(jsonPath("$.viewer_has_reposted", equalTo(true)));
+        assertEquals(1, jdbc.queryForObject("SELECT repost_count FROM posts WHERE id = ?", Integer.class, postId));
 
         mockMvc.perform(put("/v1/posts/" + postId + "/repost").header("Authorization", auth))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.repost_count", equalTo(1)))
+                .andExpect(jsonPath("$.repost_count").doesNotExist())
                 .andExpect(jsonPath("$.viewer_has_reposted", equalTo(true)));
+        assertEquals(1, jdbc.queryForObject("SELECT repost_count FROM posts WHERE id = ?", Integer.class, postId));
 
         mockMvc.perform(get("/v1/posts/" + postId).header("Authorization", auth))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.repost_count", equalTo(1)))
+                .andExpect(jsonPath("$.repost_count").doesNotExist())
                 .andExpect(jsonPath("$.viewer_has_reposted", equalTo(true)));
 
         mockMvc.perform(delete("/v1/posts/" + postId + "/repost").header("Authorization", auth))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.repost_count", equalTo(0)))
+                .andExpect(jsonPath("$.repost_count").doesNotExist())
                 .andExpect(jsonPath("$.viewer_has_reposted", equalTo(false)));
+        assertEquals(0, jdbc.queryForObject("SELECT repost_count FROM posts WHERE id = ?", Integer.class, postId));
 
         mockMvc.perform(delete("/v1/posts/" + postId + "/repost").header("Authorization", auth))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.repost_count", equalTo(0)))
+                .andExpect(jsonPath("$.repost_count").doesNotExist())
                 .andExpect(jsonPath("$.viewer_has_reposted", equalTo(false)));
+        assertEquals(0, jdbc.queryForObject("SELECT repost_count FROM posts WHERE id = ?", Integer.class, postId));
 
         mockMvc.perform(get("/v1/posts/" + postId).header("Authorization", auth))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.repost_count", equalTo(0)))
+                .andExpect(jsonPath("$.repost_count").doesNotExist())
                 .andExpect(jsonPath("$.viewer_has_reposted", equalTo(false)));
     }
 
@@ -169,4 +174,3 @@ class RepostsIntegrationTest extends PostgresTestBase {
                 .andExpect(status().isOk());
     }
 }
-

@@ -299,6 +299,148 @@ public class UserRepository {
         );
     }
 
+    /**
+     * Ranked search with:
+     * - FTS + prefix matching (existing behavior)
+     * - Typo tolerance via pg_trgm similarity/word_similarity (when available)
+     * - Social boosts (follow relationship + DM recency) for better "new message" recipient search
+     *
+     * Cursor semantics match {@link RankPagination}: order by score DESC, created_at DESC, id DESC.
+     */
+    public java.util.List<ScoredUserRow> searchCompanyUsersRankedV2(
+            long companyId,
+            long actorUserId,
+            String query,
+            String prefixQuery,
+            java.time.OffsetDateTime asOf,
+            Long cursorScore,
+            java.time.OffsetDateTime cursorTs,
+            Long cursorId,
+            int limit
+    ) {
+        String vector = "to_tsvector('simple', " +
+                "COALESCE(u.handle,'') || ' ' || COALESCE(u.display_name,'') || ' ' || COALESCE(u.first_name,'') || ' ' || COALESCE(u.last_name,''))";
+        String ftsMatch = "(" + vector + " @@ q.q_web OR (q.q_prefix IS NOT NULL AND " + vector + " @@ q.q_prefix))";
+        String ftsRank = "GREATEST(" +
+                "ts_rank_cd(" + vector + ", q.q_web), " +
+                "COALESCE(ts_rank_cd(" + vector + ", q.q_prefix), 0)" +
+                ")";
+
+        // Deterministic boosts for obvious intent.
+        String exactHandle = "CASE WHEN LOWER(u.handle) = q.q_l THEN 2000000 ELSE 0 END";
+        String prefixHandle = "CASE WHEN LOWER(COALESCE(u.handle,'')) LIKE q.q_l || '%' THEN 1000000 ELSE 0 END";
+        String prefixDisplay = "CASE WHEN LOWER(COALESCE(u.display_name,'')) LIKE q.q_l || '%' THEN 800000 ELSE 0 END";
+        String containsHandle = "CASE WHEN q.q_len >= 3 AND LOWER(COALESCE(u.handle,'')) LIKE '%' || q.q_l || '%' THEN 300000 ELSE 0 END";
+        String containsDisplay = "CASE WHEN q.q_len >= 3 AND LOWER(COALESCE(u.display_name,'')) LIKE '%' || q.q_l || '%' THEN 250000 ELSE 0 END";
+        String boost = "(" + exactHandle + " + " + prefixHandle + " + " + prefixDisplay + " + " + containsHandle + " + " + containsDisplay + ")";
+
+        // pg_trgm-based typo tolerance (requires CREATE EXTENSION pg_trgm).
+        // Computed once per row via CROSS JOIN LATERAL.
+        String trigramMatches = "(q.q_len >= 2 AND trgm.trgm >= 0.25)";
+
+        // Lightweight fallback matching for short queries and substrings.
+        String extraMatch = "(" +
+                "LOWER(COALESCE(u.handle,'')) LIKE q.q_l || '%' OR " +
+                "LOWER(COALESCE(u.display_name,'')) LIKE q.q_l || '%' OR " +
+                "(q.q_len >= 3 AND LOWER(COALESCE(u.handle,'')) LIKE '%' || q.q_l || '%') OR " +
+                "(q.q_len >= 3 AND LOWER(COALESCE(u.display_name,'')) LIKE '%' || q.q_l || '%')" +
+                ")";
+
+        String match = "(" + ftsMatch + " OR " + trigramMatches + " OR " + extraMatch + ")";
+
+        // Social boosts:
+        // - Followed users first
+        // - Users you've DM'd recently next
+        String followedBoost = "CASE WHEN f.other_user_id IS NOT NULL THEN 700000 ELSE 0 END";
+        String dmBaseBoost = "CASE WHEN dm.last_message_at IS NOT NULL THEN 600000 ELSE 0 END";
+        String dmRecencyBoost = "CASE WHEN dm.last_message_at IS NULL THEN 0 ELSE " +
+                "LEAST(600000, (1.0 / (1.0 + EXTRACT(EPOCH FROM (ctx.as_of - dm.last_message_at)) / 86400.0)) * 600000) END";
+        String socialBoost = "(" + followedBoost + " + " + dmBaseBoost + " + " + dmRecencyBoost + ")";
+
+        // Keep a small tie-breaker on account recency to prevent "stuck" ordering in equal-score cases.
+        String createdRecency = "LEAST(20000, (1.0 / (1.0 + EXTRACT(EPOCH FROM (ctx.as_of - u.created_at)) / 86400.0)) * 20000)";
+
+        String scoreExpr = "CAST((" +
+                "(" + ftsRank + " * 900000)" +
+                " + (trgm.trgm * 900000)" +
+                " + " + boost +
+                " + " + socialBoost +
+                " + " + createdRecency +
+                ") AS BIGINT)";
+
+        String base =
+                "WITH q AS (" +
+                        "SELECT websearch_to_tsquery('simple', ?) AS q_web, " +
+                        "to_tsquery('simple', NULLIF(?, '')) AS q_prefix, " +
+                        "LOWER(TRIM(?)) AS q_l, " +
+                        "LENGTH(TRIM(?))::INT AS q_len" +
+                        "), ctx AS (" +
+                        "SELECT ?::timestamptz AS as_of" +
+                        "), me_principal AS (" +
+                        "SELECT id AS principal_id FROM principals WHERE kind = 'user' AND user_id = ? LIMIT 1" +
+                        "), followed AS (" +
+                        "SELECT pu.user_id AS other_user_id " +
+                        "FROM principal_follows pf " +
+                        "JOIN me_principal mp ON mp.principal_id = pf.follower_principal_id " +
+                        "JOIN principals pu ON pu.id = pf.followee_principal_id AND pu.kind = 'user'" +
+                        "), dm_activity AS (" +
+                        "SELECT cp2.user_id AS other_user_id, MAX(cm.created_at) AS last_message_at " +
+                        "FROM conversation_participants cp1 " +
+                        "JOIN conversation_participants cp2 ON cp1.conversation_id = cp2.conversation_id " +
+                        "JOIN conversation_messages cm ON cm.conversation_id = cp1.conversation_id " +
+                        "WHERE cp1.user_id = ? AND cp2.user_id <> ? " +
+                        "GROUP BY cp2.user_id" +
+                        ") " +
+                        "SELECT " + BASE_COLUMNS + ", " + scoreExpr + " AS score " +
+                        "FROM users u " +
+                        "CROSS JOIN q " +
+                        "CROSS JOIN ctx " +
+                        "CROSS JOIN LATERAL (" +
+                        "SELECT CASE WHEN q.q_len < 2 THEN 0 ELSE GREATEST(" +
+                        "word_similarity(q.q_l, LOWER(COALESCE(u.handle,''))), " +
+                        "word_similarity(q.q_l, LOWER(COALESCE(u.display_name,''))), " +
+                        "word_similarity(q.q_l, LOWER(COALESCE(u.first_name,''))), " +
+                        "word_similarity(q.q_l, LOWER(COALESCE(u.last_name,'')))" +
+                        ") END AS trgm" +
+                        ") trgm " +
+                        "LEFT JOIN followed f ON f.other_user_id = u.id " +
+                        "LEFT JOIN dm_activity dm ON dm.other_user_id = u.id " +
+                        "WHERE u.company_id = ? AND u.deleted_at IS NULL AND " + match;
+
+        if (cursorScore == null || cursorTs == null || cursorId == null) {
+            return jdbcTemplate.query(
+                    "SELECT * FROM (" + base + ") s ORDER BY score DESC, created_at DESC, id DESC LIMIT ?",
+                    SCORED_MAPPER,
+                    // q + ctx
+                    query, prefixQuery, query, query, asOf,
+                    // me_principal
+                    actorUserId,
+                    // dm_activity
+                    actorUserId, actorUserId,
+                    // where
+                    companyId,
+                    limit
+            );
+        }
+        return jdbcTemplate.query(
+                "SELECT * FROM (" + base + ") s " +
+                        "WHERE (score < ? OR (score = ? AND (created_at < ? OR (created_at = ? AND id < ?)))) " +
+                        "ORDER BY score DESC, created_at DESC, id DESC LIMIT ?",
+                SCORED_MAPPER,
+                // q + ctx
+                query, prefixQuery, query, query, asOf,
+                // me_principal
+                actorUserId,
+                // dm_activity
+                actorUserId, actorUserId,
+                // where
+                companyId,
+                // cursor
+                cursorScore, cursorScore, cursorTs, cursorTs, cursorId,
+                limit
+        );
+    }
+
     public java.util.List<UserRow> listCompanyUsers(long companyId, java.time.OffsetDateTime cursorTs, Long cursorId, int limit) {
         if (cursorTs == null || cursorId == null) {
             return jdbcTemplate.query(
@@ -307,9 +449,9 @@ public class UserRepository {
             );
         }
         return jdbcTemplate.query(
-                "SELECT " + BASE_COLUMNS + " FROM users WHERE company_id = ? AND deleted_at IS NULL AND (created_at < ? OR (created_at = ? AND id < ?)) " +
-                        "ORDER BY created_at DESC, id DESC LIMIT ?",
-                MAPPER, companyId, cursorTs, cursorTs, cursorId, limit
+            "SELECT " + BASE_COLUMNS + " FROM users WHERE company_id = ? AND deleted_at IS NULL AND (created_at < ? OR (created_at = ? AND id < ?)) " +
+                    "ORDER BY created_at DESC, id DESC LIMIT ?",
+            MAPPER, companyId, cursorTs, cursorTs, cursorId, limit
         );
     }
 

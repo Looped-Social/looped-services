@@ -1,9 +1,6 @@
 package com.looped.posts;
 
 import com.looped.anon.AnonProofService;
-import com.looped.communities.CommunitiesRepository;
-import com.looped.communities.CommunityVerificationsRepository;
-import com.looped.communities.SpecializationJoinsRepository;
 import com.looped.notifications.NotificationPublisher;
 import com.looped.principals.PrincipalRepository;
 import com.looped.users.UserCommunityBanRepository;
@@ -16,9 +13,6 @@ public class RepostsService {
     private final PostRepository posts;
     private final RepostsRepository reposts;
     private final UserRepository users;
-    private final CommunitiesRepository communities;
-    private final CommunityVerificationsRepository communityVerifications;
-    private final SpecializationJoinsRepository specializationJoins;
     private final PrincipalRepository principals;
     private final AnonProofService anonProofs;
     private final NotificationPublisher notifications;
@@ -27,9 +21,6 @@ public class RepostsService {
     public RepostsService(PostRepository posts,
                           RepostsRepository reposts,
                           UserRepository users,
-                          CommunitiesRepository communities,
-                          CommunityVerificationsRepository communityVerifications,
-                          SpecializationJoinsRepository specializationJoins,
                           PrincipalRepository principals,
                           AnonProofService anonProofs,
                           NotificationPublisher notifications,
@@ -37,9 +28,6 @@ public class RepostsService {
         this.posts = posts;
         this.reposts = reposts;
         this.users = users;
-        this.communities = communities;
-        this.communityVerifications = communityVerifications;
-        this.specializationJoins = specializationJoins;
         this.principals = principals;
         this.anonProofs = anonProofs;
         this.notifications = notifications;
@@ -74,9 +62,6 @@ public class RepostsService {
             if (post.get().communityId != null && communityBans.isBanned(user.get().id, post.get().communityId)) {
                 return ToggleResult.communityBanned();
             }
-            AccessStatus access = checkAccess(user.get().id, post.get().communityId);
-            if (access == AccessStatus.NOT_VERIFIED) return ToggleResult.notVerified();
-            if (access == AccessStatus.SPECIALIZATION_NOT_JOINED) return ToggleResult.specializationNotJoined();
             var principal = principals.createForUser(user.get().id);
             actorPrincipalId = principal.id;
         }
@@ -123,9 +108,6 @@ public class RepostsService {
             if (post.get().communityId != null && communityBans.isBanned(user.get().id, post.get().communityId)) {
                 return ToggleResult.communityBanned();
             }
-            AccessStatus access = checkAccess(user.get().id, post.get().communityId);
-            if (access == AccessStatus.NOT_VERIFIED) return ToggleResult.notVerified();
-            if (access == AccessStatus.SPECIALIZATION_NOT_JOINED) return ToggleResult.specializationNotJoined();
             var principal = principals.createForUser(user.get().id);
             actorPrincipalId = principal.id;
         }
@@ -138,27 +120,7 @@ public class RepostsService {
         int count = deleted ? reposts.decrementPostReposts(postId) : reposts.repostCount(postId);
         return ToggleResult.ok(deleted, false, count);
     }
-
-    private AccessStatus checkAccess(long userId, Long communityId) {
-        if (communityId == null) return AccessStatus.OK;
-        var community = communities.findById(communityId).orElse(null);
-        if (community == null || community.kind == null) return AccessStatus.OK;
-        if ("specialization".equalsIgnoreCase(community.kind)) {
-            if (!requiresSpecializationJoin(community.specializationType)) return AccessStatus.OK;
-            return specializationJoins.exists(userId, communityId) ? AccessStatus.OK : AccessStatus.SPECIALIZATION_NOT_JOINED;
-        }
-        return communityVerifications.isVerified(userId, communityId) ? AccessStatus.OK : AccessStatus.NOT_VERIFIED;
-    }
-
-    private boolean requiresSpecializationJoin(String specializationType) {
-        if (specializationType == null) return false;
-        String t = specializationType.trim().toLowerCase(java.util.Locale.ROOT);
-        return t.equals("major") || t.equals("field");
-    }
-
-    private enum AccessStatus { OK, NOT_VERIFIED, SPECIALIZATION_NOT_JOINED }
-
-    public enum Status { OK, USER_NOT_PROVISIONED, NOT_FOUND, FORBIDDEN, SELF_REPOST_NOT_ALLOWED, COMMUNITY_BANNED, INVALID_SIGNATURE, NOT_VERIFIED, SPECIALIZATION_NOT_JOINED }
+    public enum Status { OK, USER_NOT_PROVISIONED, NOT_FOUND, FORBIDDEN, SELF_REPOST_NOT_ALLOWED, COMMUNITY_BANNED, INVALID_SIGNATURE }
 
     public record ToggleResult(Status status, boolean changed, boolean viewerHasReposted, int repostCount) {
         static ToggleResult ok(boolean changed, boolean viewerHasReposted, int repostCount) {
@@ -187,14 +149,6 @@ public class RepostsService {
 
         static ToggleResult invalidSignature() {
             return new ToggleResult(Status.INVALID_SIGNATURE, false, false, 0);
-        }
-
-        static ToggleResult notVerified() {
-            return new ToggleResult(Status.NOT_VERIFIED, false, false, 0);
-        }
-
-        static ToggleResult specializationNotJoined() {
-            return new ToggleResult(Status.SPECIALIZATION_NOT_JOINED, false, false, 0);
         }
     }
 }

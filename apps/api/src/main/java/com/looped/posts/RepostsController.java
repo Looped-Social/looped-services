@@ -72,14 +72,6 @@ public class RepostsController {
                     "error", "community_banned",
                     "message", "You are banned from this community"
             ));
-            case NOT_VERIFIED -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
-                    "error", "community_not_verified",
-                    "message", "You must be verified to repost in this community"
-            ));
-            case SPECIALIZATION_NOT_JOINED -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
-                    "error", "specialization_not_joined",
-                    "message", "You must join this specialization to repost"
-            ));
             case INVALID_SIGNATURE -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
                     "error", "invalid_anon_proof",
                     "message", "Invalid anonymous proof"
@@ -90,8 +82,6 @@ public class RepostsController {
             ));
             case OK -> new ResponseEntity<>(Map.of(
                     "post_id", postId,
-                    "repost_count", res.repostCount(),
-                    "repostCount", res.repostCount(),
                     "viewer_has_reposted", true,
                     "viewerHasReposted", true
             ), res.changed() ? HttpStatus.CREATED : HttpStatus.OK);
@@ -147,22 +137,12 @@ public class RepostsController {
                     "error", "community_banned",
                     "message", "You are banned from this community"
             ));
-            case NOT_VERIFIED -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
-                    "error", "community_not_verified",
-                    "message", "You must be verified to repost in this community"
-            ));
-            case SPECIALIZATION_NOT_JOINED -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
-                    "error", "specialization_not_joined",
-                    "message", "You must join this specialization to repost"
-            ));
             case INVALID_SIGNATURE -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
                     "error", "invalid_anon_proof",
                     "message", "Invalid anonymous proof"
             ));
             case OK -> ResponseEntity.ok(Map.of(
                     "post_id", postId,
-                    "repost_count", res.repostCount(),
-                    "repostCount", res.repostCount(),
                     "viewer_has_reposted", false,
                     "viewerHasReposted", false
             ));

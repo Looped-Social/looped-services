@@ -39,6 +39,12 @@
   - Delegates to existing verification flow; accepts `{ "method": "email|video|thirdparty" }` (defaults to `email` when omitted). Response mirrors `/v1/verification/start`.
 - **People search & directory**
   - `GET /v1/users/search?query=&cursor=&limit=` (same-company scope); requires non-blank `query`.
+    - Ranking (best-first):
+      - Exact + prefix matches on `handle` and `display_name`
+      - Typo-tolerant matching when DB supports `pg_trgm` (small typos/near-matches)
+      - Boost users you follow and users you’ve DM’d recently (for “New Message” recipient search)
+    - Pagination:
+      - Response includes `next_cursor` when more results exist; treat as opaque and pass back unchanged.
   - `GET /v1/users?cursor=&limit=` default directory ordered by join date/activity.
   - Items: `{ id, handle, username, display_name, bio, company_id, profile_image_url }` + `next_cursor` when more.
 - **Blocks**
@@ -69,8 +75,8 @@
       - Proof action strings: `follow_anon|v1|{anonProfileId}` and `unfollow_anon|v1|{anonProfileId}`
       - Response: `{ "anon_profile_id": <int>, "id": <int>, "following": true|false }` (201 when created, otherwise 200)
 - **Direct messages (DMs) with polling**
-  - `GET /v1/conversations?cursor=&limit=` → `{ items: [{ id, other_user_id, other_user_profile, last_message, last_message_timestamp, unread_count }], next_cursor }`
-  - `POST /v1/conversations` → `{ id, other_user_id, other_user_profile, last_message, last_message_timestamp, unread_count }`
+  - `GET /v1/conversations?cursor=&limit=` → `{ items: [{ id, other_user_id, other_user_profile, last_message, last_message_timestamp, unread_count, muted }], next_cursor }`
+  - `POST /v1/conversations` → `{ id, other_user_id, other_user_profile, last_message, last_message_timestamp, unread_count, muted }`
     - Body: `{ "participantUserId": <int> }` (find-or-create DM within company).
   - `GET /v1/conversations/{id}/messages?cursor=&limit=` → message DTOs.
   - `POST /v1/conversations/{id}/messages` → message DTO (201).
@@ -96,6 +102,9 @@
       - `GET /v1/conversations/{id}/messages` → `403 { "error": "message_request_pending" }`
       - `POST /v1/conversations/{id}/messages` → `403 { "error": "message_request_pending" }`
       - After rejection, both return `403 { "error": "message_request_rejected" }`
+  - Per-conversation mute:
+    - `PUT /v1/conversations/{id}/preferences` body `{ "muted": true|false }` → `{ conversation_id, muted }`
+    - Mute suppresses push notifications for new DM messages in that conversation (server still tracks unread counts).
     - Anonymous profiles (`is_anonymous=true`) are blocked from messaging endpoints with `403 { "error": "anonymous_not_allowed" }`.
 - **Message requests (non-followers)**
   - `GET /v1/message-requests?cursor=&limit=` → `{ items: [{ id, conversation_id, requester_id, requester_profile, status, created_at, message }], next_cursor }`
@@ -112,10 +121,25 @@
   - `GET /v1/channels?cursor=&limit=` → `{ items: [{ id, name, member_count, is_public, owner_user_id?, viewer_can_manage_members, photo_media_asset_id?, photo_url?, muted }], next_cursor }`
   - `GET /v1/channels/{id}/messages?cursor=&limit=` and `POST /v1/channels/{id}/messages` (same shape as DM messages).
   - Join public channel: `POST /v1/channels/{id}/join` → `{ channel_id, joined: true, member_count }` (201 when newly joined)
+  - Create private channel (group chat): `POST /v1/channels` body `{ "name": "string", "memberUserIds": [<userId>, ...]? }` → channel DTO (201).
+    - `memberUserIds` must be same-company, non-anonymous users; caller is always added as owner/manager.
+  - Members:
+    - List members: `GET /v1/channels/{id}/members?cursor=&limit=` → `{ items: [{ user_id, handle, display_name, profile_image_url, company_id, can_manage_members, created_at, is_owner }], next_cursor }`
+      - Requires the caller to be a member of the channel (even if the channel is public).
+    - Add members: `POST /v1/channels/{id}/members` body `{ "userIds": [<userId>, ...] }` → `{ status: "ok", added_count }`
+      - Requires `viewer_can_manage_members=true` (owner or `can_manage_members=true` member).
+    - Remove member / leave: `DELETE /v1/channels/{id}/members/{userId}` → `{ status: "ok" }`
+      - A user may remove themselves; otherwise requires `viewer_can_manage_members=true`. Owner cannot be removed.
+    - Set member permission: `PUT /v1/channels/{id}/members/{userId}` body `{ "canManageMembers": true|false }` → `{ status: "ok" }`
+      - Only `owner_user_id` may change member permissions.
   - Rename / set group photo (requires `viewer_can_manage_members=true`):
     - `PATCH /v1/channels/{id}` body supports `{ "name": "..." }` and/or `{ "photoMediaAssetId": <media_assets.id|null> }` (also accepts `photo_media_asset_id`)
     - Response: channel DTO (same shape as list item)
-    - Photo rules: must be owned by caller; must be `image/jpeg|image/png|image/webp`.
+    - Group photo rules:
+      - `photoMediaAssetId` must reference a `media_assets.id` owned by the caller (created via `POST /v1/media/callback`).
+      - Must be `image/jpeg|image/png|image/webp` and stored under the public media prefix (`media/...`).
+      - Set to `null` to clear the group photo.
+      - `photo_url` is only returned when `cloudfront.domain` is configured.
   - Per-channel mute:
     - `PUT /v1/channels/{id}/preferences` body `{ "muted": true|false }` → `{ channel_id, muted }`
     - Mute hides `channel.*` notifications for that channel in `GET /v1/notifications`.
