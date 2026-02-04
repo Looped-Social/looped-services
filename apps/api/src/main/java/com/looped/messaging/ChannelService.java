@@ -271,6 +271,19 @@ public class ChannelService {
     }
 
     @Transactional
+    public DeleteResult delete(String firebaseUid, long channelId) {
+        var actor = requireProvisionedUser(firebaseUid);
+        if (actor.isEmpty()) return DeleteResult.userNotProvisioned();
+        if (actor.get().isAnonymous) return DeleteResult.anonymousNotAllowed();
+        var channel = channels.findById(channelId);
+        if (channel.isEmpty()) return DeleteResult.notFound();
+        if (channel.get().companyId != actor.get().companyId) return DeleteResult.forbidden();
+        if (channel.get().ownerUserId == null || channel.get().ownerUserId != actor.get().id) return DeleteResult.forbidden();
+        if (!channels.deleteChannel(channelId)) return DeleteResult.notFound();
+        return DeleteResult.ok();
+    }
+
+    @Transactional
     public ModifyMembersResult addMembers(String firebaseUid, long channelId, List<Long> memberUserIds) {
         var actor = requireProvisionedUser(firebaseUid);
         if (actor.isEmpty()) return ModifyMembersResult.userNotProvisioned();
@@ -405,6 +418,14 @@ public class ChannelService {
         static ModifyMembersResult forbidden() { return new ModifyMembersResult(Status.FORBIDDEN, 0); }
         static ModifyMembersResult notFound() { return new ModifyMembersResult(Status.NOT_FOUND, 0); }
         static ModifyMembersResult anonymousNotAllowed() { return new ModifyMembersResult(Status.ANONYMOUS_NOT_ALLOWED, 0); }
+    }
+
+    public record DeleteResult(Status status) {
+        static DeleteResult ok() { return new DeleteResult(Status.OK); }
+        static DeleteResult userNotProvisioned() { return new DeleteResult(Status.USER_NOT_PROVISIONED); }
+        static DeleteResult forbidden() { return new DeleteResult(Status.FORBIDDEN); }
+        static DeleteResult notFound() { return new DeleteResult(Status.NOT_FOUND); }
+        static DeleteResult anonymousNotAllowed() { return new DeleteResult(Status.ANONYMOUS_NOT_ALLOWED); }
     }
 
     public enum UpdateStatus { OK, USER_NOT_PROVISIONED, FORBIDDEN, NOT_FOUND, BAD_REQUEST, UNPROCESSABLE_ENTITY }

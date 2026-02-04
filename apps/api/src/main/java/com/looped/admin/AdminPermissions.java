@@ -8,6 +8,7 @@ import java.util.Set;
 public final class AdminPermissions {
     public static final String MANAGE_ADMINS = "manage_admins";
     public static final String BAN_USER = "ban_user";
+    public static final String VIEW_POSTS = "view_posts";
     public static final String REMOVE_POST = "remove_post";
     public static final String CREATE_COMMUNITY = "create_community";
     public static final String VIEW_REPORTS = "view_reports";
@@ -23,6 +24,7 @@ public final class AdminPermissions {
     public static final Set<String> ALL = Set.of(
             MANAGE_ADMINS,
             BAN_USER,
+            VIEW_POSTS,
             REMOVE_POST,
             CREATE_COMMUNITY,
             VIEW_REPORTS,
@@ -63,6 +65,7 @@ public final class AdminPermissions {
             return List.of(
                     MANAGE_ADMINS,
                     BAN_USER,
+                    VIEW_POSTS,
                     REMOVE_POST,
                     CREATE_COMMUNITY,
                     VIEW_REPORTS,
@@ -79,6 +82,7 @@ public final class AdminPermissions {
         if (AdminRoles.ADMIN.equals(normalized)) {
             return List.of(
                     BAN_USER,
+                    VIEW_POSTS,
                     REMOVE_POST,
                     CREATE_COMMUNITY,
                     VIEW_REPORTS,
@@ -95,6 +99,7 @@ public final class AdminPermissions {
         if (AdminRoles.MODERATOR.equals(normalized)) {
             return List.of(
                     BAN_USER,
+                    VIEW_POSTS,
                     REMOVE_POST,
                     CREATE_COMMUNITY,
                     VIEW_REPORTS,

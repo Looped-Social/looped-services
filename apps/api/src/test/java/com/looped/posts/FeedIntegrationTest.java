@@ -178,6 +178,9 @@ class FeedIntegrationTest extends PostgresTestBase {
 
         jdbc.update("INSERT INTO principal_follows(follower_principal_id, followee_principal_id) VALUES (?,?)",
                 viewerPrincipalId, followedPrincipalId);
+        // Even if a self-follow edge exists (e.g., legacy/bad data), Following feed should still exclude viewer-authored posts.
+        jdbc.update("INSERT INTO principal_follows(follower_principal_id, followee_principal_id) VALUES (?,?)",
+                viewerPrincipalId, viewerPrincipalId);
 
         long comm = jdbc.queryForObject("INSERT INTO communities(kind, name) VALUES ('company', 'FollowFeed') RETURNING id", Long.class);
         Instant base = Instant.now();
@@ -199,9 +202,10 @@ class FeedIntegrationTest extends PostgresTestBase {
         mockMvc.perform(get("/v1/feed?mode=following&limit=10")
                         .header("Authorization", auth))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.items", hasSize(2)))
+                .andExpect(jsonPath("$.items", hasSize(1)))
                 .andExpect(jsonPath("$.items[0].content", equalTo("followed-post")))
-                .andExpect(jsonPath("$.items[*].content", containsInAnyOrder("followed-post", "viewer-post")))
+                .andExpect(jsonPath("$.items[*].content", containsInAnyOrder("followed-post")))
+                .andExpect(jsonPath("$.items[*].content", not(hasItem("viewer-post"))))
                 .andExpect(jsonPath("$.items[*].content", not(hasItem("other-post"))));
     }
 }

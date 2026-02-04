@@ -123,6 +123,22 @@ public class ChannelsController {
         };
     }
 
+    @DeleteMapping("/{id}")
+    public ResponseEntity<?> delete(
+            @AuthenticationPrincipal Jwt jwt,
+            @PathVariable("id") long id
+    ) {
+        var res = service.delete(jwt.getSubject(), id);
+        return switch (res.status()) {
+            case USER_NOT_PROVISIONED -> ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "user_not_provisioned"));
+            case ANONYMOUS_NOT_ALLOWED -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "anonymous_not_allowed"));
+            case NOT_FOUND -> ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "not_found"));
+            case FORBIDDEN -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "forbidden"));
+            case OK -> ResponseEntity.ok(Map.of("status", "ok"));
+            default -> ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        };
+    }
+
     @PostMapping("/{id}/join")
     public ResponseEntity<?> join(
             @AuthenticationPrincipal Jwt jwt,

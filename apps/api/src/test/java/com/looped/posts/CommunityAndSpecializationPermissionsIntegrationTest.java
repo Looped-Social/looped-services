@@ -69,7 +69,7 @@ class CommunityAndSpecializationPermissionsIntegrationTest extends PostgresTestB
     }
 
     @Test
-    void specialization_requires_join_for_post_comment_like_repost() throws Exception {
+    void specialization_requires_join_for_post_comment_like_but_not_repost() throws Exception {
         long companyId = jdbc.queryForObject(
                 "INSERT INTO companies(name, domain) VALUES ('SpecCo', 'spec.co') RETURNING id",
                 Long.class
@@ -145,8 +145,8 @@ class CommunityAndSpecializationPermissionsIntegrationTest extends PostgresTestB
                         .header("Authorization", auth2)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{}"))
-                .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.error", equalTo("specialization_not_joined")));
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.viewer_has_reposted", equalTo(true)));
 
         mockMvc.perform(post("/v1/specializations/" + specializationId + "/join").header("Authorization", auth2))
                 .andExpect(status().isCreated())
@@ -169,7 +169,8 @@ class CommunityAndSpecializationPermissionsIntegrationTest extends PostgresTestB
                         .header("Authorization", auth2)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{}"))
-                .andExpect(status().isCreated());
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.viewer_has_reposted", equalTo(true)));
     }
 
     @Test
@@ -212,4 +213,3 @@ class CommunityAndSpecializationPermissionsIntegrationTest extends PostgresTestB
                 .andExpect(jsonPath("$.id", notNullValue()));
     }
 }
-

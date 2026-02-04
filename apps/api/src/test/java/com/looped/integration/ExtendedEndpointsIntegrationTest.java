@@ -20,6 +20,7 @@ import java.time.Instant;
 import java.util.List;
 
 import static org.hamcrest.Matchers.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -437,6 +438,53 @@ class ExtendedEndpointsIntegrationTest extends PostgresTestBase {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items[*].type", hasItems("conversation", "channel")))
                 .andExpect(jsonPath("$.items[?(@.type=='conversation')].other_user_profile.handle", hasItem("eric")));
+    }
+
+    @Test
+    void channel_owner_can_delete_channel() throws Exception {
+        long companyId = jdbc.queryForObject("INSERT INTO companies(name, domain) VALUES ('ChanCo','chan.co') RETURNING id", Long.class);
+        jdbc.queryForObject("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?) RETURNING id",
+                Long.class, "uid-chan-owner", "owner", companyId);
+        long memberId = jdbc.queryForObject("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?) RETURNING id",
+                Long.class, "uid-chan-member", "member", companyId);
+
+        String ownerAuth = "Bearer " + token("uid-chan-owner");
+        String memberAuth = "Bearer " + token("uid-chan-member");
+
+        var chanResp = mockMvc.perform(post("/v1/channels")
+                        .header("Authorization", ownerAuth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"Delete Me\",\"memberUserIds\":[" + memberId + "]}"))
+                .andExpect(status().isCreated())
+                .andReturn();
+        long channelId = new com.fasterxml.jackson.databind.ObjectMapper()
+                .readTree(chanResp.getResponse().getContentAsString())
+                .get("id").asLong();
+
+        mockMvc.perform(post("/v1/channels/" + channelId + "/messages")
+                        .header("Authorization", ownerAuth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"content\":\"hello\",\"attachments\":[]}"))
+                .andExpect(status().isCreated());
+
+        mockMvc.perform(delete("/v1/channels/" + channelId)
+                        .header("Authorization", memberAuth))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error", equalTo("forbidden")));
+
+        mockMvc.perform(delete("/v1/channels/" + channelId)
+                        .header("Authorization", ownerAuth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status", equalTo("ok")));
+
+        assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM channels WHERE id = ?", Integer.class, channelId));
+        assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM channel_members WHERE channel_id = ?", Integer.class, channelId));
+        assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM channel_messages WHERE channel_id = ?", Integer.class, channelId));
+
+        mockMvc.perform(get("/v1/channels/" + channelId + "/messages")
+                        .header("Authorization", ownerAuth))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error", equalTo("not_found")));
     }
 
     @Test

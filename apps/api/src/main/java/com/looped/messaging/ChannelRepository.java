@@ -219,6 +219,14 @@ public class ChannelRepository {
         return rows > 0;
     }
 
+    public boolean deleteChannel(long channelId) {
+        int rows = jdbc.update(
+                "DELETE FROM channels WHERE id = ?",
+                channelId
+        );
+        return rows > 0;
+    }
+
     public long insertChannel(long companyId, long ownerUserId, String name, boolean isPublic) {
         Long id = jdbc.query(
                 "INSERT INTO channels(company_id, owner_user_id, name, is_public) VALUES (?,?,?,?) RETURNING id",

@@ -252,28 +252,28 @@ public class PostRepository {
         return jdbc.query(base + paging, MAPPER, args.toArray());
     }
 
-    public java.util.List<PostRow> findFollowing(Long communityId, java.time.OffsetDateTime cursorTs, Long cursorId, int limit,
-                                                 long viewerUserId, long viewerPrincipalId, boolean hideAnonymousPosts) {
-        String base = BASE_SELECT + "WHERE p.removed_at IS NULL AND (p.visibility = 'public' OR p.author_id = ?) AND (p.author_id IS NULL OR u.id IS NOT NULL) ";
-        java.util.List<Object> args = new java.util.ArrayList<>();
-        args.add(viewerUserId);
-        if (communityId != null) {
-            base += "AND p.community_id = ? ";
-            args.add(communityId);
-        }
-        base += "AND (" +
-                "p.author_principal_id = ? " +
-                "OR EXISTS (" +
-                "SELECT 1 FROM principal_follows f " +
-                "WHERE f.follower_principal_id = ? AND f.followee_principal_id = p.author_principal_id" +
-                ")" +
-                ") ";
-        args.add(viewerPrincipalId);
-        args.add(viewerPrincipalId);
-        if (hideAnonymousPosts) {
-            base += hideAnonymousFilter(true);
-            args.add(viewerUserId);
-        }
+	    public java.util.List<PostRow> findFollowing(Long communityId, java.time.OffsetDateTime cursorTs, Long cursorId, int limit,
+	                                                 long viewerUserId, long viewerPrincipalId, boolean hideAnonymousPosts) {
+	        String base = BASE_SELECT + "WHERE p.removed_at IS NULL AND (p.visibility = 'public' OR p.author_id = ?) AND (p.author_id IS NULL OR u.id IS NOT NULL) ";
+	        java.util.List<Object> args = new java.util.ArrayList<>();
+	        args.add(viewerUserId);
+	        if (communityId != null) {
+	            base += "AND p.community_id = ? ";
+	            args.add(communityId);
+	        }
+	        args.add(viewerPrincipalId);
+	        base += "AND EXISTS (" +
+	                "SELECT 1 FROM principal_follows f " +
+	                "WHERE f.follower_principal_id = ? AND f.followee_principal_id = p.author_principal_id" +
+	                ") ";
+	        base += "AND p.author_principal_id <> ? ";
+	        args.add(viewerPrincipalId);
+	        base += "AND p.author_id IS DISTINCT FROM ? ";
+	        args.add(viewerUserId);
+	        if (hideAnonymousPosts) {
+	            base += hideAnonymousFilter(true);
+	            args.add(viewerUserId);
+	        }
         base += blocksFilter();
         args.add(viewerPrincipalId);
         args.add(viewerPrincipalId);
