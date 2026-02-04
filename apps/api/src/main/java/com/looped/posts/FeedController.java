@@ -81,6 +81,59 @@ public class FeedController {
         return ResponseEntity.ok(out);
     }
 
+    @GetMapping("/hashtags")
+    public ResponseEntity<?> hashtaggedCommunityPosts(
+            @AuthenticationPrincipal Jwt jwt,
+            @RequestParam(value = "communityId", required = false) Long communityId,
+            @RequestParam(value = "community_id", required = false) Long communityIdAlt,
+            @RequestParam(value = "cursor", required = false) String cursor,
+            @RequestParam(value = "limit", required = false, defaultValue = "20") int limit
+    ) {
+        Long resolvedCommunityId = communityId != null ? communityId : communityIdAlt;
+        if (resolvedCommunityId == null) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of(
+                    "error", "community_id_required",
+                    "message", "community_id must be provided"
+            ));
+        }
+        int lim = Math.max(1, Math.min(limit, 100));
+        var res = feedService.hashtagged(jwt.getSubject(), cursor, lim, resolvedCommunityId);
+        if (res.status() == FeedService.Status.USER_NOT_PROVISIONED) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
+                    "error", "user_not_provisioned",
+                    "message", "Complete onboarding before reading posts"
+            ));
+        }
+        if (res.status() == FeedService.Status.COMMUNITY_NOT_FOUND) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of(
+                    "error", "community_not_found",
+                    "message", "Community not found"
+            ));
+        }
+        if (res.status() == FeedService.Status.COMMUNITY_BANNED) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
+                    "error", "community_banned",
+                    "message", "You are banned from this community"
+            ));
+        }
+        Long viewerPrincipalId = pollsService.viewerPrincipalId(jwt.getSubject());
+        String defaultProfileImageUrl = appConfig.defaultProfileImageUrl();
+        List<Long> postIds = res.items().stream().map(p -> p.id).toList();
+        var pollsByPostId = pollsService.viewsByPostId(viewerPrincipalId, postIds);
+        List<Map<String, Object>> items = res.items().stream().map(row -> {
+            Map<String, Object> payload = PostPayloads.from(row, defaultProfileImageUrl);
+            var poll = pollsByPostId.get(row.id);
+            if (poll != null) payload.put("poll", PollPayloads.from(poll));
+            return payload;
+        }).toList();
+        java.util.Map<String, Object> out = new java.util.HashMap<>();
+        out.put("items", items);
+        if (res.nextCursor() != null) {
+            out.put("next_cursor", res.nextCursor());
+        }
+        return ResponseEntity.ok(out);
+    }
+
     @GetMapping("/trending")
     public ResponseEntity<?> trending(
             @AuthenticationPrincipal Jwt jwt,

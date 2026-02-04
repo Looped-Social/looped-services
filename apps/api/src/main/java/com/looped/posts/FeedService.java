@@ -59,6 +59,44 @@ public class FeedService {
         return result;
     }
 
+    public FeedResult hashtagged(String firebaseUid, String cursor, int limit, long communityId) {
+        var u = users.findByFirebaseUid(firebaseUid);
+        if (u.isEmpty()) {
+            return FeedResult.userNotProvisioned();
+        }
+        if (communities.findById(communityId).isEmpty()) {
+            return FeedResult.communityNotFound();
+        }
+        if (communityBans.isBanned(u.get().id, communityId)) {
+            return FeedResult.communityBanned();
+        }
+        var principal = principals.createForUser(u.get().id);
+        long viewerUserId = u.get().id;
+        long viewerPrincipalId = principal.id;
+        boolean hideAnonymousPosts = u.get().hideAnonymousPosts;
+
+        OffsetDateTime cTs = null;
+        Long cId = null;
+        if (cursor != null && !cursor.isBlank()) {
+            try {
+                var c = Pagination.decode(cursor);
+                cTs = c.timestamp();
+                cId = c.id();
+            } catch (IllegalArgumentException ignored) {
+                // treat as no cursor
+            }
+        }
+        var list = posts.findNewHashtagged(communityId, cTs, cId, limit, viewerUserId, viewerPrincipalId, hideAnonymousPosts);
+        String next = null;
+        if (list.size() == limit) {
+            var last = list.get(list.size() - 1);
+            next = Pagination.encode(last.createdAt, last.id);
+        }
+        postState.applyForPrincipal(principal.id, list);
+        applyRepostBanners(principal.id, list);
+        return FeedResult.ok(list, next);
+    }
+
     private FeedResult feedNew(String cursor, int limit, Long communityId, long viewerUserId, long viewerPrincipalId, boolean hideAnonymousPosts) {
         OffsetDateTime cTs = null;
         Long cId = null;
