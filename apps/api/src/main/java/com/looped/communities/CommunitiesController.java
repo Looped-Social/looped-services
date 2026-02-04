@@ -71,6 +71,10 @@ public class CommunitiesController {
         if (community.imageUrl != null) out.put("image_url", community.imageUrl);
         out.put("member_count", memberCounts.memberCount(community.id, community.kind));
         if (community.specializationType != null) out.put("specialization_type", community.specializationType);
+        if ("specialization".equalsIgnoreCase(community.kind)) {
+            Map<String, Object> icon = SpecializationIcons.payloadOrNull(community.iconKind, community.iconValue);
+            if (icon != null) out.put("icon", icon);
+        }
         out.put("is_following", follows.exists(actor.get().id, id));
         if ("specialization".equalsIgnoreCase(community.kind)) {
             String t = community.specializationType == null ? "" : community.specializationType.trim().toLowerCase(java.util.Locale.ROOT);

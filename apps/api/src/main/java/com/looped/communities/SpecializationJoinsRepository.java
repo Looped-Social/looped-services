@@ -69,7 +69,8 @@ public class SpecializationJoinsRepository {
     public List<JoinRow> listJoined(long userId, String specializationType, OffsetDateTime cursorTs, Long cursorId, int limit) {
         String base = """
                 SELECT j.id AS join_id, j.specialization_id, j.created_at,
-                       c.name, c.short_name, c.kind, c.specialization_type, c.member_count
+                       c.name, c.short_name, c.kind, c.specialization_type, c.member_count,
+                       c.icon_kind, c.icon_value
                 FROM specialization_joins j
                 JOIN communities c ON c.id = j.specialization_id
                 WHERE j.user_id = ? AND c.kind = 'specialization'
@@ -139,7 +140,8 @@ public class SpecializationJoinsRepository {
     }
 
     public record JoinRow(long joinId, long specializationId, String name, String shortName, String kind,
-                          String specializationType, int memberCount, OffsetDateTime createdAt) {}
+                          String specializationType, int memberCount, String iconKind, String iconValue,
+                          OffsetDateTime createdAt) {}
 
     private static final RowMapper<JoinRow> JOIN_MAPPER = new RowMapper<>() {
         @Override
@@ -152,6 +154,8 @@ public class SpecializationJoinsRepository {
                     rs.getString("kind"),
                     rs.getString("specialization_type"),
                     rs.getInt("member_count"),
+                    rs.getString("icon_kind"),
+                    rs.getString("icon_value"),
                     rs.getObject("created_at", OffsetDateTime.class)
             );
         }

@@ -10,9 +10,11 @@ import com.looped.users.ProfileImageUrls;
 import com.looped.users.UserRepository;
 import org.springframework.stereotype.Service;
 
+import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 
@@ -129,6 +131,79 @@ public class NotificationPublisher {
         return publishToUsersIdempotent(userIds, NotificationType.ANNOUNCEMENT, eventKey.trim(), normalized);
     }
 
+    public void notifyCommunityVerificationApproved(long targetUserId,
+                                                    long communityId,
+                                                    String communityName,
+                                                    String method,
+                                                    long verificationRequestId,
+                                                    OffsetDateTime expiresAt) {
+        if (targetUserId <= 0 || communityId <= 0 || verificationRequestId <= 0) return;
+        String name = (communityName == null || communityName.isBlank()) ? "your community" : communityName.trim();
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("kind", "community_verification");
+        payload.put("status", "approved");
+        payload.put("community_id", communityId);
+        payload.put("community_name", name);
+        if (method != null && !method.isBlank()) payload.put("method", method.trim().toLowerCase(Locale.ROOT));
+        if (expiresAt != null) payload.put("expires_at", expiresAt);
+        payload.put("title", "Verified");
+        payload.put("body", "You're verified for " + name + ". Get to posting.");
+        String eventKey = "verification_request:" + verificationRequestId + ":approved";
+        publishToUserIdempotent(targetUserId, NotificationType.SYSTEM, eventKey, payload);
+    }
+
+    public void notifyCommunityVerificationRejected(long targetUserId,
+                                                    long communityId,
+                                                    String communityName,
+                                                    String method,
+                                                    long verificationRequestId,
+                                                    String rejectReason) {
+        if (targetUserId <= 0 || communityId <= 0 || verificationRequestId <= 0) return;
+        String name = (communityName == null || communityName.isBlank()) ? "your community" : communityName.trim();
+        String reason = normalizeReason(rejectReason);
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("kind", "community_verification");
+        payload.put("status", "rejected");
+        payload.put("community_id", communityId);
+        payload.put("community_name", name);
+        if (method != null && !method.isBlank()) payload.put("method", method.trim().toLowerCase(Locale.ROOT));
+        if (reason != null) payload.put("reject_reason", reason);
+        payload.put("title", "Verification rejected");
+        payload.put("body", reason == null
+                ? "Your verification for " + name + " was rejected."
+                : "Your verification for " + name + " was rejected. Reason: " + reason);
+        String eventKey = "verification_request:" + verificationRequestId + ":rejected";
+        publishToUserIdempotent(targetUserId, NotificationType.SYSTEM, eventKey, payload);
+    }
+
+    public void notifyUserVerificationApproved(long targetUserId, String method, long verificationRequestId) {
+        if (targetUserId <= 0 || verificationRequestId <= 0) return;
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("kind", "user_verification");
+        payload.put("status", "approved");
+        if (method != null && !method.isBlank()) payload.put("method", method.trim().toLowerCase(Locale.ROOT));
+        payload.put("title", "Verified");
+        payload.put("body", "You're verified. Get to posting.");
+        String eventKey = "verification_request:" + verificationRequestId + ":approved";
+        publishToUserIdempotent(targetUserId, NotificationType.SYSTEM, eventKey, payload);
+    }
+
+    public void notifyUserVerificationRejected(long targetUserId, String method, long verificationRequestId, String rejectReason) {
+        if (targetUserId <= 0 || verificationRequestId <= 0) return;
+        String reason = normalizeReason(rejectReason);
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("kind", "user_verification");
+        payload.put("status", "rejected");
+        if (method != null && !method.isBlank()) payload.put("method", method.trim().toLowerCase(Locale.ROOT));
+        if (reason != null) payload.put("reject_reason", reason);
+        payload.put("title", "Verification rejected");
+        payload.put("body", reason == null
+                ? "Your verification was rejected."
+                : "Your verification was rejected. Reason: " + reason);
+        String eventKey = "verification_request:" + verificationRequestId + ":rejected";
+        publishToUserIdempotent(targetUserId, NotificationType.SYSTEM, eventKey, payload);
+    }
+
     private void publishToUser(long userId, NotificationType type, Map<String, Object> payload) {
         if (userId <= 0 || payload == null) return;
         if (isBlocked(payload, userId)) return;
@@ -141,6 +216,32 @@ public class NotificationPublisher {
         Map<String, Object> enriched = new HashMap<>(payload);
         applyDeeplink(enriched, type, null);
         long notificationId = notifications.insert(userId, type.value(), enriched);
+        if (notificationId <= 0) return;
+        ensureDeeplink(notificationId, type, enriched);
+
+        if (pushEnabled) {
+            List<String> tokens = tokensForUser(userId);
+            enqueuePush(userId, notificationId, type, enriched, tokens);
+        }
+    }
+
+    private void publishToUserIdempotent(long userId, NotificationType type, String eventKey, Map<String, Object> payload) {
+        if (userId <= 0 || payload == null) return;
+        if (eventKey == null || eventKey.isBlank()) {
+            publishToUser(userId, type, payload);
+            return;
+        }
+        if (isBlocked(payload, userId)) return;
+        NotificationPreferences prefs = preferences.preferencesForUserId(userId);
+        boolean allowInApp = prefs.allows(NotificationChannel.IN_APP, type);
+        boolean allowPush = prefs.allows(NotificationChannel.PUSH, type);
+        boolean pushEnabled = allowPush && pushQueue.enabled();
+        if (!allowInApp && !pushEnabled) return;
+
+        Map<String, Object> enriched = new HashMap<>(payload);
+        enriched.put("event_key", eventKey);
+        applyDeeplink(enriched, type, null);
+        long notificationId = notifications.insertIdempotent(userId, type.value(), enriched, eventKey);
         if (notificationId <= 0) return;
         ensureDeeplink(notificationId, type, enriched);
 
@@ -374,6 +475,15 @@ public class NotificationPublisher {
     private Long asLong(Object value) {
         if (value instanceof Number n) return n.longValue();
         return null;
+    }
+
+    private String normalizeReason(String raw) {
+        if (raw == null) return null;
+        String normalized = raw.replaceAll("\\s+", " ").trim();
+        if (normalized.isBlank()) return null;
+        int max = 200;
+        if (normalized.length() > max) return normalized.substring(0, max - 1).trim() + "…";
+        return normalized;
     }
 
     private String buildCollapseId(NotificationType type, Map<String, Object> payload) {

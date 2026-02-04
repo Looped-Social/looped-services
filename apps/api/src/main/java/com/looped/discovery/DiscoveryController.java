@@ -367,6 +367,10 @@ public class DiscoveryController {
             map.put("is_joined", isJoined);
         }
         if (row.specializationType != null) map.put("specialization_type", row.specializationType);
+        if ("specialization".equalsIgnoreCase(row.kind)) {
+            Map<String, Object> icon = com.looped.communities.SpecializationIcons.payloadOrNull(row.iconKind, row.iconValue);
+            if (icon != null) map.put("icon", icon);
+        }
         String resolved = row.imageUrl;
         if ((resolved == null || resolved.isBlank()) && fallbacks != null) {
             resolved = fallbacks.get(row.id);
@@ -397,6 +401,10 @@ public class DiscoveryController {
         map.put("is_following", row.isFollowing);
         map.put("is_joined", row.isJoined);
         if (row.specializationType != null) map.put("specialization_type", row.specializationType);
+        if ("specialization".equalsIgnoreCase(row.kind)) {
+            Map<String, Object> icon = com.looped.communities.SpecializationIcons.payloadOrNull(row.iconKind, row.iconValue);
+            if (icon != null) map.put("icon", icon);
+        }
         String resolved = row.imageUrl;
         if ((resolved == null || resolved.isBlank()) && fallbacks != null) {
             resolved = fallbacks.get(row.id);

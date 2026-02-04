@@ -2,6 +2,8 @@ package com.looped.admin;
 
 import com.looped.communities.CommunitiesRepository;
 import com.looped.communities.CommunityVerificationsRepository;
+import com.looped.email.EmailService;
+import com.looped.notifications.NotificationPublisher;
 import com.looped.shared.Pagination;
 import com.looped.verification.PhotoIdVerificationProperties;
 import com.looped.verification.VerificationProperties;
@@ -40,6 +42,8 @@ public class AdminVerificationsController {
     private final VerificationPrivateMediaService privateMedia;
     private final PhotoIdVerificationProperties photoIdProps;
     private final VerificationProperties verificationProps;
+    private final NotificationPublisher notifications;
+    private final EmailService emailService;
 
     public AdminVerificationsController(AdminAuthService auth, VerificationRequestsRepository requests,
                                         VerificationRepository verifications,
@@ -48,7 +52,9 @@ public class AdminVerificationsController {
                                         AdminAuditRepository audit,
                                         VerificationPrivateMediaService privateMedia,
                                         PhotoIdVerificationProperties photoIdProps,
-                                        VerificationProperties verificationProps) {
+                                        VerificationProperties verificationProps,
+                                        NotificationPublisher notifications,
+                                        EmailService emailService) {
         this.auth = auth;
         this.requests = requests;
         this.verifications = verifications;
@@ -58,6 +64,8 @@ public class AdminVerificationsController {
         this.privateMedia = privateMedia;
         this.photoIdProps = photoIdProps;
         this.verificationProps = verificationProps;
+        this.notifications = notifications;
+        this.emailService = emailService;
     }
 
     @GetMapping("/verifications")
@@ -187,6 +195,12 @@ public class AdminVerificationsController {
         if (req.isEmpty()) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "not_found"));
         }
+        if (req.get().status == null || !"pending".equalsIgnoreCase(req.get().status)) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
+                    "error", "verification_already_reviewed",
+                    "status", req.get().status
+            ));
+        }
         if (req.get().communityId != null && communities.findById(req.get().communityId).isEmpty()) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "community_not_found"));
         }
@@ -198,20 +212,36 @@ public class AdminVerificationsController {
             var community = communities.findById(req.get().communityId).orElseThrow();
             String method = req.get().method;
             String requestEmail = "email".equalsIgnoreCase(method) ? req.get().email : null;
+            java.time.OffsetDateTime expiresAt = resolveExpiry(community);
             try {
                 communityVerifications.markVerified(
                         req.get().userId,
                         req.get().communityId,
                         method,
-                        resolveExpiry(community),
+                        expiresAt,
                         requestEmail
                 );
             } catch (DataIntegrityViolationException ex) {
                 requests.updateStatus(id, "rejected", authRes.admin().id, "email_in_use");
                 return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "email_in_use"));
             }
+            notifications.notifyCommunityVerificationApproved(
+                    req.get().userId,
+                    req.get().communityId,
+                    req.get().communityName,
+                    method,
+                    req.get().id,
+                    expiresAt
+            );
+            if ("email".equalsIgnoreCase(method) && requestEmail != null) {
+                emailService.sendCommunityVerifiedEmail(requestEmail, req.get().communityName);
+            }
         } else {
             verifications.markVerified(req.get().userId, req.get().method);
+            notifications.notifyUserVerificationApproved(req.get().userId, req.get().method, req.get().id);
+            if ("email".equalsIgnoreCase(req.get().method) && req.get().email != null) {
+                emailService.sendUserVerifiedEmail(req.get().email);
+            }
         }
         boolean deleted = deleteVerificationMediaIfPresent(req.get());
         audit.log(authRes.admin().id, "verification.approve", "verification_request", id, null);
@@ -233,6 +263,12 @@ public class AdminVerificationsController {
         if (req.isEmpty()) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "not_found"));
         }
+        if (req.get().status == null || !"pending".equalsIgnoreCase(req.get().status)) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
+                    "error", "verification_already_reviewed",
+                    "status", req.get().status
+            ));
+        }
         String reason = body != null ? body.reason() : null;
         boolean updated;
         java.time.OffsetDateTime deleteAfterAt = null;
@@ -247,8 +283,20 @@ public class AdminVerificationsController {
         }
         if (req.get().communityId != null) {
             communityVerifications.markUnverified(req.get().userId, req.get().communityId, req.get().method);
+            notifications.notifyCommunityVerificationRejected(
+                    req.get().userId,
+                    req.get().communityId,
+                    req.get().communityName,
+                    req.get().method,
+                    req.get().id,
+                    reason
+            );
+            if ("email".equalsIgnoreCase(req.get().method) && req.get().email != null) {
+                emailService.sendCommunityVerificationRejectedEmail(req.get().email, req.get().communityName, reason);
+            }
         } else {
             verifications.markUnverified(req.get().userId, req.get().method);
+            notifications.notifyUserVerificationRejected(req.get().userId, req.get().method, req.get().id, reason);
         }
         audit.log(authRes.admin().id, "verification.reject", "verification_request", id, null);
         Map<String, Object> out = new HashMap<>();

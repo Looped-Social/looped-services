@@ -4,9 +4,11 @@ import com.looped.communities.CommunitiesRepository;
 import com.looped.communities.CommunityVerificationsRepository;
 import com.looped.communities.CommunityDomainsRepository;
 import com.looped.communities.CommunityLogoResolver;
+import com.looped.communities.SpecializationIcons;
 import com.looped.shared.Pagination;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -38,19 +40,31 @@ public class AdminCommunitiesController {
     private final CommunityLogoResolver logos;
     private final AdminAuditRepository audit;
     private final CommunityVerificationsRepository verifications;
+    private final boolean sfSymbolsEnabled;
+    private final java.util.Set<String> sfSymbolAllowlist;
+    private final boolean imageUrlEnabled;
+    private final String imageUrlAllowedPrefix;
 
     public AdminCommunitiesController(AdminAuthService auth,
                                       CommunitiesRepository communities,
                                       CommunityDomainsRepository domains,
                                       CommunityLogoResolver logos,
                                       AdminAuditRepository audit,
-                                      CommunityVerificationsRepository verifications) {
+                                      CommunityVerificationsRepository verifications,
+                                      @Value("${specializations.icons.sf-symbol.enabled:false}") boolean sfSymbolsEnabled,
+                                      @Value("${specializations.icons.sf-symbol.allowlist:}") String sfSymbolAllowlistCsv,
+                                      @Value("${specializations.icons.image-url.enabled:false}") boolean imageUrlEnabled,
+                                      @Value("${specializations.icons.image-url.allowed-prefix:}") String imageUrlAllowedPrefix) {
         this.auth = auth;
         this.communities = communities;
         this.domains = domains;
         this.logos = logos;
         this.audit = audit;
         this.verifications = verifications;
+        this.sfSymbolsEnabled = sfSymbolsEnabled;
+        this.sfSymbolAllowlist = parseCsvSet(sfSymbolAllowlistCsv);
+        this.imageUrlEnabled = imageUrlEnabled;
+        this.imageUrlAllowedPrefix = imageUrlAllowedPrefix;
     }
 
     @GetMapping
@@ -187,6 +201,7 @@ public class AdminCommunitiesController {
         if (authRes.status() != AdminAuthService.Status.OK) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "forbidden"));
         }
+        boolean iconProvided = body != null && body.icon() != null;
         Integer ttlDays = body.verificationTtlDays();
         if (ttlDays != null && ttlDays < 0) {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of("error", "invalid_ttl_days"));
@@ -195,30 +210,87 @@ public class AdminCommunitiesController {
         if (cooldownMonths != null && cooldownMonths < 0) {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of("error", "invalid_cooldown_months"));
         }
-        if (cooldownMonths != null) {
+        CommunitiesRepository.CommunityRow existingRow = null;
+        String existingSpecializationType = null;
+        if (cooldownMonths != null || iconProvided) {
             var existing = communities.findById(id);
             if (existing.isEmpty()) {
                 return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "not_found"));
             }
-            String kind = existing.get().kind == null ? "" : existing.get().kind.trim().toLowerCase(Locale.ROOT);
-            String specializationType = existing.get().specializationType == null ? "" : existing.get().specializationType.trim().toLowerCase(Locale.ROOT);
-            if (!"specialization".equals(kind) || (!"major".equals(specializationType) && !"field".equals(specializationType))) {
-                return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of(
-                        "error", "invalid_specialization",
-                        "message", "specializationJoinCooldownMonths can only be set for major/field specializations"
-                ));
+            existingRow = existing.get();
+            String kind = existingRow.kind == null ? "" : existingRow.kind.trim().toLowerCase(Locale.ROOT);
+            String specializationType = existingRow.specializationType == null ? "" : existingRow.specializationType.trim().toLowerCase(Locale.ROOT);
+            existingSpecializationType = specializationType;
+            if (cooldownMonths != null) {
+                if (!"specialization".equals(kind) || (!"major".equals(specializationType) && !"field".equals(specializationType))) {
+                    return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of(
+                            "error", "invalid_specialization",
+                            "message", "specializationJoinCooldownMonths can only be set for major/field specializations"
+                    ));
+                }
+            }
+            if (iconProvided) {
+                if (!"specialization".equals(kind) || (!"major".equals(specializationType) && !"field".equals(specializationType))) {
+                    return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of(
+                            "error", "invalid_specialization",
+                            "message", "icon can only be set for majors/fields"
+                    ));
+                }
             }
         }
         boolean descriptionProvided = body.description() != null;
         String description = normalizeDescription(body.description());
         boolean shortNameProvided = body.shortName() != null;
         String shortName = normalizeShortName(body.shortName());
-        if (!descriptionProvided && ttlDays == null && !shortNameProvided && cooldownMonths == null) {
+        if (!descriptionProvided && ttlDays == null && !shortNameProvided && cooldownMonths == null && !iconProvided) {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of("error", "no_changes"));
         }
-        boolean updated = communities.updateDetails(id, descriptionProvided, description, ttlDays, shortNameProvided, shortName, cooldownMonths);
-        if (!updated) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "not_found"));
+        boolean detailsUpdated = true;
+        if (descriptionProvided || ttlDays != null || shortNameProvided || cooldownMonths != null) {
+            detailsUpdated = communities.updateDetails(id, descriptionProvided, description, ttlDays, shortNameProvided, shortName, cooldownMonths);
+            if (!detailsUpdated) {
+                return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "not_found"));
+            }
+        }
+        String updatedIconKind = null;
+        String updatedIconValue = null;
+        if (iconProvided) {
+            try {
+                SpecializationIcons.NormalizedIcon icon = SpecializationIcons.normalizeAndValidateForWrite(
+                        body.icon(),
+                        sfSymbolsEnabled,
+                        sfSymbolAllowlist,
+                        imageUrlEnabled,
+                        imageUrlAllowedPrefix
+                );
+                if (icon != null && icon.isClear()) {
+                    updatedIconKind = "emoji";
+                    updatedIconValue = null;
+                } else if (icon != null) {
+                    updatedIconKind = icon.kind();
+                    updatedIconValue = icon.value();
+                }
+            } catch (SpecializationIcons.IconValidationException e) {
+                return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of(
+                        "error", e.error(),
+                        "message", e.getMessage()
+                ));
+            }
+            if (existingSpecializationType == null) {
+                return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+            }
+            boolean iconUpdated = communities.updateSpecializationIconAndName(
+                    id,
+                    existingSpecializationType,
+                    false,
+                    null,
+                    true,
+                    updatedIconKind,
+                    updatedIconValue
+            );
+            if (!iconUpdated) {
+                return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "not_found"));
+            }
         }
         StringBuilder meta = new StringBuilder();
         if (descriptionProvided) meta.append("description_updated");
@@ -234,6 +306,10 @@ public class AdminCommunitiesController {
             if (meta.length() > 0) meta.append(",");
             meta.append("short_name_updated");
         }
+        if (iconProvided) {
+            if (meta.length() > 0) meta.append(",");
+            meta.append("icon_updated");
+        }
         audit.log(authRes.admin().id, "community.update", "community", id,
                 meta.length() == 0 ? null : meta.toString());
         Map<String, Object> out = new HashMap<>();
@@ -242,6 +318,10 @@ public class AdminCommunitiesController {
         if (ttlDays != null) out.put("verification_ttl_days", ttlDays);
         if (cooldownMonths != null) out.put("specialization_join_cooldown_months", cooldownMonths == 0 ? null : cooldownMonths);
         if (shortNameProvided) out.put("short_name", shortName);
+        if (iconProvided) {
+            Map<String, Object> icon = SpecializationIcons.payloadOrNull(updatedIconKind, updatedIconValue);
+            out.put("icon", icon);
+        }
         return ResponseEntity.ok(out);
     }
 
@@ -280,6 +360,10 @@ public class AdminCommunitiesController {
         if (row.description != null) map.put("description", row.description);
         map.put("member_count", memberCount);
         if (row.specializationType != null) map.put("specialization_type", row.specializationType);
+        if ("specialization".equalsIgnoreCase(row.kind)) {
+            Map<String, Object> icon = com.looped.communities.SpecializationIcons.payloadOrNull(row.iconKind, row.iconValue);
+            if (icon != null) map.put("icon", icon);
+        }
         String resolved = row.imageUrl;
         if ((resolved == null || resolved.isBlank()) && fallbacks != null) {
             resolved = fallbacks.get(row.id);
@@ -354,5 +438,16 @@ public class AdminCommunitiesController {
                                          Integer specializationJoinCooldownMonths) {}
 
     public record UpdateCommunityRequest(String description, Integer verificationTtlDays, String shortName,
-                                         Integer specializationJoinCooldownMonths) {}
+                                         Integer specializationJoinCooldownMonths, SpecializationIcons.IconRequest icon) {}
+
+    private java.util.Set<String> parseCsvSet(String csv) {
+        if (csv == null || csv.isBlank()) return java.util.Set.of();
+        java.util.Set<String> out = new java.util.LinkedHashSet<>();
+        for (String part : csv.split(",")) {
+            if (part == null) continue;
+            String v = part.trim();
+            if (!v.isBlank()) out.add(v);
+        }
+        return java.util.Set.copyOf(out);
+    }
 }

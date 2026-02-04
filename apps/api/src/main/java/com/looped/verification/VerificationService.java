@@ -1,6 +1,7 @@
 package com.looped.verification;
 
 import com.looped.email.EmailService;
+import com.looped.notifications.NotificationPublisher;
 import com.looped.users.UserRepository;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
@@ -22,11 +23,12 @@ public class VerificationService {
     private final VerificationProperties props;
     private final ThirdPartyVerifier thirdPartyVerifier;
     private final EmailService emailService;
+    private final NotificationPublisher notifications;
     private final SecureRandom random = new SecureRandom();
 
     public VerificationService(UserRepository users, VerificationRepository repo, VerificationRequestsRepository requests,
                                StringRedisTemplate redis, VerificationProperties props, ThirdPartyVerifier thirdPartyVerifier,
-                               EmailService emailService) {
+                               EmailService emailService, NotificationPublisher notifications) {
         this.users = users;
         this.repo = repo;
         this.requests = requests;
@@ -34,6 +36,7 @@ public class VerificationService {
         this.props = props;
         this.thirdPartyVerifier = thirdPartyVerifier;
         this.emailService = emailService;
+        this.notifications = notifications;
     }
 
     public StartResult start(String firebaseUid, String methodStr) {
@@ -111,9 +114,13 @@ public class VerificationService {
             }
         }
         String status = (method == Method.video) ? "pending" : "approved";
-        requests.insert(userId, email, method.name(), status, mediaKey, null);
+        long requestId = requests.insert(userId, email, method.name(), status, mediaKey, null);
         if ("approved".equals(status)) {
             repo.markVerified(userId, method.name());
+            notifications.notifyUserVerificationApproved(userId, method.name(), requestId);
+            if (method == Method.email && u.get().email != null) {
+                emailService.sendUserVerifiedEmail(u.get().email);
+            }
             return FinishResult.ok(true);
         }
         repo.markUnverified(userId, method.name());

@@ -1,6 +1,7 @@
 package com.looped.communities;
 
 import com.looped.email.EmailService;
+import com.looped.notifications.NotificationPublisher;
 import com.looped.verification.ThirdPartyVerifier;
 import com.looped.verification.VerificationProperties;
 import com.looped.verification.VerificationRequestsRepository;
@@ -28,6 +29,7 @@ public class CommunityVerificationService {
     private final VerificationProperties props;
     private final ThirdPartyVerifier thirdPartyVerifier;
     private final EmailService emailService;
+    private final NotificationPublisher notifications;
     private final SecureRandom random = new SecureRandom();
 
     public CommunityVerificationService(UserRepository users,
@@ -38,7 +40,8 @@ public class CommunityVerificationService {
                                         StringRedisTemplate redis,
                                         VerificationProperties props,
                                         ThirdPartyVerifier thirdPartyVerifier,
-                                        EmailService emailService) {
+                                        EmailService emailService,
+                                        NotificationPublisher notifications) {
         this.users = users;
         this.communities = communities;
         this.communityDomains = communityDomains;
@@ -48,6 +51,7 @@ public class CommunityVerificationService {
         this.props = props;
         this.thirdPartyVerifier = thirdPartyVerifier;
         this.emailService = emailService;
+        this.notifications = notifications;
     }
 
     public StartResult start(String firebaseUid, long communityId, String methodStr, String email) {
@@ -175,7 +179,18 @@ public class CommunityVerificationService {
             } catch (DataIntegrityViolationException ex) {
                 return FinishResult.conflict("email_in_use");
             }
-            requests.insert(u.get().id, communityId, resolvedEmail, method.name(), status, mediaKey, null);
+            long requestId = requests.insert(u.get().id, communityId, resolvedEmail, method.name(), status, mediaKey, null);
+            notifications.notifyCommunityVerificationApproved(
+                    u.get().id,
+                    communityId,
+                    community.get().name,
+                    method.name(),
+                    requestId,
+                    expiresAt
+            );
+            if (method == Method.email && resolvedEmail != null) {
+                emailService.sendCommunityVerifiedEmail(resolvedEmail, community.get().name);
+            }
             return FinishResult.ok(true, expiresAt);
         }
         requests.insert(u.get().id, communityId, resolvedEmail, method.name(), status, mediaKey, null);

@@ -241,6 +241,8 @@ public class SpecializationsController {
         if (row.shortName() != null && !row.shortName().isBlank()) {
             out.put("short_name", row.shortName());
         }
+        Map<String, Object> icon = SpecializationIcons.payloadOrNull(row.iconKind(), row.iconValue());
+        if (icon != null) out.put("icon", icon);
         out.put("member_count", memberCounts.getOrDefault(row.specializationId(), 0));
         if (row.specializationType() != null) out.put("specialization_type", row.specializationType());
         out.put("joined_at", row.createdAt());

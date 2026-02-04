@@ -2,7 +2,8 @@
 
 - **Profile update aliases**
   - `PUT /v1/users/me` and alias `PUT /users/me`
-  - Request: `{ "displayName": "optional string|null", "bio": "optional string|null", "isAnonymous": true|false, "profileMediaAssetId": "optional int" }`
+  - Request: `{ "displayName": "optional string|null", "bio": "optional string|null", "isAnonymous": true|false, "showFollowerCount": "optional bool|null", "messagePermission": "optional string|null", "profileMediaAssetId": "optional int" }`
+    - `messagePermission` allowed values: `"company" | "following" | "no_one" | "all"`
     - `profileMediaAssetId` must reference a `media_assets.id` owned by the caller (created via `POST /v1/media/callback`) and must be an image (`image/jpeg|image/png|image/webp`).
     - On success, the server updates `user.profile_image_url` to the CDN URL (`https://{cloudfront.domain}/{media_assets.s3_key}`).
   - Response: user payload matching `/v1/me.user` with `first_name`, `last_name`, `date_of_birth`, `display_name`, `bio`, `is_anonymous`, `profile_image_url`, and `stats.{follower_count,following_count,posts_count,comments_count}`.
@@ -10,6 +11,7 @@
     - `404 { "error": "media_asset_not_found" }`
     - `403 { "error": "media_asset_forbidden" }`
     - `422 { "error": "invalid_profile_image" }`
+    - `422 { "error": "invalid_message_permission" }`
     - `503 { "error": "cdn_not_configured" }` (when `cloudfront.domain` is unset/blank)
 - **App config**
   - `GET /v1/app-config` (no auth)

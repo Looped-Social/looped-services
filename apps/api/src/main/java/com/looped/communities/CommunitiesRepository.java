@@ -21,7 +21,7 @@ public class CommunitiesRepository {
     }
 
     private static final String BASE_COLUMNS =
-            "id, kind, name, description, member_count, image_url, specialization_type, created_at, verification_ttl_days, short_name, specialization_join_cooldown_months";
+            "id, kind, name, description, member_count, image_url, specialization_type, created_at, verification_ttl_days, short_name, specialization_join_cooldown_months, icon_kind, icon_value, icon_updated_at";
 
     private static final RowMapper<CommunityRow> MAPPER = new RowMapper<>() {
         @Override
@@ -40,6 +40,9 @@ public class CommunitiesRepository {
             row.shortName = rs.getString("short_name");
             int cooldownMonths = rs.getInt("specialization_join_cooldown_months");
             row.specializationJoinCooldownMonths = rs.wasNull() ? null : cooldownMonths;
+            row.iconKind = rs.getString("icon_kind");
+            row.iconValue = rs.getString("icon_value");
+            row.iconUpdatedAt = rs.getObject("icon_updated_at", OffsetDateTime.class);
             return row;
         }
     };
@@ -150,13 +153,15 @@ public class CommunitiesRepository {
                 WITH base AS (
                     SELECT c.id, c.kind, c.name, c.description,
                            COUNT(j.user_id) FILTER (WHERE u.deleted_at IS NULL) AS member_count,
-                           c.image_url, c.specialization_type, c.created_at, c.verification_ttl_days, c.short_name, c.specialization_join_cooldown_months
+                           c.image_url, c.specialization_type, c.created_at, c.verification_ttl_days, c.short_name, c.specialization_join_cooldown_months,
+                           c.icon_kind, c.icon_value, c.icon_updated_at
                     FROM communities c
                     LEFT JOIN specialization_joins j ON j.specialization_id = c.id AND j.created_at <= ?
                     LEFT JOIN users u ON u.id = j.user_id
                     WHERE c.kind = 'specialization' AND c.specialization_type = ? AND c.created_at <= ?
                     GROUP BY c.id, c.kind, c.name, c.description,
-                             c.image_url, c.specialization_type, c.created_at, c.verification_ttl_days, c.short_name, c.specialization_join_cooldown_months
+                             c.image_url, c.specialization_type, c.created_at, c.verification_ttl_days, c.short_name, c.specialization_join_cooldown_months,
+                             c.icon_kind, c.icon_value, c.icon_updated_at
                 )
                 SELECT * FROM base
                 """;
@@ -426,7 +431,7 @@ public class CommunitiesRepository {
                                             Long cursorId,
                                             int limit) {
         StringBuilder sql = new StringBuilder(
-                "SELECT c.id, c.kind, c.name, c.short_name, c.description, c.member_count, c.image_url, c.specialization_type, c.verification_ttl_days, c.created_at, " +
+                "SELECT c.id, c.kind, c.name, c.short_name, c.description, c.member_count, c.image_url, c.specialization_type, c.verification_ttl_days, c.created_at, c.icon_kind, c.icon_value, c.icon_updated_at, " +
                         "CASE WHEN cf.user_id IS NULL THEN false ELSE true END AS is_following, " +
                         "CASE WHEN sj.user_id IS NULL THEN false ELSE true END AS is_joined " +
                         "FROM communities c " +
@@ -480,6 +485,9 @@ public class CommunitiesRepository {
                     int ttlDays = rs.getInt("verification_ttl_days");
                     row.verificationTtlDays = rs.wasNull() ? null : ttlDays;
                     row.createdAt = rs.getObject("created_at", OffsetDateTime.class);
+                    row.iconKind = rs.getString("icon_kind");
+                    row.iconValue = rs.getString("icon_value");
+                    row.iconUpdatedAt = rs.getObject("icon_updated_at", OffsetDateTime.class);
                     row.isFollowing = rs.getBoolean("is_following");
                     row.isJoined = rs.getBoolean("is_joined");
                     return row;
@@ -529,6 +537,9 @@ public class CommunitiesRepository {
         public Integer verificationTtlDays;
         public String shortName;
         public Integer specializationJoinCooldownMonths;
+        public String iconKind;
+        public String iconValue;
+        public OffsetDateTime iconUpdatedAt;
     }
 
     public static class ScoredCommunityRow {
@@ -549,7 +560,97 @@ public class CommunitiesRepository {
         public boolean isJoined;
         public Integer verificationTtlDays;
         public OffsetDateTime createdAt;
+        public String iconKind;
+        public String iconValue;
+        public OffsetDateTime iconUpdatedAt;
     }
+
+    public List<SpecializationFilterRow> listSpecializationsForFilters(String specializationType) {
+        if (specializationType == null || specializationType.isBlank()) return List.of();
+        return jdbc.query(
+                "SELECT id, name, short_name, icon_kind, icon_value " +
+                        "FROM communities " +
+                        "WHERE kind = 'specialization' AND specialization_type = ? " +
+                        "ORDER BY lower(name) ASC, id ASC",
+                (rs, rowNum) -> new SpecializationFilterRow(
+                        rs.getLong("id"),
+                        rs.getString("name"),
+                        rs.getString("short_name"),
+                        rs.getString("icon_kind"),
+                        rs.getString("icon_value")
+                ),
+                specializationType
+        );
+    }
+
+    public SpecializationsCacheInfo specializationsCacheInfo(String specializationType) {
+        if (specializationType == null || specializationType.isBlank()) {
+            return new SpecializationsCacheInfo(null, null);
+        }
+        return jdbc.query(
+                """
+                SELECT
+                  md5(COALESCE(string_agg(
+                    concat_ws('|',
+                      id::text,
+                      name,
+                      COALESCE(short_name,''),
+                      COALESCE(icon_kind,''),
+                      COALESCE(icon_value,'')
+                    ),
+                    ';' ORDER BY lower(name), id
+                  ), '')) AS etag,
+                  MAX(GREATEST(created_at, icon_updated_at)) AS last_modified
+                FROM communities
+                WHERE kind = 'specialization' AND specialization_type = ?
+                """,
+                rs -> {
+                    if (!rs.next()) return new SpecializationsCacheInfo(null, null);
+                    String etag = rs.getString("etag");
+                    OffsetDateTime lm = rs.getObject("last_modified", OffsetDateTime.class);
+                    return new SpecializationsCacheInfo(etag, lm);
+                },
+                specializationType
+        );
+    }
+
+    public boolean updateSpecializationIconAndName(long communityId,
+                                                   String requiredSpecializationType,
+                                                   boolean nameProvided,
+                                                   String name,
+                                                   boolean iconProvided,
+                                                   String iconKind,
+                                                   String iconValue) {
+        boolean hasUpdate = nameProvided || iconProvided;
+        if (!hasUpdate) return false;
+        if (requiredSpecializationType == null || requiredSpecializationType.isBlank()) return false;
+        StringBuilder sql = new StringBuilder("UPDATE communities SET ");
+        java.util.List<Object> params = new java.util.ArrayList<>();
+        boolean first = true;
+        if (nameProvided) {
+            sql.append("name = ?");
+            params.add(name);
+            first = false;
+        }
+        if (iconProvided) {
+            if (!first) sql.append(", ");
+            sql.append("icon_kind = ?, icon_value = ?");
+            params.add(iconKind);
+            params.add(iconValue);
+            first = false;
+        }
+        if (!first) sql.append(", ");
+        sql.append("icon_updated_at = now()");
+        sql.append(" WHERE id = ? AND kind = 'specialization' AND specialization_type = ?");
+        params.add(communityId);
+        params.add(requiredSpecializationType);
+        int rows = jdbc.update(sql.toString(), params.toArray());
+        return rows > 0;
+    }
+
+    public record SpecializationFilterRow(long id, String name, String shortName, String iconKind, String iconValue) {}
+
+    public record SpecializationsCacheInfo(String etagMd5, OffsetDateTime lastModified) {}
 
     public boolean updateVerificationTtlDays(long communityId, Integer ttlDays) {
         int rows = jdbc.update(

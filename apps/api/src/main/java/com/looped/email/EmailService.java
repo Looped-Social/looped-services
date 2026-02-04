@@ -70,8 +70,57 @@ public class EmailService {
         }
         SendEmailResponse res = ses.sendEmail(request.build());
         if (res != null && res.messageId() != null) {
-            log.info("SES sent messageId={} to={}", res.messageId(), to);
+            log.info("SES sent messageId={}", res.messageId());
         }
+    }
+
+    public void sendCommunityVerifiedEmail(String to, String communityName) {
+        if (!isEnabled()) return;
+        if (to == null || to.isBlank()) return;
+        String name = communityName == null || communityName.isBlank() ? "your community" : communityName.trim();
+        String subject = "You're verified for " + name;
+        String text = "Hey — you're verified for " + name + ".\n\nGet to posting.\n";
+        String html = "<html><body style=\"margin:0;padding:0;background-color:#ffffff;color:#1f2937;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Helvetica,Arial,sans-serif;\">" +
+                "<div style=\"max-width:560px;margin:0 auto;padding:32px 16px;\">" +
+                "<div style=\"font-size:22px;font-weight:700;margin-bottom:8px;\">You're verified for " + escape(name) + "</div>" +
+                "<div style=\"font-size:14px;color:#6b7280;\">Get to posting.</div>" +
+                "</div></body></html>";
+        sendEmail(to, subject, text, html);
+    }
+
+    public void sendCommunityVerificationRejectedEmail(String to, String communityName, String rejectReason) {
+        if (!isEnabled()) return;
+        if (to == null || to.isBlank()) return;
+        String name = communityName == null || communityName.isBlank() ? "your community" : communityName.trim();
+        String subject = "Verification rejected for " + name;
+        StringBuilder text = new StringBuilder();
+        text.append("Your verification for ").append(name).append(" was rejected.\n");
+        if (rejectReason != null && !rejectReason.isBlank()) {
+            text.append("\nReason: ").append(rejectReason.trim()).append("\n");
+        }
+        StringBuilder html = new StringBuilder();
+        html.append("<html><body style=\"margin:0;padding:0;background-color:#ffffff;color:#1f2937;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Helvetica,Arial,sans-serif;\">");
+        html.append("<div style=\"max-width:560px;margin:0 auto;padding:32px 16px;\">");
+        html.append("<div style=\"font-size:22px;font-weight:700;margin-bottom:8px;\">Verification rejected</div>");
+        html.append("<div style=\"font-size:14px;color:#6b7280;margin-bottom:12px;\">Your verification for ").append(escape(name)).append(" was rejected.</div>");
+        if (rejectReason != null && !rejectReason.isBlank()) {
+            html.append("<div style=\"font-size:13px;color:#374151;\">Reason: ").append(escape(rejectReason.trim())).append("</div>");
+        }
+        html.append("</div></body></html>");
+        sendEmail(to, subject, text.toString(), html.toString());
+    }
+
+    public void sendUserVerifiedEmail(String to) {
+        if (!isEnabled()) return;
+        if (to == null || to.isBlank()) return;
+        String subject = "You're verified on Looped";
+        String text = "You're verified on Looped.\n\nGet to posting.\n";
+        String html = "<html><body style=\"margin:0;padding:0;background-color:#ffffff;color:#1f2937;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Helvetica,Arial,sans-serif;\">" +
+                "<div style=\"max-width:560px;margin:0 auto;padding:32px 16px;\">" +
+                "<div style=\"font-size:22px;font-weight:700;margin-bottom:8px;\">You're verified</div>" +
+                "<div style=\"font-size:14px;color:#6b7280;\">Get to posting.</div>" +
+                "</div></body></html>";
+        sendEmail(to, subject, text, html);
     }
 
     private String buildVerifyLink(Long communityId, String code) {
