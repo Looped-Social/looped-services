@@ -62,7 +62,7 @@ Fill in:
 - `auth_issuer`, `auth_audience`, `auth_jwks_uri` (Firebase)
 - `*_secret_arn` values from Secrets Manager
 - `acm_certificate_arn` (if using HTTPS)
-- `cors_allowed_origins` (admin/iOS dev origins)
+- `cors_allowed_origins` (admin/iOS dev origins; used for API CORS and browser-based direct S3 uploads)
 - (Push) `enable_push_notifications=true` + `enable_notif_worker=true` + APNs config (`apns_*`)
 
 Repeat for prod.

@@ -4,6 +4,7 @@ locals {
   verification_bucket_name    = "${var.name_prefix}-verification-${local.suffix}"
   dm_bucket_name              = "${var.name_prefix}-dm-media-${local.suffix}"
   cloudfront_use_default_cert = trimspace(var.cloudfront_acm_certificate_arn) == ""
+  cors_origins                = [for o in split(",", var.cors_allowed_origins) : trimspace(o) if trimspace(o) != ""]
 }
 
 resource "aws_s3_bucket" "media" {
@@ -25,6 +26,18 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "media" {
     apply_server_side_encryption_by_default {
       sse_algorithm = "AES256"
     }
+  }
+}
+
+resource "aws_s3_bucket_cors_configuration" "media" {
+  bucket = aws_s3_bucket.media.id
+
+  cors_rule {
+    allowed_methods = ["GET", "HEAD", "PUT", "POST"]
+    allowed_origins = local.cors_origins
+    allowed_headers = ["*"]
+    expose_headers  = ["ETag"]
+    max_age_seconds = 3000
   }
 }
 
@@ -50,6 +63,18 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "verification" {
   }
 }
 
+resource "aws_s3_bucket_cors_configuration" "verification" {
+  bucket = aws_s3_bucket.verification.id
+
+  cors_rule {
+    allowed_methods = ["GET", "HEAD", "PUT", "POST"]
+    allowed_origins = local.cors_origins
+    allowed_headers = ["*"]
+    expose_headers  = ["ETag"]
+    max_age_seconds = 3000
+  }
+}
+
 resource "aws_s3_bucket" "dm" {
   bucket = local.dm_bucket_name
   tags   = merge(var.tags, { Name = local.dm_bucket_name })
@@ -69,6 +94,18 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "dm" {
     apply_server_side_encryption_by_default {
       sse_algorithm = "AES256"
     }
+  }
+}
+
+resource "aws_s3_bucket_cors_configuration" "dm" {
+  bucket = aws_s3_bucket.dm.id
+
+  cors_rule {
+    allowed_methods = ["GET", "HEAD", "PUT", "POST"]
+    allowed_origins = local.cors_origins
+    allowed_headers = ["*"]
+    expose_headers  = ["ETag"]
+    max_age_seconds = 3000
   }
 }
 

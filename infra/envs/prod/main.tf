@@ -38,6 +38,7 @@ module "storage" {
   environment                    = local.env
   account_id                     = data.aws_caller_identity.current.account_id
   aws_region                     = var.aws_region
+  cors_allowed_origins           = var.cors_allowed_origins
   cloudfront_aliases             = var.media_cloudfront_aliases
   cloudfront_acm_certificate_arn = var.media_cloudfront_acm_certificate_arn
   tags                           = local.tags

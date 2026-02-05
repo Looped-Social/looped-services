@@ -14,6 +14,11 @@ variable "aws_region" {
   type = string
 }
 
+variable "cors_allowed_origins" {
+  type        = string
+  description = "Comma-separated list of allowed origins for browser-based direct S3 uploads (e.g. admin dash on localhost)."
+}
+
 variable "cloudfront_aliases" {
   type        = list(string)
   description = "Optional alternate domain names for the media CloudFront distribution (e.g. [\"media.mylooped.app\"])."

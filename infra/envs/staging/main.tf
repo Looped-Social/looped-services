@@ -33,12 +33,13 @@ module "network" {
 }
 
 module "storage" {
-  source      = "../../modules/storage"
-  name_prefix = var.name_prefix
-  environment = local.env
-  account_id  = data.aws_caller_identity.current.account_id
-  aws_region  = var.aws_region
-  tags        = local.tags
+  source               = "../../modules/storage"
+  name_prefix          = var.name_prefix
+  environment          = local.env
+  account_id           = data.aws_caller_identity.current.account_id
+  aws_region           = var.aws_region
+  cors_allowed_origins = var.cors_allowed_origins
+  tags                 = local.tags
 }
 
 module "redis" {
