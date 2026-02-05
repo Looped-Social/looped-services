@@ -26,6 +26,7 @@ import java.util.List;
 
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.notNullValue;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -114,6 +115,13 @@ class CommunityVerificationIntegrationTest extends PostgresTestBase {
                 .andExpect(jsonPath("$.verified", equalTo(true)))
                 .andExpect(jsonPath("$.status", equalTo("approved")))
                 .andExpect(jsonPath("$.expires_at", notNullValue()));
+
+        mockMvc.perform(get("/v1/communities/verifications")
+                        .header("Authorization", auth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].community_id", equalTo((int) communityId)))
+                .andExpect(jsonPath("$.items[0].method", equalTo("email")))
+                .andExpect(jsonPath("$.items[0].email", equalTo("alice@amazon.com")));
 
         String stored = jdbc.queryForObject(
                 "SELECT email FROM verification_requests WHERE user_id = ? ORDER BY id DESC LIMIT 1",

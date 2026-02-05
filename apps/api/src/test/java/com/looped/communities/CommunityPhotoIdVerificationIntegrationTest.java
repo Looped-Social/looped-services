@@ -134,6 +134,7 @@ class CommunityPhotoIdVerificationIntegrationTest extends PostgresTestBase {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items[0].community_id", equalTo((int) communityA)))
                 .andExpect(jsonPath("$.items[0].method", equalTo("photo_id")))
+                .andExpect(jsonPath("$.items[0].email").doesNotExist())
                 .andExpect(jsonPath("$.items[0].verified", equalTo(false)))
                 .andExpect(jsonPath("$.items[0].active", equalTo(false)))
                 .andExpect(jsonPath("$.items[0].status", equalTo("pending")));
@@ -191,7 +192,8 @@ class CommunityPhotoIdVerificationIntegrationTest extends PostgresTestBase {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items[0].community_id", equalTo((int) communityId)))
                 .andExpect(jsonPath("$.items[0].status", equalTo("rejected")))
-                .andExpect(jsonPath("$.items[0].reject_reason", equalTo("bad_photo")));
+                .andExpect(jsonPath("$.items[0].reject_reason", equalTo("bad_photo")))
+                .andExpect(jsonPath("$.items[0].email").doesNotExist());
     }
 
     @Test

@@ -142,6 +142,9 @@ public class CommunityVerificationController {
             item.put("expires_at", row.expiresAt);
             item.put("active", active);
             item.put("status", status);
+            if ("email".equalsIgnoreCase(row.method) && row.email != null && !row.email.isBlank()) {
+                item.put("email", row.email);
+            }
             if ("rejected".equals(status) && row.latestRequestRejectReason != null) {
                 item.put("reject_reason", row.latestRequestRejectReason);
             }

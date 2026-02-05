@@ -169,7 +169,7 @@ public class CommunityVerificationsRepository {
 
     public List<UserVerificationRow> listForUser(long userId) {
         return jdbc.query(
-                "SELECT cv.community_id, cv.method, cv.verified, cv.verified_at, cv.expires_at, " +
+                "SELECT cv.community_id, cv.method, cv.verified, cv.verified_at, cv.expires_at, cv.email, " +
                         "c.name AS community_name, c.kind AS community_kind, " +
                         "vr.status AS latest_request_status, vr.reject_reason AS latest_request_reject_reason " +
                         "FROM community_verifications cv " +
@@ -190,6 +190,7 @@ public class CommunityVerificationsRepository {
                     row.verified = rs.getBoolean("verified");
                     row.verifiedAt = rs.getObject("verified_at", OffsetDateTime.class);
                     row.expiresAt = rs.getObject("expires_at", OffsetDateTime.class);
+                    row.email = rs.getString("email");
                     row.communityName = rs.getString("community_name");
                     row.communityKind = rs.getString("community_kind");
                     row.latestRequestStatus = rs.getString("latest_request_status");
@@ -208,6 +209,7 @@ public class CommunityVerificationsRepository {
         public boolean verified;
         public OffsetDateTime verifiedAt;
         public OffsetDateTime expiresAt;
+        public String email;
         public String communityName;
         public String communityKind;
         public String latestRequestStatus;
