@@ -3,6 +3,7 @@ package com.looped.admin;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.looped.shared.Pagination;
 import com.looped.settings.AppConfigService;
+import com.looped.auth.FirebaseAdminService;
 import com.looped.users.ProfileImageUrls;
 import com.looped.users.UserBanRepository;
 import com.looped.users.UserRepository;
@@ -34,28 +35,45 @@ public class AdminUsersController {
     private final AdminUserStatsRepository stats;
     private final AdminAuditRepository audit;
     private final AppConfigService appConfig;
+    private final AdminUsersRepository adminUsers;
+    private final FirebaseAdminService firebaseAdmin;
 
     public AdminUsersController(AdminAuthService auth, UserRepository users, UserBanRepository bans,
-                                AdminUserStatsRepository stats, AdminAuditRepository audit, AppConfigService appConfig) {
+                                AdminUserStatsRepository stats, AdminAuditRepository audit, AppConfigService appConfig,
+                                AdminUsersRepository adminUsers, FirebaseAdminService firebaseAdmin) {
         this.auth = auth;
         this.users = users;
         this.bans = bans;
         this.stats = stats;
         this.audit = audit;
         this.appConfig = appConfig;
+        this.adminUsers = adminUsers;
+        this.firebaseAdmin = firebaseAdmin;
     }
 
     @GetMapping("/users")
     public ResponseEntity<?> search(
             @AuthenticationPrincipal Jwt jwt,
             @RequestParam(value = "query", required = false) String query,
+            @RequestParam(value = "sort", required = false) String sort,
             @RequestParam(value = "cursor", required = false) String cursor,
             @RequestParam(value = "limit", required = false, defaultValue = "50") int limit
     ) {
         String email = jwt.getClaimAsString("email");
         var authRes = auth.requirePermission(jwt.getSubject(), email, AdminPermissions.BAN_USER);
         if (authRes.status() != AdminAuthService.Status.OK) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "forbidden"));
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
+                    "error", "forbidden",
+                    "message", "Missing admin permission: " + AdminPermissions.BAN_USER
+            ));
+        }
+        String normalizedSort = sort == null ? "created_at_desc" : sort.trim().toLowerCase(java.util.Locale.ROOT);
+        if (normalizedSort.isBlank()) normalizedSort = "created_at_desc";
+        if (!"created_at_desc".equals(normalizedSort)) {
+            return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of(
+                    "error", "invalid_sort",
+                    "message", "sort must be created_at_desc"
+            ));
         }
         OffsetDateTime cursorTs = null;
         Long cursorId = null;
@@ -66,9 +84,10 @@ public class AdminUsersController {
                 cursorId = decoded.id();
             } catch (IllegalArgumentException ignored) {}
         }
-        List<UserRepository.UserRow> rows = users.searchAll(query, cursorTs, cursorId, limit);
+        int lim = Math.max(1, Math.min(limit, 200));
+        List<UserRepository.UserRow> rows = users.adminSearchAll(query, cursorTs, cursorId, lim);
         String next = null;
-        if (rows.size() == limit) {
+        if (rows.size() == lim) {
             var last = rows.get(rows.size() - 1);
             next = Pagination.encode(last.createdAt, last.id);
         }
@@ -79,9 +98,15 @@ public class AdminUsersController {
             map.put("email", u.email);
             map.put("company_id", u.companyId);
             map.put("created_at", u.createdAt);
+            map.put("account_status", accountStatus(u));
+            map.put("disabled_at", u.disabledAt);
+            map.put("disabled_reason", u.disabledReason);
+            map.put("deleted_at", u.deletedAt);
+            map.put("ban", null);
             var ban = bans.findActiveByUserId(u.id);
             ban.ifPresent(b -> {
                 Map<String, Object> banMap = new HashMap<>();
+                banMap.put("status", "banned");
                 banMap.put("reason", b.reason);
                 banMap.put("created_at", b.createdAt);
                 banMap.put("expires_at", b.expiresAt);
@@ -100,11 +125,17 @@ public class AdminUsersController {
         String email = jwt.getClaimAsString("email");
         var authRes = auth.requirePermission(jwt.getSubject(), email, AdminPermissions.BAN_USER);
         if (authRes.status() != AdminAuthService.Status.OK) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "forbidden"));
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
+                    "error", "forbidden",
+                    "message", "Missing admin permission: " + AdminPermissions.BAN_USER
+            ));
         }
         var userOpt = users.findByIdIncludingDeleted(id);
         if (userOpt.isEmpty()) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "not_found"));
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of(
+                    "error", "not_found",
+                    "message", "User not found"
+            ));
         }
         var user = userOpt.get();
         Map<String, Object> body = new HashMap<>();
@@ -117,11 +148,15 @@ public class AdminUsersController {
         body.put("bio", user.bio);
         body.put("profile_image_url", ProfileImageUrls.resolve(user.profileImageUrl, appConfig.defaultProfileImageUrl()));
         body.put("created_at", user.createdAt);
+        body.put("account_status", accountStatus(user));
+        body.put("disabled_at", user.disabledAt);
+        body.put("disabled_reason", user.disabledReason);
         body.put("deleted_at", user.deletedAt);
         body.put("deleted_by", user.deletedBy);
         var ban = bans.findActiveByUserId(user.id);
         ban.ifPresent(b -> {
             Map<String, Object> banMap = new HashMap<>();
+            banMap.put("status", "banned");
             banMap.put("reason", b.reason);
             banMap.put("created_at", b.createdAt);
             banMap.put("expires_at", b.expiresAt);
@@ -157,18 +192,27 @@ public class AdminUsersController {
         String email = jwt.getClaimAsString("email");
         var authRes = auth.requirePermission(jwt.getSubject(), email, AdminPermissions.BAN_USER);
         if (authRes.status() != AdminAuthService.Status.OK) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "forbidden"));
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
+                    "error", "forbidden",
+                    "message", "Missing admin permission: " + AdminPermissions.BAN_USER
+            ));
         }
         var userOpt = users.findByIdIncludingDeleted(id);
         if (userOpt.isEmpty()) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "not_found"));
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of(
+                    "error", "not_found",
+                    "message", "User not found"
+            ));
         }
         OffsetDateTime expiresAt = null;
         if (body.expiresAt() != null && !body.expiresAt().isBlank()) {
             try {
                 expiresAt = OffsetDateTime.parse(body.expiresAt());
             } catch (DateTimeParseException e) {
-                return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of("error", "invalid_expires_at"));
+                return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of(
+                        "error", "invalid_expires_at",
+                        "message", "expires_at must be ISO-8601"
+                ));
             }
         } else if (body.durationSeconds() != null && body.durationSeconds() > 0) {
             expiresAt = OffsetDateTime.now().plusSeconds(body.durationSeconds());
@@ -188,18 +232,267 @@ public class AdminUsersController {
         String email = jwt.getClaimAsString("email");
         var authRes = auth.requirePermission(jwt.getSubject(), email, AdminPermissions.BAN_USER);
         if (authRes.status() != AdminAuthService.Status.OK) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "forbidden"));
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
+                    "error", "forbidden",
+                    "message", "Missing admin permission: " + AdminPermissions.BAN_USER
+            ));
         }
         var userOpt = users.findByIdIncludingDeleted(id);
         if (userOpt.isEmpty()) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "not_found"));
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of(
+                    "error", "not_found",
+                    "message", "User not found"
+            ));
         }
         bans.revokeActive(id, authRes.admin().id);
         audit.log(authRes.admin().id, "user.unban", "user", id, null);
         return ResponseEntity.ok(Map.of("status", "active"));
     }
 
+    @PostMapping("/users/{id}/disable")
+    public ResponseEntity<?> disable(
+            @AuthenticationPrincipal Jwt jwt,
+            @PathVariable("id") long id,
+            @RequestBody(required = false) DisableRequest body
+    ) {
+        String email = jwt.getClaimAsString("email");
+        var authRes = auth.requirePermission(jwt.getSubject(), email, AdminPermissions.BAN_USER);
+        if (authRes.status() != AdminAuthService.Status.OK) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
+                    "error", "forbidden",
+                    "message", "Missing admin permission: " + AdminPermissions.BAN_USER
+            ));
+        }
+        if (body == null) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of(
+                    "error", "invalid_body",
+                    "message", "Request body is required"
+            ));
+        }
+        String reason = body.reason() == null ? null : body.reason().trim();
+        if (reason == null || reason.isBlank()) {
+            return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of(
+                    "error", "invalid_reason",
+                    "message", "reason is required"
+            ));
+        }
+        if (reason.length() > 500) {
+            return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of(
+                    "error", "invalid_reason",
+                    "message", "reason is too long"
+            ));
+        }
+        var userOpt = users.findByIdIncludingDeleted(id);
+        if (userOpt.isEmpty()) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of(
+                    "error", "not_found",
+                    "message", "User not found"
+            ));
+        }
+        var user = userOpt.get();
+        if (user.firebaseUid != null && adminUsers.findByFirebaseUid(user.firebaseUid).isPresent()) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
+                    "error", "cannot_disable_admin",
+                    "message", "Cannot disable an admin account"
+            ));
+        }
+        if (user.deletedAt != null) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
+                    "error", "invalid_state",
+                    "message", "Cannot disable a deleted account"
+            ));
+        }
+        var updatedOpt = users.adminDisable(id, authRes.admin().id, reason);
+        if (updatedOpt.isEmpty()) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of(
+                    "error", "not_found",
+                    "message", "User not found"
+            ));
+        }
+        var updated = updatedOpt.get();
+        audit.log(authRes.admin().id, "user.disable", "user", id, "{\"reason\":\"" + escapeJson(reason) + "\"}");
+        if (updated.firebaseUid != null && firebaseAdmin.isEnabled()) {
+            firebaseAdmin.setDisabled(updated.firebaseUid, true);
+            firebaseAdmin.revokeRefreshTokens(updated.firebaseUid);
+        }
+        return ResponseEntity.ok(Map.of(
+                "id", updated.id,
+                "account_status", "disabled",
+                "disabled_at", updated.disabledAt,
+                "disabled_reason", updated.disabledReason
+        ));
+    }
+
+    @PostMapping("/users/{id}/enable")
+    public ResponseEntity<?> enable(
+            @AuthenticationPrincipal Jwt jwt,
+            @PathVariable("id") long id,
+            @RequestBody(required = false) EnableRequest body
+    ) {
+        String email = jwt.getClaimAsString("email");
+        var authRes = auth.requirePermission(jwt.getSubject(), email, AdminPermissions.BAN_USER);
+        if (authRes.status() != AdminAuthService.Status.OK) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
+                    "error", "forbidden",
+                    "message", "Missing admin permission: " + AdminPermissions.BAN_USER
+            ));
+        }
+        var userOpt = users.findByIdIncludingDeleted(id);
+        if (userOpt.isEmpty()) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of(
+                    "error", "not_found",
+                    "message", "User not found"
+            ));
+        }
+        var user = userOpt.get();
+        if (user.firebaseUid != null && adminUsers.findByFirebaseUid(user.firebaseUid).isPresent()) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
+                    "error", "cannot_enable_admin",
+                    "message", "Cannot enable an admin account"
+            ));
+        }
+        if (user.deletedAt != null) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
+                    "error", "invalid_state",
+                    "message", "Cannot enable a deleted account"
+            ));
+        }
+        String note = body == null ? null : body.reason();
+        if (note != null) note = note.trim();
+        if (note != null && note.length() > 500) {
+            return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of(
+                    "error", "invalid_reason",
+                    "message", "reason is too long"
+            ));
+        }
+        var updatedOpt = users.adminEnable(id);
+        if (updatedOpt.isEmpty()) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of(
+                    "error", "not_found",
+                    "message", "User not found"
+            ));
+        }
+        var updated = updatedOpt.get();
+        audit.log(authRes.admin().id, "user.enable", "user", id,
+                note == null || note.isBlank() ? null : "{\"reason\":\"" + escapeJson(note) + "\"}");
+        if (updated.firebaseUid != null && firebaseAdmin.isEnabled()) {
+            firebaseAdmin.setDisabled(updated.firebaseUid, false);
+            firebaseAdmin.revokeRefreshTokens(updated.firebaseUid);
+        }
+        return ResponseEntity.ok(Map.of(
+                "id", updated.id,
+                "account_status", "active",
+                "disabled_at", null,
+                "disabled_reason", null
+        ));
+    }
+
+    @PostMapping("/users/{id}/delete")
+    public ResponseEntity<?> delete(
+            @AuthenticationPrincipal Jwt jwt,
+            @PathVariable("id") long id,
+            @RequestBody(required = false) DeleteUserRequest body
+    ) {
+        String email = jwt.getClaimAsString("email");
+        var authRes = auth.requirePermission(jwt.getSubject(), email, AdminPermissions.BAN_USER);
+        if (authRes.status() != AdminAuthService.Status.OK) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
+                    "error", "forbidden",
+                    "message", "Missing admin permission: " + AdminPermissions.BAN_USER
+            ));
+        }
+        if (body == null) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of(
+                    "error", "invalid_body",
+                    "message", "Request body is required"
+            ));
+        }
+        if (body.confirm() == null || body.confirm().isBlank()) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of(
+                    "error", "missing_confirm",
+                    "message", "confirm must be provided"
+            ));
+        }
+        if (!"DELETE".equals(body.confirm().trim())) {
+            return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of(
+                    "error", "invalid_confirm",
+                    "message", "confirm must equal DELETE"
+            ));
+        }
+        String mode = body.mode() == null ? "soft" : body.mode().trim().toLowerCase(java.util.Locale.ROOT);
+        if (!"soft".equals(mode)) {
+            return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of(
+                    "error", "delete_not_supported",
+                    "message", "Only soft delete is supported"
+            ));
+        }
+        String reason = body.reason() == null ? null : body.reason().trim();
+        if (reason == null || reason.isBlank()) {
+            return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of(
+                    "error", "invalid_reason",
+                    "message", "reason is required"
+            ));
+        }
+        if (reason.length() > 500) {
+            return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of(
+                    "error", "invalid_reason",
+                    "message", "reason is too long"
+            ));
+        }
+        var userOpt = users.findByIdIncludingDeleted(id);
+        if (userOpt.isEmpty()) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of(
+                    "error", "not_found",
+                    "message", "User not found"
+            ));
+        }
+        var user = userOpt.get();
+        if (user.firebaseUid != null && adminUsers.findByFirebaseUid(user.firebaseUid).isPresent()) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
+                    "error", "cannot_delete_admin",
+                    "message", "Cannot delete an admin account"
+            ));
+        }
+        var updatedOpt = users.adminSoftDelete(id, authRes.admin().id, reason);
+        if (updatedOpt.isEmpty()) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of(
+                    "error", "not_found",
+                    "message", "User not found"
+            ));
+        }
+        var updated = updatedOpt.get();
+        audit.log(authRes.admin().id, "user.delete", "user", id,
+                "{\"mode\":\"soft\",\"reason\":\"" + escapeJson(reason) + "\"}");
+        if (updated.firebaseUid != null && firebaseAdmin.isEnabled()) {
+            firebaseAdmin.setDisabled(updated.firebaseUid, true);
+            firebaseAdmin.revokeRefreshTokens(updated.firebaseUid);
+        }
+        return ResponseEntity.ok(Map.of(
+                "id", updated.id,
+                "account_status", "deleted",
+                "deleted_at", updated.deletedAt
+        ));
+    }
+
     public record BanRequest(@JsonProperty("duration_seconds") Long durationSeconds,
                              @JsonProperty("expires_at") String expiresAt,
                              String reason) {}
+
+    public record DisableRequest(String reason, @JsonProperty("notify_user") Boolean notifyUser) {}
+
+    public record EnableRequest(String reason) {}
+
+    public record DeleteUserRequest(String reason, String mode, String confirm) {}
+
+    private static String accountStatus(UserRepository.UserRow user) {
+        if (user == null) return "active";
+        if (user.deletedAt != null) return "deleted";
+        if (user.disabledAt != null) return "disabled";
+        return "active";
+    }
+
+    private static String escapeJson(String s) {
+        if (s == null) return "";
+        return s.replace("\\", "\\\\").replace("\"", "\\\"");
+    }
 }

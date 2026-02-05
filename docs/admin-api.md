@@ -213,12 +213,13 @@ Errors
 ## Moderation endpoints
 
 ### GET /v1/admin/users
-Search users for moderation. Requires `ban_user`.
+Global user list + search for moderation/admin actions. Requires `ban_user` (used as “manage users” permission).
 
 Query params:
-- `query` (optional): handle/email/firebase UID or ID match
+- `query` (optional): email/handle substring, exact numeric `id`, or firebase UID substring
+- `sort` (optional): `created_at_desc` (default)
 - `cursor` (optional)
-- `limit` (default 50)
+- `limit` (default 50, max 200)
 
 Response (200)
 ```json
@@ -230,7 +231,12 @@ Response (200)
       "email": "bully@company.com",
       "company_id": 5,
       "created_at": "2024-01-01T00:00:00Z",
+      "account_status": "active",
+      "disabled_at": null,
+      "disabled_reason": null,
+      "deleted_at": null,
       "ban": {
+        "status": "banned",
         "reason": "harassment",
         "created_at": "2024-01-02T00:00:00Z",
         "expires_at": null
@@ -240,6 +246,10 @@ Response (200)
   "next_cursor": "eyJ0Ijo..."
 }
 ```
+
+Errors
+- `403 { "error": "forbidden", "message": "..." }`
+- `422 { "error": "invalid_sort", "message": "..." }`
 
 ### GET /v1/admin/users/{id}
 Fetch a user record, including active ban and moderation stats. Requires `ban_user`.
@@ -252,7 +262,11 @@ Response (200)
   "email": "bully@company.com",
   "company_id": 5,
   "created_at": "2024-01-01T00:00:00Z",
+  "account_status": "active",
+  "disabled_at": null,
+  "disabled_reason": null,
   "ban": {
+    "status": "banned",
     "reason": "harassment",
     "created_at": "2024-01-02T00:00:00Z",
     "expires_at": null,
@@ -307,6 +321,85 @@ Response (200)
   "status": "active"
 }
 ```
+
+### POST /v1/admin/users/{id}/disable
+Disable a user account (reversible; blocks app access). Requires `ban_user`.
+
+Request
+```json
+{
+  "reason": "Required short reason",
+  "notify_user": false
+}
+```
+
+Response (200)
+```json
+{
+  "id": 123,
+  "account_status": "disabled",
+  "disabled_at": "2026-02-05T12:34:56Z",
+  "disabled_reason": "..."
+}
+```
+
+Errors
+- `403 { "error": "forbidden", "message": "..." }`
+- `404 { "error": "not_found", "message": "..." }`
+- `409 { "error": "cannot_disable_admin" | "invalid_state", "message": "..." }`
+- `422 { "error": "invalid_reason", "message": "..." }`
+
+### POST /v1/admin/users/{id}/enable
+Re-enable a user account. Requires `ban_user`.
+
+Request (optional)
+```json
+{ "reason": "Optional audit note" }
+```
+
+Response (200)
+```json
+{
+  "id": 123,
+  "account_status": "active",
+  "disabled_at": null,
+  "disabled_reason": null
+}
+```
+
+Errors
+- `403 { "error": "forbidden", "message": "..." }`
+- `404 { "error": "not_found", "message": "..." }`
+- `409 { "error": "cannot_enable_admin" | "invalid_state", "message": "..." }`
+- `422 { "error": "invalid_reason", "message": "..." }`
+
+### POST /v1/admin/users/{id}/delete
+Soft-delete a user account (blocks app access; auditable). Requires `ban_user`.
+
+Request
+```json
+{
+  "reason": "Required",
+  "mode": "soft",
+  "confirm": "DELETE"
+}
+```
+
+Response (200)
+```json
+{
+  "id": 123,
+  "account_status": "deleted",
+  "deleted_at": "2026-02-05T12:34:56Z"
+}
+```
+
+Errors
+- `400 { "error": "missing_confirm", "message": "..." }`
+- `403 { "error": "forbidden", "message": "..." }`
+- `404 { "error": "not_found", "message": "..." }`
+- `409 { "error": "cannot_delete_admin", "message": "..." }`
+- `422 { "error": "invalid_reason" | "delete_not_supported" | "invalid_confirm", "message": "..." }`
 
 ### GET /v1/admin/users/{id}/community-bans
 List a user's community bans. Requires `ban_user`.

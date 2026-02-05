@@ -557,6 +557,9 @@ public class UsersService {
             return users.isFirebaseUidTombstoned(firebaseUid) ? LoginStatus.PURGED : LoginStatus.MISSING;
         }
         if (existing.get().deletedAt == null) return LoginStatus.ACTIVE;
+        if ("admin".equalsIgnoreCase(existing.get().deletedSource)) {
+            return LoginStatus.PURGED;
+        }
         OffsetDateTime cutoff = OffsetDateTime.now().minusDays(deactivatedRetentionDays);
         if (existing.get().deletedAt.isBefore(cutoff)) {
             var firebaseResult = firebaseAdmin.deleteUser(firebaseUid);

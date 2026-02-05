@@ -116,6 +116,48 @@ public class FirebaseAdminService {
         }
     }
 
+    public UpdateDisabledResult setDisabled(String firebaseUid, boolean disabled) {
+        if (firebaseUid == null || firebaseUid.isBlank()) {
+            return UpdateDisabledResult.failed("invalid_uid");
+        }
+        if (!enabled) {
+            return UpdateDisabledResult.skipped(initError != null ? initError : "not_configured");
+        }
+        try {
+            auth.updateUser(new UserRecord.UpdateRequest(firebaseUid).setDisabled(disabled));
+            return UpdateDisabledResult.ok();
+        } catch (FirebaseAuthException e) {
+            String code = e.getErrorCode() != null ? e.getErrorCode().name() : null;
+            if ("user-not-found".equalsIgnoreCase(code)) {
+                return UpdateDisabledResult.ok();
+            }
+            return UpdateDisabledResult.failed(code);
+        } catch (Exception e) {
+            return UpdateDisabledResult.failed(e.getMessage());
+        }
+    }
+
+    public RevokeTokensResult revokeRefreshTokens(String firebaseUid) {
+        if (firebaseUid == null || firebaseUid.isBlank()) {
+            return RevokeTokensResult.failed("invalid_uid");
+        }
+        if (!enabled) {
+            return RevokeTokensResult.skipped(initError != null ? initError : "not_configured");
+        }
+        try {
+            auth.revokeRefreshTokens(firebaseUid);
+            return RevokeTokensResult.ok();
+        } catch (FirebaseAuthException e) {
+            String code = e.getErrorCode() != null ? e.getErrorCode().name() : null;
+            if ("user-not-found".equalsIgnoreCase(code)) {
+                return RevokeTokensResult.ok();
+            }
+            return RevokeTokensResult.failed(code);
+        } catch (Exception e) {
+            return RevokeTokensResult.failed(e.getMessage());
+        }
+    }
+
     public boolean isRequired() {
         return required;
     }
@@ -136,7 +178,23 @@ public class FirebaseAdminService {
         static UnlinkProviderResult failed(String error) { return new UnlinkProviderResult(UnlinkProviderStatus.FAILED, false, error); }
     }
 
+    public record UpdateDisabledResult(UpdateDisabledStatus status, String error) {
+        static UpdateDisabledResult ok() { return new UpdateDisabledResult(UpdateDisabledStatus.OK, null); }
+        static UpdateDisabledResult skipped(String error) { return new UpdateDisabledResult(UpdateDisabledStatus.SKIPPED, error); }
+        static UpdateDisabledResult failed(String error) { return new UpdateDisabledResult(UpdateDisabledStatus.FAILED, error); }
+    }
+
+    public record RevokeTokensResult(RevokeTokensStatus status, String error) {
+        static RevokeTokensResult ok() { return new RevokeTokensResult(RevokeTokensStatus.OK, null); }
+        static RevokeTokensResult skipped(String error) { return new RevokeTokensResult(RevokeTokensStatus.SKIPPED, error); }
+        static RevokeTokensResult failed(String error) { return new RevokeTokensResult(RevokeTokensStatus.FAILED, error); }
+    }
+
     public enum DeleteStatus { OK, SKIPPED, FAILED }
 
     public enum UnlinkProviderStatus { OK, SKIPPED, FAILED }
+
+    public enum UpdateDisabledStatus { OK, SKIPPED, FAILED }
+
+    public enum RevokeTokensStatus { OK, SKIPPED, FAILED }
 }

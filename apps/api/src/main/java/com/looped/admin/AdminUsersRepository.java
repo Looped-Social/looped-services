@@ -46,6 +46,15 @@ public class AdminUsersRepository {
         return list.isEmpty() ? Optional.empty() : Optional.of(list.get(0));
     }
 
+    public Optional<AdminUserRow> findByFirebaseUid(String firebaseUid) {
+        if (firebaseUid == null || firebaseUid.isBlank()) return Optional.empty();
+        var list = jdbc.query(
+                "SELECT * FROM admin_users WHERE firebase_uid = ? LIMIT 1",
+                MAPPER, firebaseUid
+        );
+        return list.isEmpty() ? Optional.empty() : Optional.of(list.get(0));
+    }
+
     public Optional<AdminUserRow> findByEmail(String email) {
         String normalized = normalizeEmail(email);
         if (normalized == null) return Optional.empty();

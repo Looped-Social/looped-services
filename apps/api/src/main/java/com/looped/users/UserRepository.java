@@ -15,7 +15,8 @@ public class UserRepository {
     private static final String BASE_COLUMNS = "id, firebase_uid, handle, email, company_id, first_name, last_name, " +
             "date_of_birth, display_name, bio, is_anonymous, show_follower_count, message_permission, profile_image_url, " +
             "hide_anonymous_posts, display_community_id, display_specialization_id, onboarding_step, onboarding_completed_at, " +
-            "created_at, deleted_at, deleted_by";
+            "created_at, disabled_at, disabled_reason, disabled_by_admin_id, " +
+            "deleted_at, deleted_by, deleted_source, deleted_by_admin_id, deleted_reason";
 
     public UserRepository(JdbcTemplate jdbcTemplate) {
         this.jdbcTemplate = jdbcTemplate;
@@ -48,9 +49,17 @@ public class UserRepository {
             row.onboardingStep = rs.getString("onboarding_step");
             row.onboardingCompletedAt = rs.getObject("onboarding_completed_at", OffsetDateTime.class);
             row.createdAt = rs.getObject("created_at", OffsetDateTime.class);
+            row.disabledAt = rs.getObject("disabled_at", OffsetDateTime.class);
+            row.disabledReason = rs.getString("disabled_reason");
+            long disabledByAdminId = rs.getLong("disabled_by_admin_id");
+            row.disabledByAdminId = rs.wasNull() ? null : disabledByAdminId;
             row.deletedAt = rs.getObject("deleted_at", OffsetDateTime.class);
             long deletedBy = rs.getLong("deleted_by");
             row.deletedBy = rs.wasNull() ? null : deletedBy;
+            row.deletedSource = rs.getString("deleted_source");
+            long deletedByAdminId = rs.getLong("deleted_by_admin_id");
+            row.deletedByAdminId = rs.wasNull() ? null : deletedByAdminId;
+            row.deletedReason = rs.getString("deleted_reason");
             return row;
         }
     };
@@ -556,10 +565,28 @@ public class UserRepository {
 
     public boolean reactivate(long userId) {
         int rows = jdbcTemplate.update(
-                "UPDATE users SET deleted_at = NULL, deleted_by = NULL WHERE id = ? AND deleted_at IS NOT NULL",
+                "UPDATE users SET deleted_at = NULL, deleted_by = NULL, deleted_source = NULL, deleted_by_admin_id = NULL, deleted_reason = NULL " +
+                        "WHERE id = ? AND deleted_at IS NOT NULL",
                 userId
         );
         return rows > 0;
+    }
+
+    public Optional<UserAccessStatusRow> accessStatusByFirebaseUid(String firebaseUid) {
+        if (firebaseUid == null || firebaseUid.isBlank()) return Optional.empty();
+        var list = jdbcTemplate.query(
+                "SELECT id, disabled_at, deleted_at, deleted_source FROM users WHERE firebase_uid = ? LIMIT 1",
+                (rs, rowNum) -> {
+                    UserAccessStatusRow row = new UserAccessStatusRow();
+                    row.id = rs.getLong("id");
+                    row.disabledAt = rs.getObject("disabled_at", OffsetDateTime.class);
+                    row.deletedAt = rs.getObject("deleted_at", OffsetDateTime.class);
+                    row.deletedSource = rs.getString("deleted_source");
+                    return row;
+                },
+                firebaseUid
+        );
+        return list.isEmpty() ? Optional.empty() : Optional.of(list.get(0));
     }
 
     public java.util.List<UserRow> listSoftDeletedBefore(OffsetDateTime cutoff, int limit) {
@@ -647,6 +674,98 @@ public class UserRepository {
         );
     }
 
+    public java.util.List<UserRow> adminSearchAll(String query, java.time.OffsetDateTime cursorTs, Long cursorId, int limit) {
+        String q = query == null ? "" : query.trim().toLowerCase();
+        boolean hasQuery = !q.isBlank();
+        String like = "%" + q + "%";
+        Long idQuery = null;
+        if (hasQuery) {
+            try {
+                idQuery = Long.parseLong(q);
+            } catch (NumberFormatException ignored) {}
+        }
+        if (!hasQuery) {
+            if (cursorTs == null || cursorId == null) {
+                return jdbcTemplate.query(
+                        "SELECT " + BASE_COLUMNS + " FROM users ORDER BY created_at DESC, id DESC LIMIT ?",
+                        MAPPER, limit
+                );
+            }
+            return jdbcTemplate.query(
+                    "SELECT " + BASE_COLUMNS + " FROM users WHERE (created_at < ? OR (created_at = ? AND id < ?)) " +
+                            "ORDER BY created_at DESC, id DESC LIMIT ?",
+                    MAPPER, cursorTs, cursorTs, cursorId, limit
+            );
+        }
+        boolean hasId = idQuery != null;
+        String filter = hasId
+                ? "(LOWER(handle) LIKE ? OR LOWER(COALESCE(display_name,'')) LIKE ? OR LOWER(COALESCE(email,'')) LIKE ? " +
+                "OR LOWER(firebase_uid) LIKE ? OR id = ?)"
+                : "(LOWER(handle) LIKE ? OR LOWER(COALESCE(display_name,'')) LIKE ? OR LOWER(COALESCE(email,'')) LIKE ? " +
+                "OR LOWER(firebase_uid) LIKE ?)";
+        if (cursorTs == null || cursorId == null) {
+            Object[] args = hasId
+                    ? new Object[]{like, like, like, like, idQuery, limit}
+                    : new Object[]{like, like, like, like, limit};
+            return jdbcTemplate.query(
+                    "SELECT " + BASE_COLUMNS + " FROM users WHERE " + filter +
+                            " ORDER BY created_at DESC, id DESC LIMIT ?",
+                    args, MAPPER
+            );
+        }
+        Object[] args = hasId
+                ? new Object[]{like, like, like, like, idQuery, cursorTs, cursorTs, cursorId, limit}
+                : new Object[]{like, like, like, like, cursorTs, cursorTs, cursorId, limit};
+        return jdbcTemplate.query(
+                "SELECT " + BASE_COLUMNS + " FROM users WHERE " + filter +
+                        " AND (created_at < ? OR (created_at = ? AND id < ?)) " +
+                        "ORDER BY created_at DESC, id DESC LIMIT ?",
+                args, MAPPER
+        );
+    }
+
+    public Optional<UserRow> adminDisable(long userId, Long disabledByAdminId, String reason) {
+        var list = jdbcTemplate.query(
+                "UPDATE users SET " +
+                        "disabled_at = COALESCE(disabled_at, now()), " +
+                        "disabled_reason = COALESCE(disabled_reason, ?), " +
+                        "disabled_by_admin_id = COALESCE(disabled_by_admin_id, ?) " +
+                        "WHERE id = ? " +
+                        "RETURNING " + BASE_COLUMNS,
+                MAPPER,
+                reason, disabledByAdminId, userId
+        );
+        return list.isEmpty() ? Optional.empty() : Optional.of(list.get(0));
+    }
+
+    public Optional<UserRow> adminEnable(long userId) {
+        var list = jdbcTemplate.query(
+                "UPDATE users SET disabled_at = NULL, disabled_reason = NULL, disabled_by_admin_id = NULL " +
+                        "WHERE id = ? " +
+                        "RETURNING " + BASE_COLUMNS,
+                MAPPER,
+                userId
+        );
+        return list.isEmpty() ? Optional.empty() : Optional.of(list.get(0));
+    }
+
+    public Optional<UserRow> adminSoftDelete(long userId, Long deletedByAdminId, String reason) {
+        var list = jdbcTemplate.query(
+                "UPDATE users SET " +
+                        "deleted_at = COALESCE(deleted_at, now()), " +
+                        "deleted_source = 'admin', " +
+                        "deleted_by_admin_id = COALESCE(deleted_by_admin_id, ?), " +
+                        "deleted_reason = COALESCE(deleted_reason, ?), " +
+                        "email = NULL, first_name = NULL, last_name = NULL, date_of_birth = NULL, " +
+                        "display_name = NULL, bio = NULL, profile_image_url = NULL " +
+                        "WHERE id = ? " +
+                        "RETURNING " + BASE_COLUMNS,
+                MAPPER,
+                deletedByAdminId, reason, userId
+        );
+        return list.isEmpty() ? Optional.empty() : Optional.of(list.get(0));
+    }
+
     private String normalizeEmail(String email) {
         if (email == null) return null;
         String trimmed = email.trim();
@@ -732,8 +851,21 @@ public class UserRepository {
         public String onboardingStep;
         public OffsetDateTime onboardingCompletedAt;
         public OffsetDateTime createdAt;
+        public OffsetDateTime disabledAt;
+        public String disabledReason;
+        public Long disabledByAdminId;
         public OffsetDateTime deletedAt;
         public Long deletedBy;
+        public String deletedSource;
+        public Long deletedByAdminId;
+        public String deletedReason;
+    }
+
+    public static class UserAccessStatusRow {
+        public long id;
+        public OffsetDateTime disabledAt;
+        public OffsetDateTime deletedAt;
+        public String deletedSource;
     }
 
     public static class ScoredUserRow {
