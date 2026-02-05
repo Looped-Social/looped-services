@@ -43,7 +43,7 @@
 - Run API (dev): `./mvnw -q -pl apps/api -am spring-boot:run`
   - Alternative (module-only): `./mvnw -q -f apps/api/pom.xml spring-boot:run`
 - Build all modules: `./mvnw -q -T 1C -DskipTests package`
-- Run tests (requires Docker for Testcontainers): `./mvnw -q -T 1C test`
+- Run tests (Docker recommended for full suite; Testcontainers tests are skipped without Docker): `./mvnw -q -T 1C test`
 - API URL: `http://localhost:8080` — health: `GET /health` → `ok`
 
 ### Local dev (minimal)
@@ -56,7 +56,7 @@
 - Start deps: `make up`
 - Start only Postgres: `make database` (aliases: `make db`, `make datbase`)
 - Dev run: `make dev`
-- Tests: `make test` (Docker required)
+- Tests: `make test` (Docker recommended; Testcontainers tests are skipped without Docker)
 - Build: `make build`
 - Run JAR: `make jar` (after build)
 - Logs: `make logs`
@@ -98,10 +98,10 @@
   - JDK 25
   - Postgres running locally (Homebrew or Docker)
   - Redis optional for local (required for post idempotency and rate limits)
-  - Docker optional for running tests (Testcontainers)
+- Docker optional for running tests (Testcontainers)
 - Compile only (skip tests)
   - `./mvnw -q -pl apps/api -am -DskipTests package`
-- Run tests (requires Docker for Testcontainers)
+- Run tests (Docker recommended for full suite; Testcontainers tests are skipped without Docker)
   - `./mvnw -q -pl apps/api -am test`
 - Start API (dev)
   - Ensure DB envs match your local Postgres (defaults in `.env.example`)
@@ -122,8 +122,8 @@
   - Health: `curl http://localhost:8080/health` → `ok`
   - Auth sanity: `curl -i http://localhost:8080/v1/me` → `401`
 - Tests
-  - Run: `./mvnw -q -T 1C test` (Docker required for Testcontainers Postgres/Redis)
-  - Expect all tests to pass; failures usually indicate missing Docker or low resources
+  - Run: `./mvnw -q -T 1C test` (Docker recommended for full suite; Testcontainers tests are skipped without Docker)
+  - Expect all tests to pass; if many tests are skipped, Docker/Testcontainers may be unavailable
 - Build artifacts
   - Build (skip tests): `./mvnw -q -pl apps/api -am -DskipTests package`
   - JAR present: `ls apps/api/target/looped-api-0.0.1-SNAPSHOT.jar`

@@ -100,12 +100,30 @@ public class NotifWorker {
             System.out.println("failed to parse message: " + e.getMessage());
             return true;
         }
-        if (event == null || event.isEmpty()) return true;
+        SimpleApnsPushNotification notification = buildNotification(bundleId, event, Instant.now());
+        if (notification == null) return true;
+
+        try {
+            PushNotificationResponse<SimpleApnsPushNotification> response = apns.sendNotification(notification).get();
+            if (!response.isAccepted()) {
+                String reason = response.getRejectionReason().orElse(null);
+                System.out.println("push rejected: " + reason);
+            }
+            return true;
+        } catch (Exception e) {
+            System.out.println("push send failed: " + e.getMessage());
+            return false;
+        }
+    }
+
+    static SimpleApnsPushNotification buildNotification(String bundleId, Map<String, Object> event, Instant sentAt) {
+        if (bundleId == null || bundleId.isBlank()) return null;
+        if (event == null || event.isEmpty()) return null;
         String apnsToken = asString(event.get("apns_token"));
         String title = asString(event.get("title"));
         String body = asString(event.get("body"));
-        if (apnsToken == null || apnsToken.isBlank()) return true;
-        if (title == null || body == null) return true;
+        if (apnsToken == null || apnsToken.isBlank()) return null;
+        if (title == null || body == null) return null;
 
         SimpleApnsPayloadBuilder payloadBuilder = new SimpleApnsPayloadBuilder();
         payloadBuilder.setAlertTitle(title);
@@ -122,26 +140,14 @@ public class NotifWorker {
             if (RESERVED_KEYS.contains(entry.getKey())) continue;
             payloadBuilder.addCustomProperty(entry.getKey(), entry.getValue());
         }
-        payloadBuilder.addCustomProperty("sent_at", Instant.now().toString());
+        payloadBuilder.addCustomProperty("sent_at", (sentAt != null ? sentAt : Instant.now()).toString());
         String payload = payloadBuilder.build();
 
-        SimpleApnsPushNotification notification = new SimpleApnsPushNotification(
+        return new SimpleApnsPushNotification(
                 apnsToken,
                 bundleId,
                 payload
         );
-
-        try {
-            PushNotificationResponse<SimpleApnsPushNotification> response = apns.sendNotification(notification).get();
-            if (!response.isAccepted()) {
-                String reason = response.getRejectionReason().orElse(null);
-                System.out.println("push rejected: " + reason);
-            }
-            return true;
-        } catch (Exception e) {
-            System.out.println("push send failed: " + e.getMessage());
-            return false;
-        }
     }
 
     private static ApnsSigningKey loadSigningKey() {

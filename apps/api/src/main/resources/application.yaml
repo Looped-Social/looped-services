@@ -128,43 +128,6 @@ retention:
 anon:
   issuer:
     kid: ${ANON_ISSUER_KID:dev-issuer}
-    privateKeyPem: |
-      -----BEGIN PRIVATE KEY-----
-      MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQDIZLlAogepsKKX
-      OeirGrsvAaWEeM4cJ3Bf+UY8flwy3jKq/AJaRVWC8UounLOH7rxhVHYT08/cKtpi
-      F/3F9XE3oTRP+msddFVxIYcL+siFIOxUouc/PQb5A6hvkCGAS/Q4FuwpIeOGCsYj
-      adTfkSscSRcPOYnxft5RqQF8JeP1jwjxupItUkxqi2C6shtUK5M5bnTj5DZ7h95x
-      +zG6KNRQVXe/RM66nWkvnTBaF3gbxbbm7XE2JgHioFOtpX44QliLS0ur+7R1O2u2
-      M1JyckN+ftJJEEhtbwboBGFUztStx/t+bUAUF8SgGCGcwI9EX+eZLamtbT5/r2lF
-      u+s38IpLAgMBAAECggEAT3fuJSz8V/VVzR3oYG5l28LN5kZYCj8zp8O9cED2BDAs
-      rLTqo+zJ9/cDIY///ECXEQwDFWLSk++kkfEMsOPgRZzWl37p2pDnT0lp+jy2J2FC
-      h1/gz6m+aaLjOXbRakT0sQeaGMe5KE9+es293vj9PSbZD68UPqI+vOiGT7rg92BQ
-      TimTA9vQrZdTDdTQ3BA0RD1jKtYI2/fDiE5I00hJqoAk+ZsSz4EQApew7w5wQtu+
-      twHmdgsO9MaiTKVOOLJRbzNK+XvaG5mlHKWjv0BbPkp9g/70fNWfG3A37PPJihOZ
-      Aklh1hF0DoE5d8zUKEl89MkuZ0HtO7DHqfoyOTDVIQKBgQD/X70e1/zReAtdwLjk
-      EVhJoOhvqtl9EFaGZK4xYfCw88TVaA0FVlBhbSKsGMr7wokOu52P5+YDqyvOy5kP
-      xk5VCVjETDGVgbfL5M+n5nlYbhUOzoebw3eUZ6LXyCY+WocMDJVNYYEea5gSlo17
-      0aKIGAB/qR6RuJuEW0kVUhVV4QKBgQDI4ntIwb2/m8jNe9lI52BHbefIq/7xDV+7
-      r3NWNmSQD1O4noXFYIoWEgV2WqY7aeDxDYEgSvrC6mCB/oEqqVNHKHs3pP0JC4V4
-      Fud2Re/XZFbBNpfHoXhDUFf4IBaaeTRxzCzdZGt+nOYlThKwbHa5u+lRyY7RrhU3
-      LnwcxUvNqwKBgEuGTvIuQnDYpdPmSUf58ThlRBiyWHvqNwyr/fBQ3NQYY+ARU7h+
-      XGtT0WtAMdffIpWe2uxSUu5G0z/naq8FoOj5SK1VM1zZ7jd4xgkL2ltSwxuL7QMd
-      /eF//OMAKH9MWqAvoIAwE/WhMGpe6Bz0VLMXFh6rL4U9KZEtRiHuEq1BAoGAH/Ru
-      +gbfoTAtxAoUaVVs6k/gU/qQJlYjSV7CcQ9b9dKKVc7ZpqkRrisVtVr8IG1aO94T
-      EUj8FK9lxKfwchHXTnVxDEvxeFPd2lmCXj0HxvKOHlQJ1tano8WPCMhJ8C6hmgyJ
-      gnor40sgDQUbUfce97KdjcYLMu2HMGzzjzwPL9sCgYEArD8A8z/Iu6E9ttElBU1g
-      W5mjxM4J2KcK82GCr76eDHRi8eiakCz+eFBw0y9P0Naa+UcuEopmgWpDgELcvAoj
-      606OUoANu4z7lpvE7boHhwv3qiFEVK8xqHFk46zBmtW4Hk8xvV73vaDMJEtZvbrn
-      NrexhARNH4aHmQNulrtZuPk=
-      -----END PRIVATE KEY-----
-    publicKeyPem: |
-      -----BEGIN PUBLIC KEY-----
-      MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAyGS5QKIHqbCilznoqxq7
-      LwGlhHjOHCdwX/lGPH5cMt4yqvwCWkVVgvFKLpyzh+68YVR2E9PP3CraYhf9xfVx
-      N6E0T/prHXRVcSGHC/rIhSDsVKLnPz0G+QOob5AhgEv0OBbsKSHjhgrGI2nU35Er
-      HEkXDzmJ8X7eUakBfCXj9Y8I8bqSLVJMaotgurIbVCuTOW504+Q2e4fecfsxuijU
-      UFV3v0TOup1pL50wWhd4G8W25u1xNiYB4qBTraV+OEJYi0tLq/u0dTtrtjNScnJD
-      fn7SSRBIbW8G6ARhVM7Urcf7fm1AFBfEoBghnMCPRF/nmS2prW0+f69pRbvrN/CK
-      SwIDAQAB
-      -----END PUBLIC KEY-----
     maxAge: ${ANON_CERT_MAX_AGE:365d}
+    kek: ${ANON_ISSUER_KEK:}
+    keyBits: ${ANON_ISSUER_KEY_BITS:2048}
