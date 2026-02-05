@@ -24,6 +24,9 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.time.OffsetDateTime;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -73,6 +76,8 @@ public class AdminVerificationsController {
             @AuthenticationPrincipal Jwt jwt,
             @RequestParam(value = "status", required = false) String status,
             @RequestParam(value = "method", required = false) String method,
+            @RequestParam(value = "q", required = false) String q,
+            @RequestParam(value = "sort", required = false) String sort,
             @RequestParam(value = "cursor", required = false) String cursor,
             @RequestParam(value = "limit", required = false, defaultValue = "50") int limit
     ) {
@@ -81,22 +86,52 @@ public class AdminVerificationsController {
         if (authRes.status() != AdminAuthService.Status.OK) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "forbidden"));
         }
+        int lim = Math.max(1, Math.min(limit, 200));
+
+        String normalizedStatus = normalizeParam(status);
+        String normalizedMethod = normalizeParam(method);
+        String qNorm = normalizeQuery(q);
+        String qHash = (qNorm != null) ? sha256Hex(qNorm) : null;
+        List<String> qTokens = (qNorm == null) ? List.of() : List.of(qNorm.split(" "));
+
+        String sortParam = normalizeParam(sort);
+        String effectiveSort = resolveSort(sortParam, normalizedStatus);
+        VerificationRequestsRepository.AdminSort effectiveSortEnum =
+                "oldest".equals(effectiveSort) ? VerificationRequestsRepository.AdminSort.OLDEST : VerificationRequestsRepository.AdminSort.NEWEST;
+
         OffsetDateTime cursorTs = null;
         Long cursorId = null;
         if (cursor != null && !cursor.isBlank()) {
             try {
-                var decoded = Pagination.decode(cursor);
-                cursorTs = decoded.timestamp();
-                cursorId = decoded.id();
+                var decoded = AdminVerificationsCursor.decode(cursor);
+                if (cursorMatches(decoded, normalizedStatus, normalizedMethod, effectiveSort, qHash)) {
+                    cursorTs = decoded.timestamp();
+                    cursorId = decoded.id();
+                }
             } catch (IllegalArgumentException ignored) {}
+            if (cursorTs == null && qHash == null && effectiveSortEnum == VerificationRequestsRepository.AdminSort.NEWEST) {
+                // Backwards compatibility for legacy cursors (ts|id only). Only allowed for legacy/default sort + no search.
+                try {
+                    var decoded = Pagination.decode(cursor);
+                    cursorTs = decoded.timestamp();
+                    cursorId = decoded.id();
+                } catch (IllegalArgumentException ignored) {}
+            }
         }
-        String normalizedStatus = status != null ? status.trim().toLowerCase(Locale.ROOT) : null;
-        String normalizedMethod = method != null ? method.trim().toLowerCase(Locale.ROOT) : null;
-        List<VerificationRequestsRepository.Row> rows = requests.listForAdmin(normalizedStatus, normalizedMethod, cursorTs, cursorId, limit);
+
+        List<VerificationRequestsRepository.Row> rows = requests.listForAdmin(
+                normalizedStatus,
+                normalizedMethod,
+                qTokens,
+                effectiveSortEnum,
+                cursorTs,
+                cursorId,
+                lim
+        );
         String next = null;
-        if (rows.size() == limit) {
+        if (rows.size() == lim) {
             var last = rows.get(rows.size() - 1);
-            next = Pagination.encode(last.submittedAt, last.id);
+            next = AdminVerificationsCursor.encode(last.submittedAt, last.id, normalizedStatus, normalizedMethod, effectiveSort, qHash);
         }
         List<Map<String, Object>> items = rows.stream().map(r -> {
             Map<String, Object> map = new HashMap<>();
@@ -128,6 +163,57 @@ public class AdminVerificationsController {
         body.put("items", items);
         if (next != null) body.put("next_cursor", next);
         return ResponseEntity.ok(body);
+    }
+
+    private static String normalizeParam(String s) {
+        if (s == null) return null;
+        String trimmed = s.trim();
+        if (trimmed.isBlank()) return null;
+        return trimmed.toLowerCase(Locale.ROOT);
+    }
+
+    private static String resolveSort(String sortParam, String normalizedStatus) {
+        if ("oldest".equals(sortParam) || "newest".equals(sortParam)) return sortParam;
+        if ("pending".equals(normalizedStatus)) return "oldest";
+        return "newest";
+    }
+
+    private static String normalizeQuery(String q) {
+        if (q == null) return null;
+        String s = q.trim().toLowerCase(Locale.ROOT);
+        if (s.startsWith("@")) s = s.substring(1);
+        s = s.replaceAll("\\s+", " ");
+        if (s.isBlank()) return null;
+        if (s.length() > 80) s = s.substring(0, 80);
+        return s;
+    }
+
+    private static String sha256Hex(String s) {
+        try {
+            MessageDigest md = MessageDigest.getInstance("SHA-256");
+            byte[] digest = md.digest(s.getBytes(StandardCharsets.UTF_8));
+            StringBuilder hex = new StringBuilder(digest.length * 2);
+            for (byte b : digest) {
+                hex.append(Character.forDigit((b >> 4) & 0xF, 16));
+                hex.append(Character.forDigit(b & 0xF, 16));
+            }
+            return hex.toString();
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("sha-256 unavailable");
+        }
+    }
+
+    private static boolean cursorMatches(AdminVerificationsCursor.Decoded cursor,
+                                         String status, String method, String sort, String qHash) {
+        if (!equalsNullable(cursor.status(), status)) return false;
+        if (!equalsNullable(cursor.method(), method)) return false;
+        if (!equalsNullable(cursor.sort(), sort)) return false;
+        return equalsNullable(cursor.qHash(), qHash);
+    }
+
+    private static boolean equalsNullable(String a, String b) {
+        if (a == null) return b == null;
+        return a.equals(b);
     }
 
     @GetMapping("/verifications/{id}")

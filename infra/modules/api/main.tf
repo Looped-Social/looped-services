@@ -68,6 +68,10 @@ resource "aws_lb" "this" {
 
   enable_deletion_protection = var.environment == "prod" ? true : false
 
+  lifecycle {
+    prevent_destroy = true
+  }
+
   tags = merge(var.tags, { Name = "${local.name}-alb" })
 }
 

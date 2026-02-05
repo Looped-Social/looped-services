@@ -1,0 +1,40 @@
+name: Infra checks (OpenTofu)
+
+on:
+  pull_request:
+    paths:
+      - "infra/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  fmt_validate:
+    name: tofu fmt + validate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup OpenTofu
+        uses: opentofu/setup-opentofu@v1
+        with:
+          tofu_version: 1.8.2
+
+      - name: tofu fmt (check)
+        run: |
+          tofu fmt -recursive -check infra
+
+      - name: Validate (staging, no backend)
+        working-directory: infra/envs/staging
+        run: |
+          tofu init -backend=false
+          tofu validate
+
+      - name: Validate (prod, no backend)
+        working-directory: infra/envs/prod
+        run: |
+          tofu init -backend=false
+          tofu validate
+

@@ -33,3 +33,15 @@ output "s3_verification_bucket" {
 output "alerts_topic_arn" {
   value = module.api.alerts_topic_arn
 }
+
+output "waf_web_acl_arn" {
+  value = module.security_baseline.waf_web_acl_arn
+}
+
+output "cloudtrail_trail_arn" {
+  value = module.security_baseline.cloudtrail_trail_arn
+}
+
+output "guardduty_detector_id" {
+  value = module.security_baseline.guardduty_detector_id
+}

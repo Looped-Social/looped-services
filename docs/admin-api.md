@@ -531,6 +531,8 @@ Auth
 Query params:
 - `status` (optional): `pending`, `approved`, `rejected`
 - `method` (optional): `email`, `video`, `thirdparty`, `photo_id`, ...
+- `q` (optional): fuzzy search string (matches `user_handle`, `user_display_name`, and `email`)
+- `sort` (optional): `oldest` or `newest`
 - `cursor` (optional): pagination cursor from `next_cursor`
 - `limit` (default 50)
 
@@ -564,6 +566,11 @@ Response (200)
 
 Notes
 - `metadata` is a string. For Photo ID submissions it may contain JSON like `{ "nonce": "..." }` (parse client-side).
+- Sorting defaults:
+  - If `status=pending` and `sort` is omitted: FIFO (oldest-first) by `submitted_at` (tie-breaker `id`).
+  - Otherwise: newest-first.
+- `q` normalization: trimmed + lowercased; leading `@` ignored; whitespace collapsed. Tokens are ANDed; partial matches work (e.g. `jon smi` matches `Jon Smith`, `sarahw` matches `sarah_w`).
+- Cursors are opaque and should be reused only with the same `status`/`method`/`sort`/`q`.
 
 Errors
 - `403 { "error": "forbidden" }`

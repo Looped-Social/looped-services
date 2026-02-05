@@ -11,7 +11,7 @@ resource "aws_sqs_queue" "notif_dlq" {
 }
 
 resource "aws_sqs_queue" "notif_events" {
-  name                      = "${local.name}-notif-events"
+  name                       = "${local.name}-notif-events"
   visibility_timeout_seconds = 30
   message_retention_seconds  = 345600 # 4 days
   sqs_managed_sse_enabled    = true

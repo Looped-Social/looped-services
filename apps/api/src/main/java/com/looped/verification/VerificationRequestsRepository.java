@@ -7,6 +7,7 @@ import org.springframework.stereotype.Repository;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.OffsetDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
@@ -108,49 +109,136 @@ public class VerificationRequestsRepository {
     }
 
     public List<Row> listForAdmin(String status, OffsetDateTime cursorTs, Long cursorId, int limit) {
-        return listForAdmin(status, null, cursorTs, cursorId, limit);
+        return listForAdmin(status, null, List.of(), AdminSort.NEWEST, cursorTs, cursorId, limit);
     }
 
     public List<Row> listForAdmin(String status, String method, OffsetDateTime cursorTs, Long cursorId, int limit) {
+        return listForAdmin(status, method, List.of(), AdminSort.NEWEST, cursorTs, cursorId, limit);
+    }
+
+    public enum AdminSort {
+        OLDEST,
+        NEWEST
+    }
+
+    public List<Row> listForAdmin(String status,
+                                  String method,
+                                  List<String> qTokens,
+                                  AdminSort sort,
+                                  OffsetDateTime cursorTs,
+                                  Long cursorId,
+                                  int limit) {
         String base = "SELECT vr.*, u.handle AS user_handle, u.display_name AS user_display_name, c.domain AS company_domain, cm.name AS community_name, cm.kind AS community_kind " +
                 "FROM verification_requests vr " +
                 "JOIN users u ON u.id = vr.user_id " +
                 "JOIN companies c ON c.id = u.company_id " +
                 "LEFT JOIN communities cm ON cm.id = vr.community_id ";
-        String where = "";
-        Object[] params;
+
+        List<String> clauses = new ArrayList<>();
+        List<Object> params = new ArrayList<>();
+
         boolean hasStatus = status != null && !status.isBlank();
         boolean hasMethod = method != null && !method.isBlank();
-        if (hasStatus && hasMethod) {
-            where = "WHERE vr.status = ? AND vr.method = ? ";
-        } else if (hasStatus) {
-            where = "WHERE vr.status = ? ";
-        } else if (hasMethod) {
-            where = "WHERE vr.method = ? ";
+        if (hasStatus) {
+            clauses.add("vr.status = ?");
+            params.add(status);
         }
-        if (cursorTs == null || cursorId == null) {
-            if (hasStatus && hasMethod) params = new Object[]{status, method, limit};
-            else if (hasStatus) params = new Object[]{status, limit};
-            else if (hasMethod) params = new Object[]{method, limit};
-            else params = new Object[]{limit};
-            return jdbc.query(
-                    base + where + "ORDER BY vr.submitted_at DESC, vr.id DESC LIMIT ?",
-                    params, MAPPER
-            );
+        if (hasMethod) {
+            clauses.add("vr.method = ?");
+            params.add(method);
         }
-        String cursorClause = "AND (vr.submitted_at < ? OR (vr.submitted_at = ? AND vr.id < ?)) ";
-        if (where.isBlank()) {
-            where = "WHERE ";
-            cursorClause = "(vr.submitted_at < ? OR (vr.submitted_at = ? AND vr.id < ?)) ";
+
+        if (qTokens != null) {
+            for (String token : qTokens) {
+                if (token == null) continue;
+                String t = token.trim().toLowerCase(Locale.ROOT);
+                if (t.isBlank()) continue;
+
+                String likeRaw = "%" + escapeLike(t) + "%";
+                String stripped = stripNonAlnum(t);
+                String likeStripped = stripped.isBlank() ? null : "%" + escapeLike(stripped) + "%";
+
+                StringBuilder tokenClause = new StringBuilder();
+                tokenClause.append('(');
+                tokenClause.append("lower(coalesce(u.handle, '')) LIKE ? ESCAPE '#'");
+                tokenClause.append(" OR lower(coalesce(u.display_name, '')) LIKE ? ESCAPE '#'");
+                tokenClause.append(" OR lower(coalesce(vr.email, '')) LIKE ? ESCAPE '#'");
+                tokenClause.append(" OR lower(coalesce(u.email, '')) LIKE ? ESCAPE '#'");
+                params.add(likeRaw);
+                params.add(likeRaw);
+                params.add(likeRaw);
+                params.add(likeRaw);
+
+                if (likeStripped != null) {
+                    tokenClause.append(" OR regexp_replace(lower(coalesce(u.handle, '')), '[^a-z0-9]', '', 'g') LIKE ? ESCAPE '#'");
+                    tokenClause.append(" OR regexp_replace(lower(coalesce(u.display_name, '')), '[^a-z0-9]', '', 'g') LIKE ? ESCAPE '#'");
+                    tokenClause.append(" OR regexp_replace(lower(coalesce(vr.email, '')), '[^a-z0-9]', '', 'g') LIKE ? ESCAPE '#'");
+                    tokenClause.append(" OR regexp_replace(lower(coalesce(u.email, '')), '[^a-z0-9]', '', 'g') LIKE ? ESCAPE '#'");
+                    params.add(likeStripped);
+                    params.add(likeStripped);
+                    params.add(likeStripped);
+                    params.add(likeStripped);
+                }
+
+                if (isAllDigits(t)) {
+                    try {
+                        long n = Long.parseLong(t);
+                        tokenClause.append(" OR vr.id = ?");
+                        tokenClause.append(" OR vr.user_id = ?");
+                        params.add(n);
+                        params.add(n);
+                    } catch (NumberFormatException ignored) {}
+                }
+
+                tokenClause.append(')');
+                clauses.add(tokenClause.toString());
+            }
         }
-        if (hasStatus && hasMethod) params = new Object[]{status, method, cursorTs, cursorTs, cursorId, limit};
-        else if (hasStatus) params = new Object[]{status, cursorTs, cursorTs, cursorId, limit};
-        else if (hasMethod) params = new Object[]{method, cursorTs, cursorTs, cursorId, limit};
-        else params = new Object[]{cursorTs, cursorTs, cursorId, limit};
-        return jdbc.query(
-                base + where + cursorClause + "ORDER BY vr.submitted_at DESC, vr.id DESC LIMIT ?",
-                params, MAPPER
-        );
+
+        if (cursorTs != null && cursorId != null) {
+            if (sort == AdminSort.OLDEST) {
+                clauses.add("(vr.submitted_at > ? OR (vr.submitted_at = ? AND vr.id > ?))");
+                params.add(cursorTs);
+                params.add(cursorTs);
+                params.add(cursorId);
+            } else {
+                clauses.add("(vr.submitted_at < ? OR (vr.submitted_at = ? AND vr.id < ?))");
+                params.add(cursorTs);
+                params.add(cursorTs);
+                params.add(cursorId);
+            }
+        }
+
+        StringBuilder sql = new StringBuilder(base);
+        if (!clauses.isEmpty()) {
+            sql.append("WHERE ").append(String.join(" AND ", clauses)).append(' ');
+        }
+        if (sort == AdminSort.OLDEST) {
+            sql.append("ORDER BY vr.submitted_at ASC, vr.id ASC ");
+        } else {
+            sql.append("ORDER BY vr.submitted_at DESC, vr.id DESC ");
+        }
+        sql.append("LIMIT ?");
+        params.add(limit);
+
+        return jdbc.query(sql.toString(), params.toArray(), MAPPER);
+    }
+
+    private static String escapeLike(String s) {
+        // Escape the LIKE escape character itself, then wildcard characters.
+        return s.replace("#", "##").replace("%", "#%").replace("_", "#_");
+    }
+
+    private static String stripNonAlnum(String s) {
+        return s.replaceAll("[^a-z0-9]", "");
+    }
+
+    private static boolean isAllDigits(String s) {
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            if (c < '0' || c > '9') return false;
+        }
+        return !s.isBlank();
     }
 
     public Optional<Row> findLatestForUserAndMethod(long userId, String method) {

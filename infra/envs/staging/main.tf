@@ -134,6 +134,20 @@ module "api" {
   sqs_notif_queue_arn = var.enable_push_notifications ? module.notifications.notif_queue_arn : ""
 }
 
+module "security_baseline" {
+  source      = "../../modules/security-baseline"
+  name_prefix = var.name_prefix
+  environment = local.env
+  account_id  = data.aws_caller_identity.current.account_id
+  aws_region  = var.aws_region
+  tags        = local.tags
+
+  alb_arn = module.api.alb_arn
+
+  enable_waf              = true
+  enable_account_baseline = false
+}
+
 module "notif_worker" {
   count       = var.enable_notif_worker ? 1 : 0
   source      = "../../modules/notif-worker"

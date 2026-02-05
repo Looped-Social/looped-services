@@ -10,6 +10,10 @@ locals {
 resource "aws_s3_bucket" "media" {
   bucket = local.media_bucket_name
   tags   = merge(var.tags, { Name = local.media_bucket_name })
+
+  lifecycle {
+    prevent_destroy = true
+  }
 }
 
 resource "aws_s3_bucket_public_access_block" "media" {
@@ -44,6 +48,10 @@ resource "aws_s3_bucket_cors_configuration" "media" {
 resource "aws_s3_bucket" "verification" {
   bucket = local.verification_bucket_name
   tags   = merge(var.tags, { Name = local.verification_bucket_name })
+
+  lifecycle {
+    prevent_destroy = true
+  }
 }
 
 resource "aws_s3_bucket_public_access_block" "verification" {
@@ -78,6 +86,10 @@ resource "aws_s3_bucket_cors_configuration" "verification" {
 resource "aws_s3_bucket" "dm" {
   bucket = local.dm_bucket_name
   tags   = merge(var.tags, { Name = local.dm_bucket_name })
+
+  lifecycle {
+    prevent_destroy = true
+  }
 }
 
 resource "aws_s3_bucket_public_access_block" "dm" {
@@ -121,6 +133,10 @@ resource "aws_cloudfront_origin_access_control" "media" {
 resource "aws_cloudfront_distribution" "media" {
   enabled = true
   comment = "Looped media CDN (${var.environment})"
+
+  lifecycle {
+    prevent_destroy = true
+  }
 
   aliases = var.cloudfront_aliases
 
