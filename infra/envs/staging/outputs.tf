@@ -37,3 +37,11 @@ output "alerts_topic_arn" {
 output "waf_web_acl_arn" {
   value = module.security_baseline.waf_web_acl_arn
 }
+
+output "github_infra_role_arn" {
+  value = module.security_baseline.github_infra_role_arn
+}
+
+output "github_infra_environment" {
+  value = module.security_baseline.github_infra_environment
+}

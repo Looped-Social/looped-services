@@ -1,0 +1,46 @@
+name: Infra apply (staging)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: infra-apply-staging
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION }}
+  AWS_ROLE_ARN: ${{ vars.AWS_ROLE_ARN_INFRA_STAGING }}
+
+jobs:
+  apply:
+    name: tofu apply (staging)
+    runs-on: ubuntu-latest
+    environment: staging-infra
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup OpenTofu
+        uses: opentofu/setup-opentofu@v1
+        with:
+          tofu_version: 1.8.2
+
+      - name: tofu init (staging)
+        working-directory: infra/envs/staging
+        run: tofu init -backend-config=backend.hcl
+
+      - name: tofu apply (staging)
+        working-directory: infra/envs/staging
+        run: tofu apply -auto-approve -no-color
+

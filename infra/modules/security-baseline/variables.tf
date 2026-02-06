@@ -37,8 +37,25 @@ variable "enable_account_baseline" {
   default     = false
 }
 
+variable "enable_github_infra_role" {
+  type        = bool
+  description = "Create a GitHub Actions OIDC role intended for OpenTofu plan/apply (per environment)."
+  default     = true
+}
+
+variable "github_repo" {
+  type        = string
+  description = "GitHub repo in OWNER/REPO form."
+  default     = "Looped-Social/looped-services"
+}
+
+variable "github_infra_environment" {
+  type        = string
+  description = "GitHub Actions environment name required to assume the infra role (e.g. prod-infra)."
+  default     = ""
+}
+
 variable "tags" {
   type    = map(string)
   default = {}
 }
-

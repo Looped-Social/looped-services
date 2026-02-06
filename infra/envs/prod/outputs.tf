@@ -45,3 +45,11 @@ output "cloudtrail_trail_arn" {
 output "guardduty_detector_id" {
   value = module.security_baseline.guardduty_detector_id
 }
+
+output "github_infra_role_arn" {
+  value = module.security_baseline.github_infra_role_arn
+}
+
+output "github_infra_environment" {
+  value = module.security_baseline.github_infra_environment
+}

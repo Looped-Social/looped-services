@@ -7,6 +7,7 @@ import com.looped.auth.FirebaseAdminService;
 import com.looped.users.ProfileImageUrls;
 import com.looped.users.UserBanRepository;
 import com.looped.users.UserRepository;
+import com.fasterxml.jackson.databind.node.NullNode;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -102,7 +103,7 @@ public class AdminUsersController {
             map.put("disabled_at", u.disabledAt);
             map.put("disabled_reason", u.disabledReason);
             map.put("deleted_at", u.deletedAt);
-            map.put("ban", null);
+            map.put("ban", NullNode.instance);
             var ban = bans.findActiveByUserId(u.id);
             ban.ifPresent(b -> {
                 Map<String, Object> banMap = new HashMap<>();
@@ -379,12 +380,12 @@ public class AdminUsersController {
             firebaseAdmin.setDisabled(updated.firebaseUid, false);
             firebaseAdmin.revokeRefreshTokens(updated.firebaseUid);
         }
-        return ResponseEntity.ok(Map.of(
-                "id", updated.id,
-                "account_status", "active",
-                "disabled_at", null,
-                "disabled_reason", null
-        ));
+        Map<String, Object> resp = new HashMap<>();
+        resp.put("id", updated.id);
+        resp.put("account_status", "active");
+        resp.put("disabled_at", null);
+        resp.put("disabled_reason", null);
+        return ResponseEntity.ok(resp);
     }
 
     @PostMapping("/users/{id}/delete")

@@ -1,5 +1,8 @@
 locals {
-  name = "${var.name_prefix}-${var.environment}"
+  name                     = "${var.name_prefix}-${var.environment}"
+  github_infra_environment = trimspace(var.github_infra_environment) != "" ? trimspace(var.github_infra_environment) : "${var.environment}-infra"
+  github_oidc_provider_arn = "arn:aws:iam::${var.account_id}:oidc-provider/token.actions.githubusercontent.com"
+  github_workflow_ref      = "${var.github_repo}/.github/workflows/infra-apply-${var.environment}.yml@refs/heads/main"
 }
 
 #
@@ -117,6 +120,97 @@ resource "aws_wafv2_web_acl_association" "alb" {
 
   resource_arn = var.alb_arn
   web_acl_arn  = aws_wafv2_web_acl.alb[0].arn
+}
+
+#
+# GitHub Actions OIDC role for OpenTofu (per env).
+#
+
+data "aws_iam_policy_document" "github_infra_assume" {
+  count = var.enable_github_infra_role ? 1 : 0
+
+  statement {
+    effect  = "Allow"
+    actions = ["sts:AssumeRoleWithWebIdentity"]
+
+    principals {
+      type        = "Federated"
+      identifiers = [local.github_oidc_provider_arn]
+    }
+
+    condition {
+      test     = "StringEquals"
+      variable = "token.actions.githubusercontent.com:aud"
+      values   = ["sts.amazonaws.com"]
+    }
+
+    condition {
+      test     = "StringEquals"
+      variable = "token.actions.githubusercontent.com:sub"
+      values   = ["repo:${var.github_repo}:environment:${local.github_infra_environment}"]
+    }
+
+    condition {
+      test     = "StringEquals"
+      variable = "token.actions.githubusercontent.com:job_workflow_ref"
+      values   = [local.github_workflow_ref]
+    }
+  }
+}
+
+resource "aws_iam_role" "github_infra" {
+  count = var.enable_github_infra_role ? 1 : 0
+
+  name               = "${local.name}-gha-infra"
+  assume_role_policy = data.aws_iam_policy_document.github_infra_assume[0].json
+
+  tags = merge(var.tags, { Name = "${local.name}-gha-infra" })
+}
+
+resource "aws_iam_role_policy_attachment" "github_infra_admin" {
+  count = var.enable_github_infra_role ? 1 : 0
+
+  role       = aws_iam_role.github_infra[0].name
+  policy_arn = "arn:aws:iam::aws:policy/AdministratorAccess"
+}
+
+data "aws_iam_policy_document" "github_infra_denies" {
+  count = var.enable_github_infra_role ? 1 : 0
+
+  statement {
+    sid    = "DenyOrganizations"
+    effect = "Deny"
+    actions = [
+      "organizations:*"
+    ]
+    resources = ["*"]
+  }
+
+  statement {
+    sid    = "DenyCreateLongLivedCredentials"
+    effect = "Deny"
+    actions = [
+      "iam:CreateAccessKey",
+      "iam:UpdateAccessKey",
+      "iam:DeleteAccessKey",
+      "iam:CreateLoginProfile",
+      "iam:UpdateLoginProfile",
+      "iam:DeleteLoginProfile",
+      "iam:CreateUser",
+      "iam:DeleteUser",
+      "iam:AttachUserPolicy",
+      "iam:PutUserPolicy"
+    ]
+    resources = ["*"]
+  }
+}
+
+resource "aws_iam_role_policy" "github_infra_denies" {
+  count = var.enable_github_infra_role ? 1 : 0
+
+  name   = "${local.name}-gha-infra-denies"
+  role   = aws_iam_role.github_infra[0].id
+  policy = data.aws_iam_policy_document.github_infra_denies[0].json
 }
 
 #
@@ -242,4 +336,3 @@ resource "aws_securityhub_standards_subscription" "aws_foundational" {
 
   depends_on = [aws_securityhub_account.this]
 }
-

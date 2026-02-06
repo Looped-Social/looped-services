@@ -756,7 +756,7 @@ public class UserRepository {
                         "deleted_source = 'admin', " +
                         "deleted_by_admin_id = COALESCE(deleted_by_admin_id, ?), " +
                         "deleted_reason = COALESCE(deleted_reason, ?), " +
-                        "email = NULL, first_name = NULL, last_name = NULL, date_of_birth = NULL, " +
+                        "email = NULL, first_name = DEFAULT, last_name = DEFAULT, date_of_birth = DEFAULT, " +
                         "display_name = NULL, bio = NULL, profile_image_url = NULL " +
                         "WHERE id = ? " +
                         "RETURNING " + BASE_COLUMNS,

@@ -80,6 +80,31 @@ tofu apply
 tofu output
 ```
 
+## 6.1) CI-only applies (recommended)
+This repo supports applying infra via GitHub Actions using OIDC roles created by OpenTofu (per environment):
+- Staging role output: `github_infra_role_arn` (from `infra/envs/staging`)
+- Prod role output: `github_infra_role_arn` (from `infra/envs/prod`)
+
+Workflows:
+- `.github/workflows/infra-apply-staging.yml` (environment: `staging-infra`, main only)
+- `.github/workflows/infra-apply-prod.yml` (environment: `prod-infra`, main only)
+
+GitHub setup (repo Settings → Environments):
+1) Create environment `staging-infra` (optional reviewers).
+2) Create environment `prod-infra` and require approvals (recommended).
+
+GitHub setup (repo Settings → Variables):
+- `AWS_REGION` = `us-east-1`
+- `AWS_ROLE_ARN_INFRA_STAGING` = the staging `github_infra_role_arn` output
+- `AWS_ROLE_ARN_INFRA_PROD` = the prod `github_infra_role_arn` output
+
+Once set, use the GitHub Actions UI to run “Infra apply (staging)” / “Infra apply (prod)”.
+
+To reduce footguns for onboarded developers:
+- Do not grant developers AWS permissions to assume the `*-gha-infra` roles.
+- Remove/avoid long-lived IAM user keys; prefer AWS IAM Identity Center (SSO).
+- Optionally restrict write access to the OpenTofu state bucket (`looped-tofu-state-*`) to CI + breakglass only.
+
 ## 7) Cloudflare DNS cutover
 In Cloudflare DNS:
 - `api-staging.mylooped.app` → CNAME → staging `alb_dns_name`
