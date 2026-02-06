@@ -1,13 +1,14 @@
 package com.looped.admin;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.looped.shared.Pagination;
 import com.looped.settings.AppConfigService;
 import com.looped.auth.FirebaseAdminService;
 import com.looped.users.ProfileImageUrls;
 import com.looped.users.UserBanRepository;
 import com.looped.users.UserRepository;
-import com.fasterxml.jackson.databind.node.NullNode;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -30,6 +31,8 @@ import java.util.Map;
 @RestController
 @RequestMapping("/v1/admin")
 public class AdminUsersController {
+    private static final ObjectMapper JSON = new ObjectMapper();
+
     private final AdminAuthService auth;
     private final UserRepository users;
     private final UserBanRepository bans;
@@ -92,28 +95,29 @@ public class AdminUsersController {
             var last = rows.get(rows.size() - 1);
             next = Pagination.encode(last.createdAt, last.id);
         }
-        List<Map<String, Object>> items = rows.stream().map(u -> {
-            Map<String, Object> map = new HashMap<>();
-            map.put("id", u.id);
-            map.put("handle", u.handle);
-            map.put("email", u.email);
-            map.put("company_id", u.companyId);
-            map.put("created_at", u.createdAt);
-            map.put("account_status", accountStatus(u));
-            map.put("disabled_at", u.disabledAt);
-            map.put("disabled_reason", u.disabledReason);
-            map.put("deleted_at", u.deletedAt);
-            map.put("ban", NullNode.instance);
+        List<ObjectNode> items = rows.stream().map(u -> {
+            ObjectNode node = JSON.createObjectNode();
+            node.put("id", u.id);
+            node.put("handle", u.handle);
+            if (u.email == null) node.putNull("email"); else node.put("email", u.email);
+            if (u.companyId == null) node.putNull("company_id"); else node.put("company_id", u.companyId);
+            node.putPOJO("created_at", u.createdAt);
+            node.put("account_status", accountStatus(u));
+            if (u.disabledAt == null) node.putNull("disabled_at"); else node.putPOJO("disabled_at", u.disabledAt);
+            if (u.disabledReason == null) node.putNull("disabled_reason"); else node.put("disabled_reason", u.disabledReason);
+            if (u.deletedAt == null) node.putNull("deleted_at"); else node.putPOJO("deleted_at", u.deletedAt);
+
+            node.putNull("ban");
             var ban = bans.findActiveByUserId(u.id);
             ban.ifPresent(b -> {
-                Map<String, Object> banMap = new HashMap<>();
-                banMap.put("status", "banned");
-                banMap.put("reason", b.reason);
-                banMap.put("created_at", b.createdAt);
-                banMap.put("expires_at", b.expiresAt);
-                map.put("ban", banMap);
+                ObjectNode banNode = JSON.createObjectNode();
+                banNode.put("status", "banned");
+                if (b.reason == null) banNode.putNull("reason"); else banNode.put("reason", b.reason);
+                banNode.putPOJO("created_at", b.createdAt);
+                if (b.expiresAt == null) banNode.putNull("expires_at"); else banNode.putPOJO("expires_at", b.expiresAt);
+                node.set("ban", banNode);
             });
-            return map;
+            return node;
         }).toList();
         Map<String, Object> body = new HashMap<>();
         body.put("items", items);
