@@ -217,6 +217,7 @@ Global user list + search for moderation/admin actions. Requires `ban_user` (use
 
 Query params:
 - `query` (optional): email/handle substring, exact numeric `id`, or firebase UID substring
+- `banned` (optional): when `true`, returns only users with an active ban
 - `sort` (optional): `created_at_desc` (default)
 - `cursor` (optional)
 - `limit` (default 50, max 200)
@@ -246,6 +247,7 @@ Response (200)
 
 Notes
 - `ban.status` is `none` when the user is not currently banned, otherwise `banned` with details (`reason`, `created_at`, `expires_at`).
+- When `banned=true`, results only include currently banned users (so `ban.status` will be `banned`).
 
 Errors
 - `403 { "error": "forbidden", "message": "..." }`
@@ -766,6 +768,7 @@ Update a community. Requires `create_community`.
 Request (any subset)
 ```json
 {
+  "name": "New Name",
   "description": "Updated",
   "verificationTtlDays": 365,
   "shortName": "CS",
@@ -775,9 +778,40 @@ Request (any subset)
 
 Notes:
 - For `specializationJoinCooldownMonths`, send `0` to clear the override (falls back to the global default).
+- `name` can be updated for any community (company/school/field/major). Name uniqueness is enforced within the community type.
+
+### POST /v1/admin/communities/{id}/change-kind
+Change the community type ("kind"). Requires `create_community`.
+
+This is intentionally restricted to a small set of safe transitions:
+- `company` ↔ `school`
+- `sector` → `company|school`
+- `field` ↔ `major` (specializations only)
+
+Request
+```json
+{ "kind": "school" }
+```
+
+Request (specializations)
+```json
+{ "kind": "major" }
+```
+
+Response (200)
+```json
+{ "id": 42, "kind": "school" }
+```
+
+Errors
+- `400 { "error": "no_changes" }`
+- `404 { "error": "not_found" }`
+- `409 { "error": "community_exists" }`
+- `422 { "error": "invalid_kind" }`
+- `422 { "error": "invalid_transition" }`
 
 ### GET /v1/admin/posts/{id}
-Fetch a post including removal info. Requires `remove_post`.
+Fetch a post including removal info. Requires `view_posts` or `remove_post`.
 
 Response (200)
 ```json
@@ -790,12 +824,24 @@ Response (200)
   "community_id": 2,
   "content": "post text",
   "media_asset_id": null,
+  "media_asset_ids": [111, 112],
+  "media": [
+    {
+      "id": 111,
+      "content_type": "video/mp4",
+      "cdn_url": "https://<cloudfront>/<key>",
+      "thumbnail_url": "https://<cloudfront>/<thumb-key>"
+    }
+  ],
   "created_at": "2024-02-01T12:00:00Z",
   "removed_at": "2024-02-02T09:00:00Z",
   "removed_reason": "policy_violation",
   "removed_by": 1
 }
 ```
+
+Notes
+- `media` is always present (may be empty). Each item includes either `cdn_url` (when CloudFront is configured) or `download_url` (presigned).
 
 ### POST /v1/admin/posts/{id}/remove
 Remove a post. Requires `remove_post`.
@@ -823,6 +869,51 @@ Response (200)
   "status": "active"
 }
 ```
+
+### GET /v1/admin/comments/{id}
+Fetch a comment (used for moderation reports targeting comments). Requires `view_reports`.
+
+Auth
+- Header: `Authorization: Bearer <ID_TOKEN>`
+- Permission: `view_reports`
+
+Response (200)
+```json
+{
+  "id": 555,
+  "post_id": 987,
+  "user_id": 123,
+  "author_principal_id": 999,
+  "author_handle": "alice",
+  "author_display_name": "Alice",
+  "author_is_anonymous": false,
+  "company_id": 5,
+  "content": "comment text",
+  "media_asset_id": 111,
+  "media": [
+    {
+      "id": 111,
+      "content_type": "image/jpeg",
+      "cdn_url": "https://<cloudfront>/<key>"
+    }
+  ],
+  "parent_id": null,
+  "likes_count": 0,
+  "reply_count": 0,
+  "created_at": "2024-02-01T12:00:00Z",
+  "deleted_at": null,
+  "removed_at": null,
+  "removed_reason": null,
+  "removed_by": null
+}
+```
+
+Notes
+- `media` is always present (may be empty). Each item includes either `cdn_url` (when CloudFront is configured) or `download_url` (presigned).
+
+Errors
+- `403 { "error": "forbidden" }`
+- `404 { "error": "not_found" }`
 
 ### GET /v1/admin/reports
 List reports. Requires `view_reports`.

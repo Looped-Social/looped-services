@@ -1,8 +1,11 @@
 package com.looped.admin;
 
+import com.looped.media.MediaRepository;
+import com.looped.media.MediaService;
 import com.looped.posts.PostRepository;
 import com.looped.posts.PostSearchQuery;
 import com.looped.shared.RankPagination;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -19,10 +22,13 @@ import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeParseException;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/v1/admin")
@@ -31,12 +37,24 @@ public class AdminPostsController {
     private final PostRepository posts;
     private final AdminPostSearchRepository postSearch;
     private final AdminAuditRepository audit;
+    private final MediaRepository media;
+    private final MediaService mediaService;
+    private final String cloudfrontDomain;
 
-    public AdminPostsController(AdminAuthService auth, PostRepository posts, AdminPostSearchRepository postSearch, AdminAuditRepository audit) {
+    public AdminPostsController(AdminAuthService auth,
+                                PostRepository posts,
+                                AdminPostSearchRepository postSearch,
+                                AdminAuditRepository audit,
+                                MediaRepository media,
+                                MediaService mediaService,
+                                @Value("${cloudfront.domain:}") String cloudfrontDomain) {
         this.auth = auth;
         this.posts = posts;
         this.postSearch = postSearch;
         this.audit = audit;
+        this.media = media;
+        this.mediaService = mediaService;
+        this.cloudfrontDomain = cloudfrontDomain;
     }
 
     @GetMapping("/posts/{id}")
@@ -65,11 +83,69 @@ public class AdminPostsController {
         body.put("community_id", post.communityId);
         body.put("content", post.content);
         body.put("media_asset_id", post.mediaAssetId);
+        if (post.mediaAssetIds != null) body.put("media_asset_ids", post.mediaAssetIds);
         body.put("created_at", post.createdAt);
         body.put("removed_at", post.removedAt);
         body.put("removed_reason", post.removedReason);
         body.put("removed_by", post.removedBy);
+
+        List<Map<String, Object>> mediaItems = buildMediaPayload(post.mediaAssetIds);
+        if (!mediaItems.isEmpty()) {
+            body.put("media", mediaItems);
+        } else {
+            body.put("media", List.of());
+        }
+
         return ResponseEntity.ok(body);
+    }
+
+    private List<Map<String, Object>> buildMediaPayload(List<Long> mediaAssetIds) {
+        if (mediaAssetIds == null || mediaAssetIds.isEmpty()) return List.of();
+        List<Long> ids = mediaAssetIds.stream().filter(v -> v != null && v > 0).toList();
+        if (ids.isEmpty()) return List.of();
+
+        List<MediaRepository.MediaRow> rows = media.findByIds(ids);
+        Map<Long, MediaRepository.MediaRow> byId = rows.stream().collect(Collectors.toMap(r -> r.id, r -> r, (a, b) -> a));
+
+        Set<Long> thumbIds = rows.stream()
+                .map(r -> r.thumbnailMediaAssetId)
+                .filter(v -> v != null && v > 0)
+                .collect(Collectors.toSet());
+        Map<Long, MediaRepository.MediaRow> thumbs = thumbIds.isEmpty()
+                ? Map.of()
+                : media.findByIds(new ArrayList<>(thumbIds)).stream()
+                .collect(Collectors.toMap(r -> r.id, r -> r, (a, b) -> a));
+
+        List<Map<String, Object>> out = new ArrayList<>();
+        for (Long id : ids) {
+            MediaRepository.MediaRow r = byId.get(id);
+            if (r == null || r.s3Key == null || r.s3Key.isBlank()) continue;
+            Map<String, Object> item = new HashMap<>();
+            item.put("id", r.id);
+            item.put("content_type", r.mimeType);
+            item.put("mime_type", r.mimeType);
+
+            String url = resolveUrl(r.s3Key);
+            if (cloudfrontDomain != null && !cloudfrontDomain.isBlank()) item.put("cdn_url", url);
+            else item.put("download_url", url);
+
+            boolean isVideo = r.mimeType != null && r.mimeType.toLowerCase(Locale.ROOT).startsWith("video/");
+            if (isVideo && r.thumbnailMediaAssetId != null) {
+                MediaRepository.MediaRow thumb = thumbs.get(r.thumbnailMediaAssetId);
+                if (thumb != null && thumb.s3Key != null && !thumb.s3Key.isBlank()) {
+                    item.put("thumbnail_url", resolveUrl(thumb.s3Key));
+                }
+            }
+            out.add(item);
+        }
+        return out;
+    }
+
+    private String resolveUrl(String key) {
+        if (cloudfrontDomain != null && !cloudfrontDomain.isBlank()) {
+            return "https://" + cloudfrontDomain + "/" + key;
+        }
+        return mediaService.presignedGetUrl(key, java.time.Duration.ofMinutes(5));
     }
 
     @GetMapping("/posts/search")

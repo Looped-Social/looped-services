@@ -100,6 +100,39 @@ class AdminUsersLifecycleIntegrationTest extends PostgresTestBase {
     }
 
     @Test
+    void global_user_list_can_filter_banned_only() throws Exception {
+        admins.insert(null, "manage-ban@looped.com", "admin", "active",
+                List.of(AdminPermissions.BAN_USER));
+        String adminAuth = "Bearer " + token("admin-manage-ban", "manage-ban@looped.com");
+
+        long companyId = jdbc.queryForObject(
+                "INSERT INTO companies(name, domain) VALUES ('BanCo', 'ban.co') RETURNING id",
+                Long.class
+        );
+        long bannedUser = jdbc.queryForObject(
+                "INSERT INTO users(firebase_uid, handle, email, company_id) VALUES (?,?,?,?) RETURNING id",
+                Long.class, "uid-banned", "banneduser", "b@ban.co", companyId
+        );
+        jdbc.queryForObject(
+                "INSERT INTO user_bans(user_id, reason) VALUES (?, 'spam') RETURNING id",
+                Long.class, bannedUser
+        );
+        jdbc.queryForObject(
+                "INSERT INTO users(firebase_uid, handle, email, company_id) VALUES (?,?,?,?) RETURNING id",
+                Long.class, "uid-notbanned", "notbanned", "n@ban.co", companyId
+        );
+
+        mockMvc.perform(get("/v1/admin/users")
+                        .header("Authorization", adminAuth)
+                        .param("banned", "true")
+                        .param("limit", "10"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items.length()", equalTo(1)))
+                .andExpect(jsonPath("$.items[0].id", equalTo((int) bannedUser)))
+                .andExpect(jsonPath("$.items[0].ban.status", equalTo("banned")));
+    }
+
+    @Test
     void disable_then_enable_blocks_and_restores_user_access() throws Exception {
         admins.insert(null, "manage2@looped.com", "admin", "active",
                 List.of(AdminPermissions.BAN_USER));

@@ -17,6 +17,11 @@ public class UserRepository {
             "hide_anonymous_posts, display_community_id, display_specialization_id, onboarding_step, onboarding_completed_at, " +
             "created_at, disabled_at, disabled_reason, disabled_by_admin_id, " +
             "deleted_at, deleted_by, deleted_source, deleted_by_admin_id, deleted_reason";
+    private static final String BASE_COLUMNS_U = "u.id, u.firebase_uid, u.handle, u.email, u.company_id, u.first_name, u.last_name, " +
+            "u.date_of_birth, u.display_name, u.bio, u.is_anonymous, u.show_follower_count, u.message_permission, u.profile_image_url, " +
+            "u.hide_anonymous_posts, u.display_community_id, u.display_specialization_id, u.onboarding_step, u.onboarding_completed_at, " +
+            "u.created_at, u.disabled_at, u.disabled_reason, u.disabled_by_admin_id, " +
+            "u.deleted_at, u.deleted_by, u.deleted_source, u.deleted_by_admin_id, u.deleted_reason";
 
     public UserRepository(JdbcTemplate jdbcTemplate) {
         this.jdbcTemplate = jdbcTemplate;
@@ -720,6 +725,68 @@ public class UserRepository {
                 "SELECT " + BASE_COLUMNS + " FROM users WHERE " + filter +
                         " AND (created_at < ? OR (created_at = ? AND id < ?)) " +
                         "ORDER BY created_at DESC, id DESC LIMIT ?",
+                args, MAPPER
+        );
+    }
+
+    public java.util.List<UserRow> adminSearchBanned(String query, java.time.OffsetDateTime cursorTs, Long cursorId, int limit) {
+        String q = query == null ? "" : query.trim().toLowerCase();
+        boolean hasQuery = !q.isBlank();
+        String like = "%" + q + "%";
+        Long idQuery = null;
+        if (hasQuery) {
+            try {
+                idQuery = Long.parseLong(q);
+            } catch (NumberFormatException ignored) {}
+        }
+        boolean hasId = idQuery != null;
+        String filter = hasQuery
+                ? (hasId
+                    ? "(LOWER(u.handle) LIKE ? OR LOWER(COALESCE(u.display_name,'')) LIKE ? OR LOWER(COALESCE(u.email,'')) LIKE ? " +
+                    "OR LOWER(u.firebase_uid) LIKE ? OR u.id = ?)"
+                    : "(LOWER(u.handle) LIKE ? OR LOWER(COALESCE(u.display_name,'')) LIKE ? OR LOWER(COALESCE(u.email,'')) LIKE ? " +
+                    "OR LOWER(u.firebase_uid) LIKE ?)")
+                : null;
+
+        String base =
+                "SELECT " + BASE_COLUMNS_U + " " +
+                "FROM users u " +
+                "JOIN LATERAL (" +
+                "  SELECT 1 FROM user_bans b " +
+                "  WHERE b.user_id = u.id AND b.revoked_at IS NULL AND (b.expires_at IS NULL OR b.expires_at > now()) " +
+                "  ORDER BY b.created_at DESC LIMIT 1" +
+                ") b ON true ";
+
+        if (!hasQuery) {
+            if (cursorTs == null || cursorId == null) {
+                return jdbcTemplate.query(
+                        base + "ORDER BY u.created_at DESC, u.id DESC LIMIT ?",
+                        MAPPER, limit
+                );
+            }
+            return jdbcTemplate.query(
+                    base + "WHERE (u.created_at < ? OR (u.created_at = ? AND u.id < ?)) " +
+                            "ORDER BY u.created_at DESC, u.id DESC LIMIT ?",
+                    MAPPER, cursorTs, cursorTs, cursorId, limit
+            );
+        }
+
+        if (cursorTs == null || cursorId == null) {
+            Object[] args = hasId
+                    ? new Object[]{like, like, like, like, idQuery, limit}
+                    : new Object[]{like, like, like, like, limit};
+            return jdbcTemplate.query(
+                    base + "WHERE " + filter + " ORDER BY u.created_at DESC, u.id DESC LIMIT ?",
+                    args, MAPPER
+            );
+        }
+        Object[] args = hasId
+                ? new Object[]{like, like, like, like, idQuery, cursorTs, cursorTs, cursorId, limit}
+                : new Object[]{like, like, like, like, cursorTs, cursorTs, cursorId, limit};
+        return jdbcTemplate.query(
+                base + "WHERE " + filter +
+                        " AND (u.created_at < ? OR (u.created_at = ? AND u.id < ?)) " +
+                        "ORDER BY u.created_at DESC, u.id DESC LIMIT ?",
                 args, MAPPER
         );
     }

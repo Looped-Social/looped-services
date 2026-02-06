@@ -8,6 +8,7 @@ import com.looped.communities.SpecializationIcons;
 import com.looped.shared.Pagination;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -25,6 +26,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.time.OffsetDateTime;
+import java.util.Objects;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
@@ -201,6 +203,11 @@ public class AdminCommunitiesController {
         if (authRes.status() != AdminAuthService.Status.OK) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "forbidden"));
         }
+        boolean nameProvided = body != null && body.name() != null;
+        String name = nameProvided ? normalizeName(body.name()) : null;
+        if (nameProvided && name == null) {
+            return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of("error", "name_required"));
+        }
         boolean iconProvided = body != null && body.icon() != null;
         Integer ttlDays = body.verificationTtlDays();
         if (ttlDays != null && ttlDays < 0) {
@@ -212,7 +219,7 @@ public class AdminCommunitiesController {
         }
         CommunitiesRepository.CommunityRow existingRow = null;
         String existingSpecializationType = null;
-        if (cooldownMonths != null || iconProvided) {
+        if (cooldownMonths != null || iconProvided || nameProvided) {
             var existing = communities.findById(id);
             if (existing.isEmpty()) {
                 return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "not_found"));
@@ -242,13 +249,52 @@ public class AdminCommunitiesController {
         String description = normalizeDescription(body.description());
         boolean shortNameProvided = body.shortName() != null;
         String shortName = normalizeShortName(body.shortName());
-        if (!descriptionProvided && ttlDays == null && !shortNameProvided && cooldownMonths == null && !iconProvided) {
+        boolean effectiveNameChange = nameProvided && existingRow != null && !equalsIgnoreCase(existingRow.name, name);
+        if (!descriptionProvided && ttlDays == null && !shortNameProvided && cooldownMonths == null && !iconProvided && !effectiveNameChange) {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of("error", "no_changes"));
         }
         boolean detailsUpdated = true;
         if (descriptionProvided || ttlDays != null || shortNameProvided || cooldownMonths != null) {
             detailsUpdated = communities.updateDetails(id, descriptionProvided, description, ttlDays, shortNameProvided, shortName, cooldownMonths);
             if (!detailsUpdated) {
+                return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "not_found"));
+            }
+        }
+        boolean nameUpdated = false;
+        String oldName = null;
+        if (effectiveNameChange) {
+            if (existingRow == null) {
+                return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+            }
+            oldName = existingRow.name;
+            String kind = existingRow.kind == null ? "" : existingRow.kind.trim().toLowerCase(Locale.ROOT);
+            String specializationType = existingRow.specializationType == null ? null : existingRow.specializationType.trim().toLowerCase(Locale.ROOT);
+
+            if ("specialization".equals(kind)) {
+                if (specializationType == null || specializationType.isBlank()) {
+                    return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of("error", "invalid_specialization"));
+                }
+                var conflict = communities.findByKindAndName("specialization", name, specializationType);
+                if (conflict.isPresent() && conflict.get().id != id) {
+                    return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "community_exists"));
+                }
+                nameUpdated = communities.updateSpecializationIconAndName(
+                        id,
+                        specializationType,
+                        true,
+                        name,
+                        false,
+                        null,
+                        null
+                );
+            } else {
+                var conflict = communities.findByKindAndName(kind, name);
+                if (conflict.isPresent() && conflict.get().id != id) {
+                    return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "community_exists"));
+                }
+                nameUpdated = communities.updateNameNonSpecialization(id, name);
+            }
+            if (!nameUpdated) {
                 return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "not_found"));
             }
         }
@@ -306,22 +352,93 @@ public class AdminCommunitiesController {
             if (meta.length() > 0) meta.append(",");
             meta.append("short_name_updated");
         }
+        if (nameUpdated) {
+            if (meta.length() > 0) meta.append(",");
+            meta.append("name_updated");
+        }
         if (iconProvided) {
             if (meta.length() > 0) meta.append(",");
             meta.append("icon_updated");
         }
-        audit.log(authRes.admin().id, "community.update", "community", id,
-                meta.length() == 0 ? null : meta.toString());
+        String auditMeta = null;
+        if (nameUpdated) {
+            auditMeta = "{\"name\":{\"old\":\"" + escapeJson(oldName) + "\",\"new\":\"" + escapeJson(name) + "\"}"
+                    + (meta.length() == 0 ? "" : ",\"fields\":\"" + escapeJson(meta.toString()) + "\"")
+                    + "}";
+        } else if (meta.length() > 0) {
+            auditMeta = meta.toString();
+        }
+        audit.log(authRes.admin().id, "community.update", "community", id, auditMeta);
         Map<String, Object> out = new HashMap<>();
         out.put("id", id);
         if (descriptionProvided) out.put("description", description);
         if (ttlDays != null) out.put("verification_ttl_days", ttlDays);
         if (cooldownMonths != null) out.put("specialization_join_cooldown_months", cooldownMonths == 0 ? null : cooldownMonths);
         if (shortNameProvided) out.put("short_name", shortName);
+        if (nameUpdated) out.put("name", name);
         if (iconProvided) {
             Map<String, Object> icon = SpecializationIcons.payloadOrNull(updatedIconKind, updatedIconValue);
             out.put("icon", icon);
         }
+        return ResponseEntity.ok(out);
+    }
+
+    @PostMapping("/{id}/change-kind")
+    public ResponseEntity<?> changeKind(@AuthenticationPrincipal Jwt jwt,
+                                        @PathVariable("id") long id,
+                                        @Valid @RequestBody ChangeKindRequest body) {
+        String email = jwt.getClaimAsString("email");
+        var authRes = auth.requirePermission(jwt.getSubject(), email, AdminPermissions.CREATE_COMMUNITY);
+        if (authRes.status() != AdminAuthService.Status.OK) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "forbidden"));
+        }
+        var existingOpt = communities.findById(id);
+        if (existingOpt.isEmpty()) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "not_found"));
+        }
+        var existing = existingOpt.get();
+        String currentKind = existing.kind == null ? null : existing.kind.trim().toLowerCase(Locale.ROOT);
+        String currentSpecType = existing.specializationType == null ? null : existing.specializationType.trim().toLowerCase(Locale.ROOT);
+
+        KindTarget target = normalizeKindTarget(body);
+        if (target == null) {
+            return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of("error", "invalid_kind"));
+        }
+        if (!isAllowedKindTransition(currentKind, currentSpecType, target.kind(), target.specializationType())) {
+            return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of(
+                    "error", "invalid_transition",
+                    "message", "Changing community kind is only allowed for company<->school, sector->company/school, and field<->major specializations"
+            ));
+        }
+        if (Objects.equals(currentKind, target.kind()) && Objects.equals(currentSpecType, target.specializationType())) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of("error", "no_changes"));
+        }
+
+        // Uniqueness checks
+        if ("specialization".equals(target.kind())) {
+            var conflict = communities.findByKindAndName("specialization", existing.name, target.specializationType());
+            if (conflict.isPresent() && conflict.get().id != id) {
+                return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "community_exists"));
+            }
+        } else {
+            var conflict = communities.findByKindAndName(target.kind(), existing.name);
+            if (conflict.isPresent() && conflict.get().id != id) {
+                return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "community_exists"));
+            }
+        }
+
+        boolean updated = communities.updateKindAndSpecializationType(id, target.kind(), target.specializationType());
+        if (!updated) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "not_found"));
+        }
+        String auditMeta = "{\"kind\":{\"old\":\"" + escapeJson(currentKind) + "\",\"new\":\"" + escapeJson(target.kind()) + "\"}"
+                + ",\"specialization_type\":{\"old\":\"" + escapeJson(currentSpecType) + "\",\"new\":\"" + escapeJson(target.specializationType()) + "\"}"
+                + "}";
+        audit.log(authRes.admin().id, "community.change_kind", "community", id, auditMeta);
+        Map<String, Object> out = new HashMap<>();
+        out.put("id", id);
+        out.put("kind", target.kind());
+        if (target.specializationType() != null) out.put("specialization_type", target.specializationType());
         return ResponseEntity.ok(out);
     }
 
@@ -437,8 +554,45 @@ public class AdminCommunitiesController {
                                          Integer verificationTtlDays, String specializationType, String shortName,
                                          Integer specializationJoinCooldownMonths) {}
 
-    public record UpdateCommunityRequest(String description, Integer verificationTtlDays, String shortName,
+    public record UpdateCommunityRequest(String name, String description, Integer verificationTtlDays, String shortName,
                                          Integer specializationJoinCooldownMonths, SpecializationIcons.IconRequest icon) {}
+
+    public record ChangeKindRequest(@NotNull @NotBlank String kind, String specializationType) {}
+
+    private record KindTarget(String kind, String specializationType) {}
+
+    private KindTarget normalizeKindTarget(ChangeKindRequest body) {
+        if (body == null || body.kind() == null) return null;
+        String raw = body.kind().trim().toLowerCase(Locale.ROOT);
+        if (raw.isBlank()) return null;
+        if (raw.equals("major") || raw.equals("field")) {
+            return new KindTarget("specialization", raw);
+        }
+        if (raw.equals("specialization")) {
+            String st = normalizeSpecializationType(body.specializationType());
+            return st == null ? null : new KindTarget("specialization", st);
+        }
+        if (raw.equals("company") || raw.equals("school") || raw.equals("sector")) {
+            return new KindTarget(raw, null);
+        }
+        return null;
+    }
+
+    private boolean isAllowedKindTransition(String fromKind,
+                                           String fromSpecType,
+                                           String toKind,
+                                           String toSpecType) {
+        if (fromKind == null || toKind == null) return false;
+        if ("specialization".equals(fromKind) || "specialization".equals(toKind)) {
+            if (!"specialization".equals(fromKind) || !"specialization".equals(toKind)) return false;
+            if (fromSpecType == null || toSpecType == null) return false;
+            return (("field".equals(fromSpecType) || "major".equals(fromSpecType))
+                    && ("field".equals(toSpecType) || "major".equals(toSpecType)));
+        }
+        boolean fromOk = "company".equals(fromKind) || "school".equals(fromKind) || "sector".equals(fromKind);
+        boolean toOk = "company".equals(toKind) || "school".equals(toKind);
+        return fromOk && toOk;
+    }
 
     private java.util.Set<String> parseCsvSet(String csv) {
         if (csv == null || csv.isBlank()) return java.util.Set.of();
@@ -449,5 +603,15 @@ public class AdminCommunitiesController {
             if (!v.isBlank()) out.add(v);
         }
         return java.util.Set.copyOf(out);
+    }
+
+    private boolean equalsIgnoreCase(String a, String b) {
+        if (a == null) return b == null;
+        return b != null && a.equalsIgnoreCase(b);
+    }
+
+    private String escapeJson(String s) {
+        if (s == null) return "";
+        return s.replace("\\", "\\\\").replace("\"", "\\\"");
     }
 }

@@ -59,6 +59,7 @@ public class AdminUsersController {
     public ResponseEntity<?> search(
             @AuthenticationPrincipal Jwt jwt,
             @RequestParam(value = "query", required = false) String query,
+            @RequestParam(value = "banned", required = false) Boolean banned,
             @RequestParam(value = "sort", required = false) String sort,
             @RequestParam(value = "cursor", required = false) String cursor,
             @RequestParam(value = "limit", required = false, defaultValue = "50") int limit
@@ -89,7 +90,10 @@ public class AdminUsersController {
             } catch (IllegalArgumentException ignored) {}
         }
         int lim = Math.max(1, Math.min(limit, 200));
-        List<UserRepository.UserRow> rows = users.adminSearchAll(query, cursorTs, cursorId, lim);
+        boolean bannedOnly = banned != null && banned;
+        List<UserRepository.UserRow> rows = bannedOnly
+                ? users.adminSearchBanned(query, cursorTs, cursorId, lim)
+                : users.adminSearchAll(query, cursorTs, cursorId, lim);
         String next = null;
         if (rows.size() == lim) {
             var last = rows.get(rows.size() - 1);

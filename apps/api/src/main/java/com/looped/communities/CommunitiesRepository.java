@@ -705,6 +705,24 @@ public class CommunitiesRepository {
         return rows > 0;
     }
 
+    public boolean updateNameNonSpecialization(long communityId, String name) {
+        if (name == null || name.isBlank()) return false;
+        int rows = jdbc.update(
+                "UPDATE communities SET name = ? WHERE id = ? AND kind <> 'specialization'",
+                name, communityId
+        );
+        return rows > 0;
+    }
+
+    public boolean updateKindAndSpecializationType(long communityId, String kind, String specializationType) {
+        if (kind == null || kind.isBlank()) return false;
+        int rows = jdbc.update(
+                "UPDATE communities SET kind = ?, specialization_type = ? WHERE id = ?",
+                kind, specializationType, communityId
+        );
+        return rows > 0;
+    }
+
     public boolean updateImageUrl(long communityId, String imageUrl) {
         int rows = jdbc.update(
                 "UPDATE communities SET image_url = ? WHERE id = ?",
