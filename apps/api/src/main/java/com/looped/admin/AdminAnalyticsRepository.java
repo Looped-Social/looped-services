@@ -1948,41 +1948,41 @@ public class AdminAnalyticsRepository {
                            AND (
                                community_id_param IS NULL
                                OR (
-                                   r.target_type = 'post'
-                                   AND EXISTS (
-                                       SELECT 1 FROM posts p
-                                       WHERE p.id = r.target_id
-                                         AND p.community_id = community_id_param
-                                         AND p.removed_at IS NULL
-                                         AND p.visibility = 'public'
-                                         AND (
-                                             audience = 'both'
-                                             OR (audience = 'public' AND p.is_anon = false)
-                                             OR (audience = 'anon' AND p.is_anon = true)
-                                         )
-                                   )
-                               )
-                               OR (
-                                   r.target_type = 'comment'
-                                   AND EXISTS (
+	                                   r.target_type = 'post'
+	                                   AND EXISTS (
+	                                       SELECT 1 FROM posts p
+	                                       WHERE p.id = r.target_id
+	                                         AND p.community_id = params.community_id_param
+	                                         AND p.removed_at IS NULL
+	                                         AND p.visibility = 'public'
+	                                         AND (
+	                                             params.audience = 'both'
+	                                             OR (params.audience = 'public' AND p.is_anon = false)
+	                                             OR (params.audience = 'anon' AND p.is_anon = true)
+	                                         )
+	                                   )
+	                               )
+	                               OR (
+	                                   r.target_type = 'comment'
+	                                   AND EXISTS (
                                        SELECT 1
-                                       FROM comments c
-                                       JOIN posts p ON p.id = c.post_id
-                                       WHERE c.id = r.target_id
-                                         AND p.community_id = community_id_param
-                                         AND c.deleted_at IS NULL
-                                         AND c.visibility = 'public'
-                                         AND p.removed_at IS NULL
-                                         AND p.visibility = 'public'
-                                         AND (
-                                             audience = 'both'
-                                             OR (audience = 'public' AND c.user_id IS NOT NULL)
-                                             OR (audience = 'anon' AND c.user_id IS NULL)
-                                         )
-                                   )
-                               )
-                           )
-                        ) AS week_count,
+	                                       FROM comments c
+	                                       JOIN posts p ON p.id = c.post_id
+	                                       WHERE c.id = r.target_id
+	                                         AND p.community_id = params.community_id_param
+	                                         AND c.deleted_at IS NULL
+	                                         AND c.visibility = 'public'
+	                                         AND p.removed_at IS NULL
+	                                         AND p.visibility = 'public'
+	                                         AND (
+	                                             params.audience = 'both'
+	                                             OR (params.audience = 'public' AND c.user_id IS NOT NULL)
+	                                             OR (params.audience = 'anon' AND c.user_id IS NULL)
+	                                         )
+	                                   )
+	                               )
+	                           )
+	                        ) AS week_count,
                         (SELECT COUNT(*)
                          FROM reports r, params
                          WHERE r.created_at >= month_from_ts AND r.created_at < to_ts
@@ -1990,42 +1990,42 @@ public class AdminAnalyticsRepository {
                            AND (
                                community_id_param IS NULL
                                OR (
-                                   r.target_type = 'post'
-                                   AND EXISTS (
-                                       SELECT 1 FROM posts p
-                                       WHERE p.id = r.target_id
-                                         AND p.community_id = community_id_param
-                                         AND p.removed_at IS NULL
-                                         AND p.visibility = 'public'
-                                         AND (
-                                             audience = 'both'
-                                             OR (audience = 'public' AND p.is_anon = false)
-                                             OR (audience = 'anon' AND p.is_anon = true)
-                                         )
-                                   )
-                               )
-                               OR (
-                                   r.target_type = 'comment'
-                                   AND EXISTS (
+	                                   r.target_type = 'post'
+	                                   AND EXISTS (
+	                                       SELECT 1 FROM posts p
+	                                       WHERE p.id = r.target_id
+	                                         AND p.community_id = params.community_id_param
+	                                         AND p.removed_at IS NULL
+	                                         AND p.visibility = 'public'
+	                                         AND (
+	                                             params.audience = 'both'
+	                                             OR (params.audience = 'public' AND p.is_anon = false)
+	                                             OR (params.audience = 'anon' AND p.is_anon = true)
+	                                         )
+	                                   )
+	                               )
+	                               OR (
+	                                   r.target_type = 'comment'
+	                                   AND EXISTS (
                                        SELECT 1
-                                       FROM comments c
-                                       JOIN posts p ON p.id = c.post_id
-                                       WHERE c.id = r.target_id
-                                         AND p.community_id = community_id_param
-                                         AND c.deleted_at IS NULL
-                                         AND c.visibility = 'public'
-                                         AND p.removed_at IS NULL
-                                         AND p.visibility = 'public'
-                                         AND (
-                                             audience = 'both'
-                                             OR (audience = 'public' AND c.user_id IS NOT NULL)
-                                             OR (audience = 'anon' AND c.user_id IS NULL)
-                                         )
-                                   )
-                               )
-                           )
-                        ) AS month_count
-                ),
+	                                       FROM comments c
+	                                       JOIN posts p ON p.id = c.post_id
+	                                       WHERE c.id = r.target_id
+	                                         AND p.community_id = params.community_id_param
+	                                         AND c.deleted_at IS NULL
+	                                         AND c.visibility = 'public'
+	                                         AND p.removed_at IS NULL
+	                                         AND p.visibility = 'public'
+	                                         AND (
+	                                             params.audience = 'both'
+	                                             OR (params.audience = 'public' AND c.user_id IS NOT NULL)
+	                                             OR (params.audience = 'anon' AND c.user_id IS NULL)
+	                                         )
+	                                   )
+	                               )
+	                           )
+	                        ) AS month_count
+	                ),
                 moderation_actions AS (
                     SELECT
                         (SELECT COUNT(*)
@@ -2078,34 +2078,34 @@ public class AdminAnalyticsRepository {
                            AND (
                                community_id_param IS NULL
                                OR (
-                                   r.target_type = 'post'
-                                   AND EXISTS (
-                                       SELECT 1 FROM posts p
-                                       WHERE p.id = r.target_id
-                                         AND p.community_id = community_id_param
-                                         AND (
-                                             audience = 'both'
-                                             OR (audience = 'public' AND p.is_anon = false)
-                                             OR (audience = 'anon' AND p.is_anon = true)
-                                         )
-                                   )
-                               )
-                               OR (
-                                   r.target_type = 'comment'
-                                   AND EXISTS (
+	                                   r.target_type = 'post'
+	                                   AND EXISTS (
+	                                       SELECT 1 FROM posts p
+	                                       WHERE p.id = r.target_id
+	                                         AND p.community_id = params.community_id_param
+	                                         AND (
+	                                             params.audience = 'both'
+	                                             OR (params.audience = 'public' AND p.is_anon = false)
+	                                             OR (params.audience = 'anon' AND p.is_anon = true)
+	                                         )
+	                                   )
+	                               )
+	                               OR (
+	                                   r.target_type = 'comment'
+	                                   AND EXISTS (
                                        SELECT 1
-                                       FROM comments c
-                                       JOIN posts p ON p.id = c.post_id
-                                       WHERE c.id = r.target_id
-                                         AND p.community_id = community_id_param
-                                         AND (
-                                             audience = 'both'
-                                             OR (audience = 'public' AND c.user_id IS NOT NULL)
-                                             OR (audience = 'anon' AND c.user_id IS NULL)
-                                         )
-                                   )
-                               )
-                           )
+	                                       FROM comments c
+	                                       JOIN posts p ON p.id = c.post_id
+	                                       WHERE c.id = r.target_id
+	                                         AND p.community_id = params.community_id_param
+	                                         AND (
+	                                             params.audience = 'both'
+	                                             OR (params.audience = 'public' AND c.user_id IS NOT NULL)
+	                                             OR (params.audience = 'anon' AND c.user_id IS NULL)
+	                                         )
+	                                   )
+	                               )
+	                           )
                         ) +
                         (SELECT COUNT(*)
                          FROM moderation_queue_items mqi, params
@@ -2115,34 +2115,34 @@ public class AdminAnalyticsRepository {
                            AND (
                                community_id_param IS NULL
                                OR (
-                                   mqi.target_type = 'post'
-                                   AND EXISTS (
-                                       SELECT 1 FROM posts p
-                                       WHERE p.id = mqi.target_id
-                                         AND p.community_id = community_id_param
-                                         AND (
-                                             audience = 'both'
-                                             OR (audience = 'public' AND p.is_anon = false)
-                                             OR (audience = 'anon' AND p.is_anon = true)
-                                         )
-                                   )
-                               )
-                               OR (
-                                   mqi.target_type = 'comment'
-                                   AND EXISTS (
+	                                   mqi.target_type = 'post'
+	                                   AND EXISTS (
+	                                       SELECT 1 FROM posts p
+	                                       WHERE p.id = mqi.target_id
+	                                         AND p.community_id = params.community_id_param
+	                                         AND (
+	                                             params.audience = 'both'
+	                                             OR (params.audience = 'public' AND p.is_anon = false)
+	                                             OR (params.audience = 'anon' AND p.is_anon = true)
+	                                         )
+	                                   )
+	                               )
+	                               OR (
+	                                   mqi.target_type = 'comment'
+	                                   AND EXISTS (
                                        SELECT 1
-                                       FROM comments c
-                                       JOIN posts p ON p.id = c.post_id
-                                       WHERE c.id = mqi.target_id
-                                         AND p.community_id = community_id_param
-                                         AND (
-                                             audience = 'both'
-                                             OR (audience = 'public' AND c.user_id IS NOT NULL)
-                                             OR (audience = 'anon' AND c.user_id IS NULL)
-                                         )
-                                   )
-                               )
-                           )
+	                                       FROM comments c
+	                                       JOIN posts p ON p.id = c.post_id
+	                                       WHERE c.id = mqi.target_id
+	                                         AND p.community_id = params.community_id_param
+	                                         AND (
+	                                             params.audience = 'both'
+	                                             OR (params.audience = 'public' AND c.user_id IS NOT NULL)
+	                                             OR (params.audience = 'anon' AND c.user_id IS NULL)
+	                                         )
+	                                   )
+	                               )
+	                           )
                         ) AS week_count,
                         (SELECT COUNT(*)
                          FROM posts p, params
@@ -2194,34 +2194,34 @@ public class AdminAnalyticsRepository {
                            AND (
                                community_id_param IS NULL
                                OR (
-                                   r.target_type = 'post'
-                                   AND EXISTS (
-                                       SELECT 1 FROM posts p
-                                       WHERE p.id = r.target_id
-                                         AND p.community_id = community_id_param
-                                         AND (
-                                             audience = 'both'
-                                             OR (audience = 'public' AND p.is_anon = false)
-                                             OR (audience = 'anon' AND p.is_anon = true)
-                                         )
-                                   )
-                               )
-                               OR (
-                                   r.target_type = 'comment'
-                                   AND EXISTS (
+	                                   r.target_type = 'post'
+	                                   AND EXISTS (
+	                                       SELECT 1 FROM posts p
+	                                       WHERE p.id = r.target_id
+	                                         AND p.community_id = params.community_id_param
+	                                         AND (
+	                                             params.audience = 'both'
+	                                             OR (params.audience = 'public' AND p.is_anon = false)
+	                                             OR (params.audience = 'anon' AND p.is_anon = true)
+	                                         )
+	                                   )
+	                               )
+	                               OR (
+	                                   r.target_type = 'comment'
+	                                   AND EXISTS (
                                        SELECT 1
-                                       FROM comments c
-                                       JOIN posts p ON p.id = c.post_id
-                                       WHERE c.id = r.target_id
-                                         AND p.community_id = community_id_param
-                                         AND (
-                                             audience = 'both'
-                                             OR (audience = 'public' AND c.user_id IS NOT NULL)
-                                             OR (audience = 'anon' AND c.user_id IS NULL)
-                                         )
-                                   )
-                               )
-                           )
+	                                       FROM comments c
+	                                       JOIN posts p ON p.id = c.post_id
+	                                       WHERE c.id = r.target_id
+	                                         AND p.community_id = params.community_id_param
+	                                         AND (
+	                                             params.audience = 'both'
+	                                             OR (params.audience = 'public' AND c.user_id IS NOT NULL)
+	                                             OR (params.audience = 'anon' AND c.user_id IS NULL)
+	                                         )
+	                                   )
+	                               )
+	                           )
                         ) +
                         (SELECT COUNT(*)
                          FROM moderation_queue_items mqi, params
@@ -2231,34 +2231,34 @@ public class AdminAnalyticsRepository {
                            AND (
                                community_id_param IS NULL
                                OR (
-                                   mqi.target_type = 'post'
-                                   AND EXISTS (
-                                       SELECT 1 FROM posts p
-                                       WHERE p.id = mqi.target_id
-                                         AND p.community_id = community_id_param
-                                         AND (
-                                             audience = 'both'
-                                             OR (audience = 'public' AND p.is_anon = false)
-                                             OR (audience = 'anon' AND p.is_anon = true)
-                                         )
-                                   )
-                               )
-                               OR (
-                                   mqi.target_type = 'comment'
-                                   AND EXISTS (
+	                                   mqi.target_type = 'post'
+	                                   AND EXISTS (
+	                                       SELECT 1 FROM posts p
+	                                       WHERE p.id = mqi.target_id
+	                                         AND p.community_id = params.community_id_param
+	                                         AND (
+	                                             params.audience = 'both'
+	                                             OR (params.audience = 'public' AND p.is_anon = false)
+	                                             OR (params.audience = 'anon' AND p.is_anon = true)
+	                                         )
+	                                   )
+	                               )
+	                               OR (
+	                                   mqi.target_type = 'comment'
+	                                   AND EXISTS (
                                        SELECT 1
-                                       FROM comments c
-                                       JOIN posts p ON p.id = c.post_id
-                                       WHERE c.id = mqi.target_id
-                                         AND p.community_id = community_id_param
-                                         AND (
-                                             audience = 'both'
-                                             OR (audience = 'public' AND c.user_id IS NOT NULL)
-                                             OR (audience = 'anon' AND c.user_id IS NULL)
-                                         )
-                                   )
-                               )
-                           )
+	                                       FROM comments c
+	                                       JOIN posts p ON p.id = c.post_id
+	                                       WHERE c.id = mqi.target_id
+	                                         AND p.community_id = params.community_id_param
+	                                         AND (
+	                                             params.audience = 'both'
+	                                             OR (params.audience = 'public' AND c.user_id IS NOT NULL)
+	                                             OR (params.audience = 'anon' AND c.user_id IS NULL)
+	                                         )
+	                                   )
+	                               )
+	                           )
                         ) AS month_count
                 ),
                 appeals AS (
@@ -2311,34 +2311,34 @@ public class AdminAnalyticsRepository {
                           AND (
                               community_id_param IS NULL
                               OR (
-                                  r.target_type = 'post'
-                                  AND EXISTS (
-                                      SELECT 1 FROM posts p
-                                      WHERE p.id = r.target_id
-                                        AND p.community_id = community_id_param
-                                        AND (
-                                            audience = 'both'
-                                            OR (audience = 'public' AND p.is_anon = false)
-                                            OR (audience = 'anon' AND p.is_anon = true)
-                                        )
-                                  )
-                              )
-                              OR (
-                                  r.target_type = 'comment'
-                                  AND EXISTS (
+	                                  r.target_type = 'post'
+	                                  AND EXISTS (
+	                                      SELECT 1 FROM posts p
+	                                      WHERE p.id = r.target_id
+	                                        AND p.community_id = params.community_id_param
+	                                        AND (
+	                                            params.audience = 'both'
+	                                            OR (params.audience = 'public' AND p.is_anon = false)
+	                                            OR (params.audience = 'anon' AND p.is_anon = true)
+	                                        )
+	                                  )
+	                              )
+	                              OR (
+	                                  r.target_type = 'comment'
+	                                  AND EXISTS (
                                       SELECT 1
-                                      FROM comments c
-                                      JOIN posts p ON p.id = c.post_id
-                                      WHERE c.id = r.target_id
-                                        AND p.community_id = community_id_param
-                                        AND (
-                                            audience = 'both'
-                                            OR (audience = 'public' AND c.user_id IS NOT NULL)
-                                            OR (audience = 'anon' AND c.user_id IS NULL)
-                                        )
-                                  )
-                              )
-                          )
+	                                      FROM comments c
+	                                      JOIN posts p ON p.id = c.post_id
+	                                      WHERE c.id = r.target_id
+	                                        AND p.community_id = params.community_id_param
+	                                        AND (
+	                                            params.audience = 'both'
+	                                            OR (params.audience = 'public' AND c.user_id IS NOT NULL)
+	                                            OR (params.audience = 'anon' AND c.user_id IS NULL)
+	                                        )
+	                                  )
+	                              )
+	                          )
                         UNION ALL
                         SELECT b.created_by AS admin_id
                         FROM user_bans b, params
@@ -2365,34 +2365,34 @@ public class AdminAnalyticsRepository {
                           AND (
                               community_id_param IS NULL
                               OR (
-                                  mqi.target_type = 'post'
-                                  AND EXISTS (
-                                      SELECT 1 FROM posts p
-                                      WHERE p.id = mqi.target_id
-                                        AND p.community_id = community_id_param
-                                        AND (
-                                            audience = 'both'
-                                            OR (audience = 'public' AND p.is_anon = false)
-                                            OR (audience = 'anon' AND p.is_anon = true)
-                                        )
-                                  )
-                              )
-                              OR (
-                                  mqi.target_type = 'comment'
-                                  AND EXISTS (
+	                                  mqi.target_type = 'post'
+	                                  AND EXISTS (
+	                                      SELECT 1 FROM posts p
+	                                      WHERE p.id = mqi.target_id
+	                                        AND p.community_id = params.community_id_param
+	                                        AND (
+	                                            params.audience = 'both'
+	                                            OR (params.audience = 'public' AND p.is_anon = false)
+	                                            OR (params.audience = 'anon' AND p.is_anon = true)
+	                                        )
+	                                  )
+	                              )
+	                              OR (
+	                                  mqi.target_type = 'comment'
+	                                  AND EXISTS (
                                       SELECT 1
-                                      FROM comments c
-                                      JOIN posts p ON p.id = c.post_id
-                                      WHERE c.id = mqi.target_id
-                                        AND p.community_id = community_id_param
-                                        AND (
-                                            audience = 'both'
-                                            OR (audience = 'public' AND c.user_id IS NOT NULL)
-                                            OR (audience = 'anon' AND c.user_id IS NULL)
-                                        )
-                                  )
-                              )
-                          )
+	                                      FROM comments c
+	                                      JOIN posts p ON p.id = c.post_id
+	                                      WHERE c.id = mqi.target_id
+	                                        AND p.community_id = params.community_id_param
+	                                        AND (
+	                                            params.audience = 'both'
+	                                            OR (params.audience = 'public' AND c.user_id IS NOT NULL)
+	                                            OR (params.audience = 'anon' AND c.user_id IS NULL)
+	                                        )
+	                                  )
+	                              )
+	                          )
                     ) x
                     WHERE admin_id IS NOT NULL
                 ),
@@ -2437,33 +2437,33 @@ public class AdminAnalyticsRepository {
                            AND (
                                community_id_param IS NULL
                                OR (
-                                   r.target_type = 'post'
-                                   AND EXISTS (
-                                       SELECT 1 FROM posts p
-                                       WHERE p.id = r.target_id
-                                         AND p.community_id = community_id_param
-                                         AND (
-                                             audience = 'both'
-                                             OR (audience = 'public' AND p.is_anon = false)
-                                             OR (audience = 'anon' AND p.is_anon = true)
-                                         )
-                                   )
-                               )
-                               OR (
-                                   r.target_type = 'comment'
-                                   AND EXISTS (
+	                                   r.target_type = 'post'
+	                                   AND EXISTS (
+	                                       SELECT 1 FROM posts p
+	                                       WHERE p.id = r.target_id
+	                                         AND p.community_id = params.community_id_param
+	                                         AND (
+	                                             params.audience = 'both'
+	                                             OR (params.audience = 'public' AND p.is_anon = false)
+	                                             OR (params.audience = 'anon' AND p.is_anon = true)
+	                                         )
+	                                   )
+	                               )
+	                               OR (
+	                                   r.target_type = 'comment'
+	                                   AND EXISTS (
                                        SELECT 1
-                                       FROM comments c
-                                       JOIN posts p ON p.id = c.post_id
-                                       WHERE c.id = r.target_id
-                                         AND p.community_id = community_id_param
-                                         AND (
-                                             audience = 'both'
-                                             OR (audience = 'public' AND c.user_id IS NOT NULL)
-                                             OR (audience = 'anon' AND c.user_id IS NULL)
-                                         )
-                                   )
-                               )
+	                                       FROM comments c
+	                                       JOIN posts p ON p.id = c.post_id
+	                                       WHERE c.id = r.target_id
+	                                         AND p.community_id = params.community_id_param
+	                                         AND (
+	                                             params.audience = 'both'
+	                                             OR (params.audience = 'public' AND c.user_id IS NOT NULL)
+	                                             OR (params.audience = 'anon' AND c.user_id IS NULL)
+	                                         )
+	                                   )
+	                               )
                            )
                         ) +
                         (SELECT COUNT(*)
@@ -2491,34 +2491,34 @@ public class AdminAnalyticsRepository {
                            AND (
                                community_id_param IS NULL
                                OR (
-                                   mqi.target_type = 'post'
-                                   AND EXISTS (
-                                       SELECT 1 FROM posts p
-                                       WHERE p.id = mqi.target_id
-                                         AND p.community_id = community_id_param
-                                         AND (
-                                             audience = 'both'
-                                             OR (audience = 'public' AND p.is_anon = false)
-                                             OR (audience = 'anon' AND p.is_anon = true)
-                                         )
-                                   )
-                               )
-                               OR (
-                                   mqi.target_type = 'comment'
-                                   AND EXISTS (
+	                                   mqi.target_type = 'post'
+	                                   AND EXISTS (
+	                                       SELECT 1 FROM posts p
+	                                       WHERE p.id = mqi.target_id
+	                                         AND p.community_id = params.community_id_param
+	                                         AND (
+	                                             params.audience = 'both'
+	                                             OR (params.audience = 'public' AND p.is_anon = false)
+	                                             OR (params.audience = 'anon' AND p.is_anon = true)
+	                                         )
+	                                   )
+	                               )
+	                               OR (
+	                                   mqi.target_type = 'comment'
+	                                   AND EXISTS (
                                        SELECT 1
-                                       FROM comments c
-                                       JOIN posts p ON p.id = c.post_id
-                                       WHERE c.id = mqi.target_id
-                                         AND p.community_id = community_id_param
-                                         AND (
-                                             audience = 'both'
-                                             OR (audience = 'public' AND c.user_id IS NOT NULL)
-                                             OR (audience = 'anon' AND c.user_id IS NULL)
-                                         )
-                                   )
-                               )
-                           )
+	                                       FROM comments c
+	                                       JOIN posts p ON p.id = c.post_id
+	                                       WHERE c.id = mqi.target_id
+	                                         AND p.community_id = params.community_id_param
+	                                         AND (
+	                                             params.audience = 'both'
+	                                             OR (params.audience = 'public' AND c.user_id IS NOT NULL)
+	                                             OR (params.audience = 'anon' AND c.user_id IS NULL)
+	                                         )
+	                                   )
+	                               )
+	                           )
                         ) AS actions_month
                 ),
                 violators_month AS (
