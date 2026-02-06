@@ -88,6 +88,7 @@ This repo supports applying infra via GitHub Actions using OIDC roles created by
 Workflows:
 - `.github/workflows/infra-apply-staging.yml` (environment: `staging-infra`, main only)
 - `.github/workflows/infra-apply-prod.yml` (environment: `prod-infra`, main only)
+  - Note: CI uses `backend.hcl.example` (since `backend.hcl` is gitignored).
 
 GitHub setup (repo Settings → Environments):
 1) Create environment `staging-infra` (optional reviewers).

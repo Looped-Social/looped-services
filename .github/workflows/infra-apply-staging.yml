@@ -38,9 +38,8 @@ jobs:
 
       - name: tofu init (staging)
         working-directory: infra/envs/staging
-        run: tofu init -backend-config=backend.hcl
+        run: tofu init -backend-config=backend.hcl.example
 
       - name: tofu apply (staging)
         working-directory: infra/envs/staging
         run: tofu apply -auto-approve -no-color
-
