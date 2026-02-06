@@ -749,6 +749,1901 @@ public class AdminAnalyticsRepository {
         }, from, to);
     }
 
+    public String communityKind(long communityId) {
+        return jdbc.queryForObject(
+                "SELECT kind FROM communities WHERE id = ?",
+                String.class,
+                communityId
+        );
+    }
+
+    public DashboardActiveUsersSummaryRow dashboardActiveUsersSummary(OffsetDateTime dayFrom,
+                                                                     OffsetDateTime monthFrom,
+                                                                     OffsetDateTime to,
+                                                                     Long communityId,
+                                                                     AdminDashboardAudience audience) {
+        if (dayFrom == null || monthFrom == null || to == null) throw new IllegalArgumentException("dayFrom/monthFrom/to required");
+        String sql = """
+                WITH params AS (
+                    SELECT ?::timestamptz AS day_from_ts,
+                           ?::timestamptz AS month_from_ts,
+                           ?::timestamptz AS to_ts,
+                           ?::bigint AS community_id_param,
+                           ?::text AS audience
+                ),
+                events AS (
+                    SELECT p.author_id AS user_id, p.created_at AS ts
+                    FROM posts p, params
+                    WHERE p.author_id IS NOT NULL
+                      AND p.removed_at IS NULL
+                      AND p.visibility = 'public'
+                      AND p.created_at >= month_from_ts AND p.created_at < to_ts
+                      AND (community_id_param IS NULL OR p.community_id = community_id_param)
+                      AND (
+                          audience = 'both'
+                          OR (audience = 'public' AND p.is_anon = false)
+                          OR (audience = 'anon' AND p.is_anon = true)
+                      )
+                    UNION ALL
+                    SELECT c.user_id AS user_id, c.created_at AS ts
+                    FROM comments c
+                    JOIN posts p ON p.id = c.post_id,
+                         params
+                    WHERE c.user_id IS NOT NULL
+                      AND c.deleted_at IS NULL
+                      AND c.removed_at IS NULL
+                      AND c.visibility = 'public'
+                      AND p.removed_at IS NULL
+                      AND p.visibility = 'public'
+                      AND c.created_at >= month_from_ts AND c.created_at < to_ts
+                      AND (community_id_param IS NULL OR p.community_id = community_id_param)
+                      AND (
+                          audience = 'both'
+                          OR (audience = 'public' AND c.user_id IS NOT NULL)
+                          OR (audience = 'anon' AND c.user_id IS NULL)
+                      )
+                    UNION ALL
+                    SELECT pr.user_id AS user_id, pl.created_at AS ts
+                    FROM post_likes pl
+                    JOIN principals pr ON pr.id = pl.liker_principal_id
+                    JOIN posts p ON p.id = pl.post_id,
+                         params
+                    WHERE pr.user_id IS NOT NULL
+                      AND p.removed_at IS NULL
+                      AND p.visibility = 'public'
+                      AND pl.created_at >= month_from_ts AND pl.created_at < to_ts
+                      AND (community_id_param IS NULL OR p.community_id = community_id_param)
+                      AND (
+                          audience = 'both'
+                          OR (audience = 'public' AND p.is_anon = false)
+                          OR (audience = 'anon' AND p.is_anon = true)
+                      )
+                    UNION ALL
+                    SELECT pr.user_id AS user_id, cl.created_at AS ts
+                    FROM comment_likes cl
+                    JOIN principals pr ON pr.id = cl.liker_principal_id
+                    JOIN comments c ON c.id = cl.comment_id
+                    JOIN posts p ON p.id = c.post_id,
+                         params
+                    WHERE pr.user_id IS NOT NULL
+                      AND c.deleted_at IS NULL
+                      AND c.removed_at IS NULL
+                      AND c.visibility = 'public'
+                      AND p.removed_at IS NULL
+                      AND p.visibility = 'public'
+                      AND cl.created_at >= month_from_ts AND cl.created_at < to_ts
+                      AND (community_id_param IS NULL OR p.community_id = community_id_param)
+                      AND (
+                          audience = 'both'
+                          OR (audience = 'public' AND c.user_id IS NOT NULL)
+                          OR (audience = 'anon' AND c.user_id IS NULL)
+                      )
+                    UNION ALL
+                    SELECT pr.user_id AS user_id, ps.created_at AS ts
+                    FROM post_shares ps
+                    JOIN principals pr ON pr.id = ps.sharer_principal_id
+                    JOIN posts p ON p.id = ps.post_id,
+                         params
+                    WHERE pr.user_id IS NOT NULL
+                      AND p.removed_at IS NULL
+                      AND p.visibility = 'public'
+                      AND ps.created_at >= month_from_ts AND ps.created_at < to_ts
+                      AND (community_id_param IS NULL OR p.community_id = community_id_param)
+                      AND (
+                          audience = 'both'
+                          OR (audience = 'public' AND p.is_anon = false)
+                          OR (audience = 'anon' AND p.is_anon = true)
+                      )
+                    UNION ALL
+                    SELECT cf.user_id AS user_id, cf.created_at AS ts
+                    FROM community_follows cf, params
+                    WHERE cf.created_at >= month_from_ts AND cf.created_at < to_ts
+                      AND (community_id_param IS NULL OR cf.community_id = community_id_param)
+                    UNION ALL
+                    SELECT sj.user_id AS user_id, sj.created_at AS ts
+                    FROM specialization_joins sj, params
+                    WHERE sj.created_at >= month_from_ts AND sj.created_at < to_ts
+                      AND (community_id_param IS NULL OR sj.specialization_id = community_id_param)
+                    UNION ALL
+                    SELECT cv.user_id AS user_id, cv.verified_at AS ts
+                    FROM community_verifications cv, params
+                    WHERE cv.verified = true
+                      AND cv.verified_at IS NOT NULL
+                      AND cv.verified_at >= month_from_ts AND cv.verified_at < to_ts
+                      AND (community_id_param IS NULL OR cv.community_id = community_id_param)
+                )
+                SELECT
+                    COUNT(DISTINCT user_id) FILTER (WHERE ts >= day_from_ts AND ts < to_ts) AS dau,
+                    COUNT(DISTINCT user_id) AS mau_30d
+                FROM events, params
+                """;
+        return jdbc.queryForObject(sql, (rs, rowNum) -> {
+            DashboardActiveUsersSummaryRow row = new DashboardActiveUsersSummaryRow();
+            row.dau = rs.getLong("dau");
+            row.mau30d = rs.getLong("mau_30d");
+            return row;
+        }, dayFrom, monthFrom, to, communityId, audience.wireValue());
+    }
+
+    public DashboardContentVolumeSummaryRow dashboardContentVolumeSummary(OffsetDateTime dayFrom,
+                                                                         OffsetDateTime weekFrom,
+                                                                         OffsetDateTime monthFrom,
+                                                                         OffsetDateTime to,
+                                                                         Long communityId,
+                                                                         AdminDashboardAudience audience) {
+        if (dayFrom == null || weekFrom == null || monthFrom == null || to == null) {
+            throw new IllegalArgumentException("dayFrom/weekFrom/monthFrom/to required");
+        }
+        String sql = """
+                WITH params AS (
+                    SELECT ?::timestamptz AS day_from_ts,
+                           ?::timestamptz AS week_from_ts,
+                           ?::timestamptz AS month_from_ts,
+                           ?::timestamptz AS to_ts,
+                           ?::bigint AS community_id_param,
+                           ?::text AS audience
+                ),
+                posts_in_range AS (
+                    SELECT p.*
+                    FROM posts p, params
+                    WHERE p.created_at >= month_from_ts AND p.created_at < to_ts
+                      AND p.removed_at IS NULL
+                      AND p.visibility = 'public'
+                      AND (community_id_param IS NULL OR p.community_id = community_id_param)
+                      AND (
+                          audience = 'both'
+                          OR (audience = 'public' AND p.is_anon = false)
+                          OR (audience = 'anon' AND p.is_anon = true)
+                      )
+                ),
+                comments_in_range AS (
+                    SELECT c.*
+                    FROM comments c
+                    JOIN posts p ON p.id = c.post_id,
+                         params
+                    WHERE c.created_at >= month_from_ts AND c.created_at < to_ts
+                      AND c.deleted_at IS NULL
+                      AND c.removed_at IS NULL
+                      AND c.visibility = 'public'
+                      AND p.removed_at IS NULL
+                      AND p.visibility = 'public'
+                      AND (community_id_param IS NULL OR p.community_id = community_id_param)
+                      AND (
+                          audience = 'both'
+                          OR (audience = 'public' AND c.user_id IS NOT NULL)
+                          OR (audience = 'anon' AND c.user_id IS NULL)
+                      )
+                )
+                SELECT
+                    COUNT(*) FILTER (WHERE pir.created_at >= day_from_ts) AS posts_day,
+                    COUNT(*) FILTER (WHERE pir.created_at >= week_from_ts) AS posts_week,
+                    COUNT(*) AS posts_month,
+                    (SELECT COUNT(*) FILTER (WHERE c.created_at >= day_from_ts) FROM comments_in_range c, params) AS comments_day,
+                    (SELECT COUNT(*) FILTER (WHERE c.created_at >= week_from_ts) FROM comments_in_range c, params) AS comments_week,
+                    (SELECT COUNT(*) FROM comments_in_range) AS comments_month,
+                    (SELECT COUNT(DISTINCT author_id) FROM posts_in_range p WHERE p.author_id IS NOT NULL) AS creators_month
+                FROM posts_in_range pir, params
+                """;
+        return jdbc.queryForObject(sql, (rs, rowNum) -> {
+            DashboardContentVolumeSummaryRow row = new DashboardContentVolumeSummaryRow();
+            row.postsDay = rs.getLong("posts_day");
+            row.postsWeek = rs.getLong("posts_week");
+            row.postsMonth = rs.getLong("posts_month");
+            row.commentsDay = rs.getLong("comments_day");
+            row.commentsWeek = rs.getLong("comments_week");
+            row.commentsMonth = rs.getLong("comments_month");
+            row.creatorsMonth = rs.getLong("creators_month");
+            return row;
+        }, dayFrom, weekFrom, monthFrom, to, communityId, audience.wireValue());
+    }
+
+    public DashboardNewUsersSummaryRow dashboardNewUsersSummary(OffsetDateTime dayFrom,
+                                                               OffsetDateTime weekFrom,
+                                                               OffsetDateTime to,
+                                                               Long communityId,
+                                                               String communityKind) {
+        if (dayFrom == null || weekFrom == null || to == null) throw new IllegalArgumentException("dayFrom/weekFrom/to required");
+        DashboardNewUsersSummaryRow row = new DashboardNewUsersSummaryRow();
+        if (communityId == null) {
+            String sql = """
+                    WITH params AS (
+                        SELECT ?::timestamptz AS day_from_ts,
+                               ?::timestamptz AS week_from_ts,
+                               ?::timestamptz AS to_ts
+                    )
+                    SELECT
+                        COUNT(*) FILTER (WHERE u.created_at >= day_from_ts AND u.created_at < to_ts) AS day_count,
+                        COUNT(*) FILTER (WHERE u.created_at >= week_from_ts AND u.created_at < to_ts) AS week_count
+                    FROM users u, params
+                    WHERE u.created_at >= week_from_ts AND u.created_at < to_ts
+                    """;
+            return jdbc.queryForObject(sql, (rs, n) -> {
+                DashboardNewUsersSummaryRow r = new DashboardNewUsersSummaryRow();
+                r.day = rs.getLong("day_count");
+                r.week = rs.getLong("week_count");
+                r.definition = "platform signups (users.created_at)";
+                return r;
+            }, dayFrom, weekFrom, to);
+        }
+
+        if ("specialization".equals(communityKind)) {
+            String sql = """
+                    WITH params AS (
+                        SELECT ?::timestamptz AS day_from_ts,
+                               ?::timestamptz AS week_from_ts,
+                               ?::timestamptz AS to_ts,
+                               ?::bigint AS community_id_param
+                    )
+                    SELECT
+                        COUNT(*) FILTER (WHERE sj.created_at >= day_from_ts AND sj.created_at < to_ts) AS day_count,
+                        COUNT(*) FILTER (WHERE sj.created_at >= week_from_ts AND sj.created_at < to_ts) AS week_count
+                    FROM specialization_joins sj, params
+                    WHERE sj.specialization_id = community_id_param
+                      AND sj.created_at >= week_from_ts AND sj.created_at < to_ts
+                    """;
+            row = jdbc.queryForObject(sql, (rs, n) -> {
+                DashboardNewUsersSummaryRow r = new DashboardNewUsersSummaryRow();
+                r.day = rs.getLong("day_count");
+                r.week = rs.getLong("week_count");
+                r.definition = "community new users = specialization joins (specialization_joins.created_at)";
+                return r;
+            }, dayFrom, weekFrom, to, communityId);
+            return row;
+        }
+
+        String sql = """
+                WITH params AS (
+                    SELECT ?::timestamptz AS day_from_ts,
+                           ?::timestamptz AS week_from_ts,
+                           ?::timestamptz AS to_ts,
+                           ?::bigint AS community_id_param
+                )
+                SELECT
+                    COUNT(*) FILTER (WHERE cv.verified_at >= day_from_ts AND cv.verified_at < to_ts) AS day_count,
+                    COUNT(*) FILTER (WHERE cv.verified_at >= week_from_ts AND cv.verified_at < to_ts) AS week_count
+                FROM community_verifications cv, params
+                WHERE cv.community_id = community_id_param
+                  AND cv.verified = true
+                  AND cv.verified_at IS NOT NULL
+                  AND cv.verified_at >= week_from_ts AND cv.verified_at < to_ts
+                """;
+        row = jdbc.queryForObject(sql, (rs, n) -> {
+            DashboardNewUsersSummaryRow r = new DashboardNewUsersSummaryRow();
+            r.day = rs.getLong("day_count");
+            r.week = rs.getLong("week_count");
+            r.definition = "community new users = community verifications (community_verifications.verified_at)";
+            return r;
+        }, dayFrom, weekFrom, to, communityId);
+        return row;
+    }
+
+    public DashboardRetentionSummaryRow dashboardRetentionSummary(OffsetDateTime cohortFrom,
+                                                                 OffsetDateTime cohortTo,
+                                                                 Long communityId,
+                                                                 String communityKind,
+                                                                 AdminDashboardAudience audience) {
+        if (cohortFrom == null || cohortTo == null) throw new IllegalArgumentException("cohortFrom/cohortTo required");
+        OffsetDateTime actionsTo = cohortTo.plusDays(30);
+        String sql = """
+                WITH params AS (
+                    SELECT ?::timestamptz AS from_ts,
+                           ?::timestamptz AS to_ts,
+                           ?::timestamptz AS actions_to_ts,
+                           ?::bigint AS community_id_param,
+                           ?::text AS community_kind,
+                           ?::text AS audience
+                ),
+                cohorts AS (
+                    SELECT u.id AS user_id,
+                           (u.created_at AT TIME ZONE 'UTC')::date AS cohort_day
+                    FROM users u, params
+                    WHERE community_id_param IS NULL
+                      AND u.deleted_at IS NULL
+                      AND u.created_at >= from_ts AND u.created_at < to_ts
+                    UNION ALL
+                    SELECT sj.user_id AS user_id,
+                           (sj.created_at AT TIME ZONE 'UTC')::date AS cohort_day
+                    FROM specialization_joins sj, params
+                    WHERE community_id_param IS NOT NULL
+                      AND community_kind = 'specialization'
+                      AND sj.specialization_id = community_id_param
+                      AND sj.created_at >= from_ts AND sj.created_at < to_ts
+                    UNION ALL
+                    SELECT cv.user_id AS user_id,
+                           (cv.verified_at AT TIME ZONE 'UTC')::date AS cohort_day
+                    FROM community_verifications cv, params
+                    WHERE community_id_param IS NOT NULL
+                      AND community_kind <> 'specialization'
+                      AND cv.community_id = community_id_param
+                      AND cv.verified = true
+                      AND cv.verified_at IS NOT NULL
+                      AND cv.verified_at >= from_ts AND cv.verified_at < to_ts
+                ),
+                actions_raw AS (
+                    SELECT p.author_id AS user_id, p.created_at AS ts
+                    FROM posts p, params
+                    WHERE p.author_id IS NOT NULL
+                      AND p.removed_at IS NULL
+                      AND p.visibility = 'public'
+                      AND p.created_at >= from_ts AND p.created_at < actions_to_ts
+                      AND (community_id_param IS NULL OR p.community_id = community_id_param)
+                      AND (
+                          audience = 'both'
+                          OR (audience = 'public' AND p.is_anon = false)
+                          OR (audience = 'anon' AND p.is_anon = true)
+                      )
+                    UNION ALL
+                    SELECT c.user_id AS user_id, c.created_at AS ts
+                    FROM comments c
+                    JOIN posts p ON p.id = c.post_id,
+                         params
+                    WHERE c.user_id IS NOT NULL
+                      AND c.deleted_at IS NULL
+                      AND c.removed_at IS NULL
+                      AND c.visibility = 'public'
+                      AND p.removed_at IS NULL
+                      AND p.visibility = 'public'
+                      AND c.created_at >= from_ts AND c.created_at < actions_to_ts
+                      AND (community_id_param IS NULL OR p.community_id = community_id_param)
+                      AND (
+                          audience = 'both'
+                          OR (audience = 'public' AND c.user_id IS NOT NULL)
+                          OR (audience = 'anon' AND c.user_id IS NULL)
+                      )
+                    UNION ALL
+                    SELECT pr.user_id AS user_id, pl.created_at AS ts
+                    FROM post_likes pl
+                    JOIN principals pr ON pr.id = pl.liker_principal_id
+                    JOIN posts p ON p.id = pl.post_id,
+                         params
+                    WHERE pr.user_id IS NOT NULL
+                      AND p.removed_at IS NULL
+                      AND p.visibility = 'public'
+                      AND pl.created_at >= from_ts AND pl.created_at < actions_to_ts
+                      AND (community_id_param IS NULL OR p.community_id = community_id_param)
+                      AND (
+                          audience = 'both'
+                          OR (audience = 'public' AND p.is_anon = false)
+                          OR (audience = 'anon' AND p.is_anon = true)
+                      )
+                    UNION ALL
+                    SELECT pr.user_id AS user_id, cl.created_at AS ts
+                    FROM comment_likes cl
+                    JOIN principals pr ON pr.id = cl.liker_principal_id
+                    JOIN comments c ON c.id = cl.comment_id
+                    JOIN posts p ON p.id = c.post_id,
+                         params
+                    WHERE pr.user_id IS NOT NULL
+                      AND c.deleted_at IS NULL
+                      AND c.removed_at IS NULL
+                      AND c.visibility = 'public'
+                      AND p.removed_at IS NULL
+                      AND p.visibility = 'public'
+                      AND cl.created_at >= from_ts AND cl.created_at < actions_to_ts
+                      AND (community_id_param IS NULL OR p.community_id = community_id_param)
+                      AND (
+                          audience = 'both'
+                          OR (audience = 'public' AND c.user_id IS NOT NULL)
+                          OR (audience = 'anon' AND c.user_id IS NULL)
+                      )
+                    UNION ALL
+                    SELECT pr.user_id AS user_id, ps.created_at AS ts
+                    FROM post_shares ps
+                    JOIN principals pr ON pr.id = ps.sharer_principal_id
+                    JOIN posts p ON p.id = ps.post_id,
+                         params
+                    WHERE pr.user_id IS NOT NULL
+                      AND p.removed_at IS NULL
+                      AND p.visibility = 'public'
+                      AND ps.created_at >= from_ts AND ps.created_at < actions_to_ts
+                      AND (community_id_param IS NULL OR p.community_id = community_id_param)
+                      AND (
+                          audience = 'both'
+                          OR (audience = 'public' AND p.is_anon = false)
+                          OR (audience = 'anon' AND p.is_anon = true)
+                      )
+                ),
+                actions AS (
+                    SELECT DISTINCT user_id, (ts AT TIME ZONE 'UTC')::date AS action_day
+                    FROM actions_raw
+                    WHERE user_id IS NOT NULL
+                )
+                SELECT
+                    (SELECT COUNT(DISTINCT user_id) FROM cohorts) AS cohort_size,
+                    COUNT(DISTINCT CASE WHEN a.action_day = c.cohort_day + 1 THEN c.user_id END) AS retained_d1,
+                    COUNT(DISTINCT CASE WHEN a.action_day = c.cohort_day + 7 THEN c.user_id END) AS retained_d7,
+                    COUNT(DISTINCT CASE WHEN a.action_day = c.cohort_day + 30 THEN c.user_id END) AS retained_d30
+                FROM cohorts c
+                LEFT JOIN actions a
+                    ON a.user_id = c.user_id
+                   AND a.action_day IN (c.cohort_day + 1, c.cohort_day + 7, c.cohort_day + 30)
+                """;
+        return jdbc.queryForObject(sql, (rs, rowNum) -> {
+            DashboardRetentionSummaryRow row = new DashboardRetentionSummaryRow();
+            row.cohortSize = rs.getLong("cohort_size");
+            row.retainedD1 = rs.getLong("retained_d1");
+            row.retainedD7 = rs.getLong("retained_d7");
+            row.retainedD30 = rs.getLong("retained_d30");
+            row.definition = communityId == null
+                    ? "cohort=user signups (users.created_at); retained=user has >=1 content action on D+1/D+7/D+30"
+                    : "cohort=community join/verification; retained=user has >=1 content action in-community on D+1/D+7/D+30";
+            return row;
+        }, cohortFrom, cohortTo, actionsTo, communityId, communityKind == null ? "" : communityKind, audience.wireValue());
+    }
+
+    public DashboardVerifiedActiveUsersSummaryRow dashboardVerifiedActiveUsersSummary(OffsetDateTime from,
+                                                                                     OffsetDateTime to,
+                                                                                     Long communityId,
+                                                                                     String communityKind,
+                                                                                     AdminDashboardAudience audience) {
+        if (from == null || to == null) throw new IllegalArgumentException("from/to required");
+        String sql = """
+                WITH params AS (
+                    SELECT ?::timestamptz AS from_ts,
+                           ?::timestamptz AS to_ts,
+                           ?::bigint AS community_id_param,
+                           ?::text AS community_kind,
+                           ?::text AS audience
+                ),
+                active_users AS (
+                    SELECT DISTINCT user_id
+                    FROM (
+                        SELECT p.author_id AS user_id
+                        FROM posts p, params
+                        WHERE p.author_id IS NOT NULL
+                          AND p.removed_at IS NULL
+                          AND p.visibility = 'public'
+                          AND p.created_at >= from_ts AND p.created_at < to_ts
+                          AND (community_id_param IS NULL OR p.community_id = community_id_param)
+                          AND (
+                              audience = 'both'
+                              OR (audience = 'public' AND p.is_anon = false)
+                              OR (audience = 'anon' AND p.is_anon = true)
+                          )
+                        UNION ALL
+                        SELECT c.user_id AS user_id
+                        FROM comments c
+                        JOIN posts p ON p.id = c.post_id,
+                             params
+                        WHERE c.user_id IS NOT NULL
+                          AND c.deleted_at IS NULL
+                          AND c.removed_at IS NULL
+                          AND c.visibility = 'public'
+                          AND p.removed_at IS NULL
+                          AND p.visibility = 'public'
+                          AND c.created_at >= from_ts AND c.created_at < to_ts
+                          AND (community_id_param IS NULL OR p.community_id = community_id_param)
+                          AND (
+                              audience = 'both'
+                              OR (audience = 'public' AND c.user_id IS NOT NULL)
+                              OR (audience = 'anon' AND c.user_id IS NULL)
+                          )
+                        UNION ALL
+                        SELECT pr.user_id AS user_id
+                        FROM post_likes pl
+                        JOIN principals pr ON pr.id = pl.liker_principal_id
+                        JOIN posts p ON p.id = pl.post_id,
+                             params
+                        WHERE pr.user_id IS NOT NULL
+                          AND p.removed_at IS NULL
+                          AND p.visibility = 'public'
+                          AND pl.created_at >= from_ts AND pl.created_at < to_ts
+                          AND (community_id_param IS NULL OR p.community_id = community_id_param)
+                          AND (
+                              audience = 'both'
+                              OR (audience = 'public' AND p.is_anon = false)
+                              OR (audience = 'anon' AND p.is_anon = true)
+                          )
+                        UNION ALL
+                        SELECT pr.user_id AS user_id
+                        FROM comment_likes cl
+                        JOIN principals pr ON pr.id = cl.liker_principal_id
+                        JOIN comments c ON c.id = cl.comment_id
+                        JOIN posts p ON p.id = c.post_id,
+                             params
+                        WHERE pr.user_id IS NOT NULL
+                          AND c.deleted_at IS NULL
+                          AND c.removed_at IS NULL
+                          AND c.visibility = 'public'
+                          AND p.removed_at IS NULL
+                          AND p.visibility = 'public'
+                          AND cl.created_at >= from_ts AND cl.created_at < to_ts
+                          AND (community_id_param IS NULL OR p.community_id = community_id_param)
+                          AND (
+                              audience = 'both'
+                              OR (audience = 'public' AND c.user_id IS NOT NULL)
+                              OR (audience = 'anon' AND c.user_id IS NULL)
+                          )
+                        UNION ALL
+                        SELECT pr.user_id AS user_id
+                        FROM post_shares ps
+                        JOIN principals pr ON pr.id = ps.sharer_principal_id
+                        JOIN posts p ON p.id = ps.post_id,
+                             params
+                        WHERE pr.user_id IS NOT NULL
+                          AND p.removed_at IS NULL
+                          AND p.visibility = 'public'
+                          AND ps.created_at >= from_ts AND ps.created_at < to_ts
+                          AND (community_id_param IS NULL OR p.community_id = community_id_param)
+                          AND (
+                              audience = 'both'
+                              OR (audience = 'public' AND p.is_anon = false)
+                              OR (audience = 'anon' AND p.is_anon = true)
+                          )
+                    ) x
+                    WHERE user_id IS NOT NULL
+                ),
+                verified_users AS (
+                    SELECT v.user_id
+                    FROM verifications v, params
+                    WHERE community_id_param IS NULL
+                      AND v.verified = true
+                    UNION ALL
+                    SELECT sj.user_id
+                    FROM specialization_joins sj, params
+                    WHERE community_id_param IS NOT NULL
+                      AND community_kind = 'specialization'
+                      AND sj.specialization_id = community_id_param
+                      AND sj.created_at < to_ts
+                    UNION ALL
+                    SELECT cv.user_id
+                    FROM community_verifications cv, params
+                    WHERE community_id_param IS NOT NULL
+                      AND community_kind <> 'specialization'
+                      AND cv.community_id = community_id_param
+                      AND cv.verified = true
+                      AND cv.verified_at IS NOT NULL
+                      AND cv.verified_at < to_ts
+                      AND (cv.expires_at IS NULL OR cv.expires_at > now())
+                )
+                SELECT
+                    (SELECT COUNT(*) FROM active_users) AS active_users,
+                    (SELECT COUNT(DISTINCT au.user_id)
+                     FROM active_users au
+                     JOIN verified_users vu ON vu.user_id = au.user_id
+                    ) AS verified_active_users
+                """;
+        return jdbc.queryForObject(sql, (rs, rowNum) -> {
+            DashboardVerifiedActiveUsersSummaryRow row = new DashboardVerifiedActiveUsersSummaryRow();
+            row.activeUsers = rs.getLong("active_users");
+            row.verifiedActiveUsers = rs.getLong("verified_active_users");
+            return row;
+        }, from, to, communityId, communityKind == null ? "" : communityKind, audience.wireValue());
+    }
+
+    public UniqueParticipantsSummaryRow uniqueParticipantsPerPostOptional(Long communityId,
+                                                                          OffsetDateTime from,
+                                                                          OffsetDateTime to,
+                                                                          AdminDashboardAudience audience) {
+        if (from == null || to == null) throw new IllegalArgumentException("from/to required");
+        String sql = """
+                WITH params AS (
+                    SELECT ?::bigint AS community_id_param,
+                           ?::timestamptz AS from_ts,
+                           ?::timestamptz AS to_ts,
+                           ?::text AS audience
+                ),
+                posts_in_range AS (
+                    SELECT p.id, p.author_principal_id
+                    FROM posts p, params
+                    WHERE p.removed_at IS NULL
+                      AND p.visibility = 'public'
+                      AND p.created_at >= from_ts AND p.created_at < to_ts
+                      AND (community_id_param IS NULL OR p.community_id = community_id_param)
+                      AND (
+                          audience = 'both'
+                          OR (audience = 'public' AND p.is_anon = false)
+                          OR (audience = 'anon' AND p.is_anon = true)
+                      )
+                ),
+                participants AS (
+                    SELECT pir.id AS post_id, pir.author_principal_id AS principal_id
+                    FROM posts_in_range pir
+                    UNION ALL
+                    SELECT c.post_id AS post_id, c.author_principal_id AS principal_id
+                    FROM comments c
+                    JOIN posts_in_range pir ON pir.id = c.post_id,
+                         params
+                    WHERE c.deleted_at IS NULL
+                      AND c.removed_at IS NULL
+                      AND c.visibility = 'public'
+                      AND (
+                          audience = 'both'
+                          OR (audience = 'public' AND c.user_id IS NOT NULL)
+                          OR (audience = 'anon' AND c.user_id IS NULL)
+                      )
+                    UNION ALL
+                    SELECT pl.post_id AS post_id, pl.liker_principal_id AS principal_id
+                    FROM post_likes pl
+                    JOIN posts_in_range pir ON pir.id = pl.post_id
+                    UNION ALL
+                    SELECT ps.post_id AS post_id, ps.sharer_principal_id AS principal_id
+                    FROM post_shares ps
+                    JOIN posts_in_range pir ON pir.id = ps.post_id
+                    UNION ALL
+                    SELECT c.post_id AS post_id, cl.liker_principal_id AS principal_id
+                    FROM comment_likes cl
+                    JOIN comments c ON c.id = cl.comment_id
+                    JOIN posts_in_range pir ON pir.id = c.post_id,
+                         params
+                    WHERE c.deleted_at IS NULL
+                      AND c.removed_at IS NULL
+                      AND c.visibility = 'public'
+                      AND (
+                          audience = 'both'
+                          OR (audience = 'public' AND c.user_id IS NOT NULL)
+                          OR (audience = 'anon' AND c.user_id IS NULL)
+                      )
+                ),
+                counts AS (
+                    SELECT post_id, COUNT(DISTINCT principal_id) AS participants
+                    FROM participants
+                    GROUP BY post_id
+                )
+                SELECT
+                    (SELECT COUNT(*) FROM posts_in_range) AS posts_count,
+                    COALESCE(AVG(participants), 0)::double precision AS avg_participants,
+                    COALESCE(percentile_cont(0.5) WITHIN GROUP (ORDER BY participants), 0)::double precision AS p50_participants,
+                    COALESCE(percentile_cont(0.9) WITHIN GROUP (ORDER BY participants), 0)::double precision AS p90_participants
+                FROM counts
+                """;
+        return jdbc.queryForObject(sql, (rs, rowNum) -> {
+            UniqueParticipantsSummaryRow row = new UniqueParticipantsSummaryRow();
+            row.postsCount = rs.getLong("posts_count");
+            row.avgParticipants = rs.getDouble("avg_participants");
+            row.p50Participants = rs.getDouble("p50_participants");
+            row.p90Participants = rs.getDouble("p90_participants");
+            return row;
+        }, communityId, from, to, audience.wireValue());
+    }
+
+    public TimeToFirstActionRow dashboardTimeToFirstActionsCommunity(OffsetDateTime from,
+                                                                    OffsetDateTime to,
+                                                                    long communityId,
+                                                                    String communityKind) {
+        if (from == null || to == null) throw new IllegalArgumentException("from/to required");
+        String sql = """
+                WITH params AS (
+                    SELECT ?::timestamptz AS from_ts,
+                           ?::timestamptz AS to_ts,
+                           ?::bigint AS community_id_param,
+                           ?::text AS community_kind
+                ),
+                cohort AS (
+                    SELECT sj.user_id, sj.created_at AS verified_at
+                    FROM specialization_joins sj, params
+                    WHERE community_kind = 'specialization'
+                      AND sj.specialization_id = community_id_param
+                      AND sj.created_at >= from_ts AND sj.created_at < to_ts
+                    UNION ALL
+                    SELECT cv.user_id, cv.verified_at AS verified_at
+                    FROM community_verifications cv, params
+                    WHERE community_kind <> 'specialization'
+                      AND cv.community_id = community_id_param
+                      AND cv.verified = true
+                      AND cv.verified_at IS NOT NULL
+                      AND cv.verified_at >= from_ts AND cv.verified_at < to_ts
+                ),
+                cohort_users AS (
+                    SELECT c.user_id, u.created_at, c.verified_at
+                    FROM cohort c
+                    JOIN users u ON u.id = c.user_id
+                    WHERE u.deleted_at IS NULL
+                ),
+                first_post AS (
+                    SELECT p.author_id AS user_id, MIN(p.created_at) AS ts
+                    FROM posts p
+                    JOIN cohort_users cu ON cu.user_id = p.author_id,
+                         params
+                    WHERE p.community_id = community_id_param
+                      AND p.author_id IS NOT NULL
+                      AND p.removed_at IS NULL
+                      AND p.visibility = 'public'
+                    GROUP BY 1
+                ),
+                first_comment AS (
+                    SELECT c.user_id AS user_id, MIN(c.created_at) AS ts
+                    FROM comments c
+                    JOIN posts p ON p.id = c.post_id
+                    JOIN cohort_users cu ON cu.user_id = c.user_id,
+                         params
+                    WHERE p.community_id = community_id_param
+                      AND c.user_id IS NOT NULL
+                      AND c.deleted_at IS NULL
+                      AND c.removed_at IS NULL
+                      AND c.visibility = 'public'
+                      AND p.removed_at IS NULL
+                      AND p.visibility = 'public'
+                    GROUP BY 1
+                ),
+                first_meaningful AS (
+                    SELECT cu.user_id,
+                           CASE
+                               WHEN fp.ts IS NULL THEN fc.ts
+                               WHEN fc.ts IS NULL THEN fp.ts
+                               ELSE LEAST(fp.ts, fc.ts)
+                           END AS ts
+                    FROM cohort_users cu
+                    LEFT JOIN first_post fp ON fp.user_id = cu.user_id
+                    LEFT JOIN first_comment fc ON fc.user_id = cu.user_id
+                ),
+                samples AS (
+                    SELECT cu.user_id,
+                           EXTRACT(EPOCH FROM (fm.ts - cu.created_at)) AS to_meaningful_sec,
+                           EXTRACT(EPOCH FROM (cu.verified_at - cu.created_at)) AS to_verify_sec
+                    FROM cohort_users cu
+                    LEFT JOIN first_meaningful fm ON fm.user_id = cu.user_id
+                )
+                SELECT
+                    (SELECT COUNT(*) FROM cohort_users) AS cohort_size,
+                    COUNT(*) FILTER (WHERE to_meaningful_sec IS NOT NULL AND to_meaningful_sec >= 0) AS users_with_meaningful,
+                    COALESCE(percentile_cont(0.5) WITHIN GROUP (ORDER BY to_meaningful_sec) FILTER (WHERE to_meaningful_sec IS NOT NULL AND to_meaningful_sec >= 0), 0) AS meaningful_p50_sec,
+                    COALESCE(percentile_cont(0.9) WITHIN GROUP (ORDER BY to_meaningful_sec) FILTER (WHERE to_meaningful_sec IS NOT NULL AND to_meaningful_sec >= 0), 0) AS meaningful_p90_sec,
+                    (SELECT COUNT(*) FROM cohort_users) AS users_with_verification,
+                    COALESCE(percentile_cont(0.5) WITHIN GROUP (ORDER BY to_verify_sec) FILTER (WHERE to_verify_sec IS NOT NULL AND to_verify_sec >= 0), 0) AS verify_p50_sec,
+                    COALESCE(percentile_cont(0.9) WITHIN GROUP (ORDER BY to_verify_sec) FILTER (WHERE to_verify_sec IS NOT NULL AND to_verify_sec >= 0), 0) AS verify_p90_sec
+                FROM samples
+                """;
+        return jdbc.queryForObject(sql, (rs, rowNum) -> {
+            TimeToFirstActionRow row = new TimeToFirstActionRow();
+            row.cohortSize = rs.getLong("cohort_size");
+            row.usersWithMeaningful = rs.getLong("users_with_meaningful");
+            row.meaningfulP50Sec = rs.getDouble("meaningful_p50_sec");
+            row.meaningfulP90Sec = rs.getDouble("meaningful_p90_sec");
+            row.usersWithVerification = rs.getLong("users_with_verification");
+            row.verifyP50Sec = rs.getDouble("verify_p50_sec");
+            row.verifyP90Sec = rs.getDouble("verify_p90_sec");
+            return row;
+        }, from, to, communityId, communityKind == null ? "" : communityKind);
+    }
+
+    public TimeFromVerificationRow dashboardVerificationToFirstActionsCommunity(OffsetDateTime from,
+                                                                               OffsetDateTime to,
+                                                                               long communityId,
+                                                                               String communityKind) {
+        if (from == null || to == null) throw new IllegalArgumentException("from/to required");
+        String sql = """
+                WITH params AS (
+                    SELECT ?::timestamptz AS from_ts,
+                           ?::timestamptz AS to_ts,
+                           ?::bigint AS community_id_param,
+                           ?::text AS community_kind
+                ),
+                verified_cohort AS (
+                    SELECT sj.user_id, sj.created_at AS verified_at
+                    FROM specialization_joins sj, params
+                    WHERE community_kind = 'specialization'
+                      AND sj.specialization_id = community_id_param
+                      AND sj.created_at >= from_ts AND sj.created_at < to_ts
+                    UNION ALL
+                    SELECT cv.user_id, cv.verified_at AS verified_at
+                    FROM community_verifications cv, params
+                    WHERE community_kind <> 'specialization'
+                      AND cv.community_id = community_id_param
+                      AND cv.verified = true
+                      AND cv.verified_at IS NOT NULL
+                      AND cv.verified_at >= from_ts AND cv.verified_at < to_ts
+                ),
+                first_like AS (
+                    SELECT user_id, MIN(ts) AS ts
+                    FROM (
+                        SELECT pr.user_id AS user_id, pl.created_at AS ts
+                        FROM post_likes pl
+                        JOIN principals pr ON pr.id = pl.liker_principal_id
+                        JOIN posts p ON p.id = pl.post_id
+                        JOIN verified_cohort vc ON vc.user_id = pr.user_id,
+                             params
+                        WHERE p.community_id = community_id_param
+                          AND p.removed_at IS NULL
+                          AND p.visibility = 'public'
+                          AND pl.created_at >= vc.verified_at
+                        UNION ALL
+                        SELECT pr.user_id AS user_id, cl.created_at AS ts
+                        FROM comment_likes cl
+                        JOIN principals pr ON pr.id = cl.liker_principal_id
+                        JOIN comments c ON c.id = cl.comment_id
+                        JOIN posts p ON p.id = c.post_id
+                        JOIN verified_cohort vc ON vc.user_id = pr.user_id,
+                             params
+                        WHERE p.community_id = community_id_param
+                          AND c.deleted_at IS NULL
+                          AND c.removed_at IS NULL
+                          AND c.visibility = 'public'
+                          AND p.removed_at IS NULL
+                          AND p.visibility = 'public'
+                          AND cl.created_at >= vc.verified_at
+                    ) x
+                    GROUP BY 1
+                ),
+                first_comment AS (
+                    SELECT c.user_id AS user_id, MIN(c.created_at) AS ts
+                    FROM comments c
+                    JOIN posts p ON p.id = c.post_id
+                    JOIN verified_cohort vc ON vc.user_id = c.user_id,
+                         params
+                    WHERE p.community_id = community_id_param
+                      AND c.deleted_at IS NULL
+                      AND c.removed_at IS NULL
+                      AND c.visibility = 'public'
+                      AND p.removed_at IS NULL
+                      AND p.visibility = 'public'
+                      AND c.user_id IS NOT NULL
+                      AND c.created_at >= vc.verified_at
+                    GROUP BY 1
+                ),
+                first_post AS (
+                    SELECT p.author_id AS user_id, MIN(p.created_at) AS ts
+                    FROM posts p
+                    JOIN verified_cohort vc ON vc.user_id = p.author_id,
+                         params
+                    WHERE p.community_id = community_id_param
+                      AND p.removed_at IS NULL
+                      AND p.visibility = 'public'
+                      AND p.author_id IS NOT NULL
+                      AND p.created_at >= vc.verified_at
+                    GROUP BY 1
+                ),
+                samples AS (
+                    SELECT vc.user_id,
+                           EXTRACT(EPOCH FROM (fl.ts - vc.verified_at)) AS to_like_sec,
+                           EXTRACT(EPOCH FROM (fc.ts - vc.verified_at)) AS to_comment_sec,
+                           EXTRACT(EPOCH FROM (fp.ts - vc.verified_at)) AS to_post_sec
+                    FROM verified_cohort vc
+                    LEFT JOIN first_like fl ON fl.user_id = vc.user_id
+                    LEFT JOIN first_comment fc ON fc.user_id = vc.user_id
+                    LEFT JOIN first_post fp ON fp.user_id = vc.user_id
+                )
+                SELECT
+                    (SELECT COUNT(*) FROM verified_cohort) AS cohort_size,
+                    COUNT(*) FILTER (WHERE to_like_sec IS NOT NULL AND to_like_sec >= 0) AS users_with_like,
+                    COALESCE(percentile_cont(0.5) WITHIN GROUP (ORDER BY to_like_sec) FILTER (WHERE to_like_sec IS NOT NULL AND to_like_sec >= 0), 0) AS like_p50_sec,
+                    COALESCE(percentile_cont(0.9) WITHIN GROUP (ORDER BY to_like_sec) FILTER (WHERE to_like_sec IS NOT NULL AND to_like_sec >= 0), 0) AS like_p90_sec,
+                    COUNT(*) FILTER (WHERE to_comment_sec IS NOT NULL AND to_comment_sec >= 0) AS users_with_comment,
+                    COALESCE(percentile_cont(0.5) WITHIN GROUP (ORDER BY to_comment_sec) FILTER (WHERE to_comment_sec IS NOT NULL AND to_comment_sec >= 0), 0) AS comment_p50_sec,
+                    COALESCE(percentile_cont(0.9) WITHIN GROUP (ORDER BY to_comment_sec) FILTER (WHERE to_comment_sec IS NOT NULL AND to_comment_sec >= 0), 0) AS comment_p90_sec,
+                    COUNT(*) FILTER (WHERE to_post_sec IS NOT NULL AND to_post_sec >= 0) AS users_with_post,
+                    COALESCE(percentile_cont(0.5) WITHIN GROUP (ORDER BY to_post_sec) FILTER (WHERE to_post_sec IS NOT NULL AND to_post_sec >= 0), 0) AS post_p50_sec,
+                    COALESCE(percentile_cont(0.9) WITHIN GROUP (ORDER BY to_post_sec) FILTER (WHERE to_post_sec IS NOT NULL AND to_post_sec >= 0), 0) AS post_p90_sec
+                FROM samples
+                """;
+        return jdbc.queryForObject(sql, (rs, rowNum) -> {
+            TimeFromVerificationRow row = new TimeFromVerificationRow();
+            row.cohortSize = rs.getLong("cohort_size");
+            row.usersWithLike = rs.getLong("users_with_like");
+            row.likeP50Sec = rs.getDouble("like_p50_sec");
+            row.likeP90Sec = rs.getDouble("like_p90_sec");
+            row.usersWithComment = rs.getLong("users_with_comment");
+            row.commentP50Sec = rs.getDouble("comment_p50_sec");
+            row.commentP90Sec = rs.getDouble("comment_p90_sec");
+            row.usersWithPost = rs.getLong("users_with_post");
+            row.postP50Sec = rs.getDouble("post_p50_sec");
+            row.postP90Sec = rs.getDouble("post_p90_sec");
+            return row;
+        }, from, to, communityId, communityKind == null ? "" : communityKind);
+    }
+
+    public DashboardAntiGrowthSummaryRow dashboardAntiGrowthSummary(OffsetDateTime weekFrom,
+                                                                   OffsetDateTime monthFrom,
+                                                                   OffsetDateTime to,
+                                                                   Long communityId,
+                                                                   String communityKind,
+                                                                   AdminDashboardAudience audience) {
+        if (weekFrom == null || monthFrom == null || to == null) throw new IllegalArgumentException("weekFrom/monthFrom/to required");
+        String sql = """
+                WITH params AS (
+                    SELECT ?::timestamptz AS week_from_ts,
+                           ?::timestamptz AS month_from_ts,
+                           ?::timestamptz AS to_ts,
+                           ?::bigint AS community_id_param,
+                           ?::text AS audience
+                ),
+                scoped_users_month AS (
+                    SELECT DISTINCT user_id
+                    FROM (
+                        SELECT p.author_id AS user_id
+                        FROM posts p, params
+                        WHERE community_id_param IS NOT NULL
+                          AND p.community_id = community_id_param
+                          AND p.author_id IS NOT NULL
+                          AND p.removed_at IS NULL
+                          AND p.visibility = 'public'
+                          AND p.created_at >= month_from_ts AND p.created_at < to_ts
+                        UNION ALL
+                        SELECT c.user_id AS user_id
+                        FROM comments c
+                        JOIN posts p ON p.id = c.post_id,
+                             params
+                        WHERE community_id_param IS NOT NULL
+                          AND p.community_id = community_id_param
+                          AND c.user_id IS NOT NULL
+                          AND c.deleted_at IS NULL
+                          AND c.removed_at IS NULL
+                          AND c.visibility = 'public'
+                          AND p.removed_at IS NULL
+                          AND p.visibility = 'public'
+                          AND c.created_at >= month_from_ts AND c.created_at < to_ts
+                    ) x
+                    WHERE user_id IS NOT NULL
+                ),
+                user_actions AS (
+                    SELECT
+                        (SELECT COUNT(*)
+                         FROM posts p, params
+                         WHERE p.author_id IS NOT NULL
+                           AND p.removed_at IS NULL
+                           AND p.visibility = 'public'
+                           AND p.created_at >= week_from_ts AND p.created_at < to_ts
+                           AND (community_id_param IS NULL OR p.community_id = community_id_param)
+                           AND (
+                               audience = 'both'
+                               OR (audience = 'public' AND p.is_anon = false)
+                               OR (audience = 'anon' AND p.is_anon = true)
+                           )
+                        ) +
+                        (SELECT COUNT(*)
+                         FROM comments c
+                         JOIN posts p ON p.id = c.post_id,
+                              params
+                         WHERE c.user_id IS NOT NULL
+                           AND c.deleted_at IS NULL
+                           AND c.removed_at IS NULL
+                           AND c.visibility = 'public'
+                           AND p.removed_at IS NULL
+                           AND p.visibility = 'public'
+                           AND c.created_at >= week_from_ts AND c.created_at < to_ts
+                           AND (community_id_param IS NULL OR p.community_id = community_id_param)
+                           AND (
+                               audience = 'both'
+                               OR (audience = 'public' AND c.user_id IS NOT NULL)
+                               OR (audience = 'anon' AND c.user_id IS NULL)
+                           )
+                        ) +
+                        (SELECT COUNT(*)
+                         FROM post_likes pl
+                         JOIN principals pr ON pr.id = pl.liker_principal_id
+                         JOIN posts p ON p.id = pl.post_id,
+                              params
+                         WHERE pr.user_id IS NOT NULL
+                           AND p.removed_at IS NULL
+                           AND p.visibility = 'public'
+                           AND pl.created_at >= week_from_ts AND pl.created_at < to_ts
+                           AND (community_id_param IS NULL OR p.community_id = community_id_param)
+                           AND (
+                               audience = 'both'
+                               OR (audience = 'public' AND p.is_anon = false)
+                               OR (audience = 'anon' AND p.is_anon = true)
+                           )
+                        ) +
+                        (SELECT COUNT(*)
+                         FROM comment_likes cl
+                         JOIN principals pr ON pr.id = cl.liker_principal_id
+                         JOIN comments c ON c.id = cl.comment_id
+                         JOIN posts p ON p.id = c.post_id,
+                              params
+                         WHERE pr.user_id IS NOT NULL
+                           AND c.deleted_at IS NULL
+                           AND c.removed_at IS NULL
+                           AND c.visibility = 'public'
+                           AND p.removed_at IS NULL
+                           AND p.visibility = 'public'
+                           AND cl.created_at >= week_from_ts AND cl.created_at < to_ts
+                           AND (community_id_param IS NULL OR p.community_id = community_id_param)
+                           AND (
+                               audience = 'both'
+                               OR (audience = 'public' AND c.user_id IS NOT NULL)
+                               OR (audience = 'anon' AND c.user_id IS NULL)
+                           )
+                        ) +
+                        (SELECT COUNT(*)
+                         FROM post_shares ps
+                         JOIN principals pr ON pr.id = ps.sharer_principal_id
+                         JOIN posts p ON p.id = ps.post_id,
+                              params
+                         WHERE pr.user_id IS NOT NULL
+                           AND p.removed_at IS NULL
+                           AND p.visibility = 'public'
+                           AND ps.created_at >= week_from_ts AND ps.created_at < to_ts
+                           AND (community_id_param IS NULL OR p.community_id = community_id_param)
+                           AND (
+                               audience = 'both'
+                               OR (audience = 'public' AND p.is_anon = false)
+                               OR (audience = 'anon' AND p.is_anon = true)
+                           )
+                        ) AS week_count,
+                        (SELECT COUNT(*)
+                         FROM posts p, params
+                         WHERE p.author_id IS NOT NULL
+                           AND p.removed_at IS NULL
+                           AND p.visibility = 'public'
+                           AND p.created_at >= month_from_ts AND p.created_at < to_ts
+                           AND (community_id_param IS NULL OR p.community_id = community_id_param)
+                           AND (
+                               audience = 'both'
+                               OR (audience = 'public' AND p.is_anon = false)
+                               OR (audience = 'anon' AND p.is_anon = true)
+                           )
+                        ) +
+                        (SELECT COUNT(*)
+                         FROM comments c
+                         JOIN posts p ON p.id = c.post_id,
+                              params
+                         WHERE c.user_id IS NOT NULL
+                           AND c.deleted_at IS NULL
+                           AND c.removed_at IS NULL
+                           AND c.visibility = 'public'
+                           AND p.removed_at IS NULL
+                           AND p.visibility = 'public'
+                           AND c.created_at >= month_from_ts AND c.created_at < to_ts
+                           AND (community_id_param IS NULL OR p.community_id = community_id_param)
+                           AND (
+                               audience = 'both'
+                               OR (audience = 'public' AND c.user_id IS NOT NULL)
+                               OR (audience = 'anon' AND c.user_id IS NULL)
+                           )
+                        ) +
+                        (SELECT COUNT(*)
+                         FROM post_likes pl
+                         JOIN principals pr ON pr.id = pl.liker_principal_id
+                         JOIN posts p ON p.id = pl.post_id,
+                              params
+                         WHERE pr.user_id IS NOT NULL
+                           AND p.removed_at IS NULL
+                           AND p.visibility = 'public'
+                           AND pl.created_at >= month_from_ts AND pl.created_at < to_ts
+                           AND (community_id_param IS NULL OR p.community_id = community_id_param)
+                           AND (
+                               audience = 'both'
+                               OR (audience = 'public' AND p.is_anon = false)
+                               OR (audience = 'anon' AND p.is_anon = true)
+                           )
+                        ) +
+                        (SELECT COUNT(*)
+                         FROM comment_likes cl
+                         JOIN principals pr ON pr.id = cl.liker_principal_id
+                         JOIN comments c ON c.id = cl.comment_id
+                         JOIN posts p ON p.id = c.post_id,
+                              params
+                         WHERE pr.user_id IS NOT NULL
+                           AND c.deleted_at IS NULL
+                           AND c.removed_at IS NULL
+                           AND c.visibility = 'public'
+                           AND p.removed_at IS NULL
+                           AND p.visibility = 'public'
+                           AND cl.created_at >= month_from_ts AND cl.created_at < to_ts
+                           AND (community_id_param IS NULL OR p.community_id = community_id_param)
+                           AND (
+                               audience = 'both'
+                               OR (audience = 'public' AND c.user_id IS NOT NULL)
+                               OR (audience = 'anon' AND c.user_id IS NULL)
+                           )
+                        ) +
+                        (SELECT COUNT(*)
+                         FROM post_shares ps
+                         JOIN principals pr ON pr.id = ps.sharer_principal_id
+                         JOIN posts p ON p.id = ps.post_id,
+                              params
+                         WHERE pr.user_id IS NOT NULL
+                           AND p.removed_at IS NULL
+                           AND p.visibility = 'public'
+                           AND ps.created_at >= month_from_ts AND ps.created_at < to_ts
+                           AND (community_id_param IS NULL OR p.community_id = community_id_param)
+                           AND (
+                               audience = 'both'
+                               OR (audience = 'public' AND p.is_anon = false)
+                               OR (audience = 'anon' AND p.is_anon = true)
+                           )
+                        ) AS month_count
+                ),
+                violations AS (
+                    SELECT
+                        (SELECT COUNT(*)
+                         FROM posts p, params
+                         WHERE p.removed_at IS NOT NULL
+                           AND (p.removed_reason IS NULL OR p.removed_reason <> 'user_deleted')
+                           AND p.removed_at >= week_from_ts AND p.removed_at < to_ts
+                           AND (community_id_param IS NULL OR p.community_id = community_id_param)
+                           AND (
+                               audience = 'both'
+                               OR (audience = 'public' AND p.is_anon = false)
+                               OR (audience = 'anon' AND p.is_anon = true)
+                           )
+                        ) +
+                        (SELECT COUNT(*)
+                         FROM comments c
+                         JOIN posts p ON p.id = c.post_id,
+                              params
+                         WHERE c.removed_at IS NOT NULL
+                           AND (c.removed_reason IS NULL OR c.removed_reason <> 'user_deleted')
+                           AND c.removed_at >= week_from_ts AND c.removed_at < to_ts
+                           AND c.deleted_at IS NULL
+                           AND (community_id_param IS NULL OR p.community_id = community_id_param)
+                           AND (
+                               audience = 'both'
+                               OR (audience = 'public' AND c.user_id IS NOT NULL)
+                               OR (audience = 'anon' AND c.user_id IS NULL)
+                           )
+                        ) +
+                        (SELECT COUNT(*)
+                         FROM user_bans b, params
+                         WHERE b.created_at >= week_from_ts AND b.created_at < to_ts
+                           AND (community_id_param IS NULL OR b.user_id IN (SELECT user_id FROM scoped_users_month))
+                        ) +
+                        (SELECT COUNT(*)
+                         FROM user_community_bans cb, params
+                         WHERE cb.created_at >= week_from_ts AND cb.created_at < to_ts
+                           AND (
+                               community_id_param IS NULL
+                               OR cb.scope = 'all_communities'
+                               OR cb.community_id = community_id_param
+                           )
+                        ) AS week_count,
+                        (SELECT COUNT(*)
+                         FROM posts p, params
+                         WHERE p.removed_at IS NOT NULL
+                           AND (p.removed_reason IS NULL OR p.removed_reason <> 'user_deleted')
+                           AND p.removed_at >= month_from_ts AND p.removed_at < to_ts
+                           AND (community_id_param IS NULL OR p.community_id = community_id_param)
+                           AND (
+                               audience = 'both'
+                               OR (audience = 'public' AND p.is_anon = false)
+                               OR (audience = 'anon' AND p.is_anon = true)
+                           )
+                        ) +
+                        (SELECT COUNT(*)
+                         FROM comments c
+                         JOIN posts p ON p.id = c.post_id,
+                              params
+                         WHERE c.removed_at IS NOT NULL
+                           AND (c.removed_reason IS NULL OR c.removed_reason <> 'user_deleted')
+                           AND c.removed_at >= month_from_ts AND c.removed_at < to_ts
+                           AND c.deleted_at IS NULL
+                           AND (community_id_param IS NULL OR p.community_id = community_id_param)
+                           AND (
+                               audience = 'both'
+                               OR (audience = 'public' AND c.user_id IS NOT NULL)
+                               OR (audience = 'anon' AND c.user_id IS NULL)
+                           )
+                        ) +
+                        (SELECT COUNT(*)
+                         FROM user_bans b, params
+                         WHERE b.created_at >= month_from_ts AND b.created_at < to_ts
+                           AND (community_id_param IS NULL OR b.user_id IN (SELECT user_id FROM scoped_users_month))
+                        ) +
+                        (SELECT COUNT(*)
+                         FROM user_community_bans cb, params
+                         WHERE cb.created_at >= month_from_ts AND cb.created_at < to_ts
+                           AND (
+                               community_id_param IS NULL
+                               OR cb.scope = 'all_communities'
+                               OR cb.community_id = community_id_param
+                           )
+                        ) AS month_count
+                ),
+                reports AS (
+                    SELECT
+                        (SELECT COUNT(*)
+                         FROM reports r, params
+                         WHERE r.created_at >= week_from_ts AND r.created_at < to_ts
+                           AND r.target_type IN ('post','comment')
+                           AND (
+                               community_id_param IS NULL
+                               OR (
+                                   r.target_type = 'post'
+                                   AND EXISTS (
+                                       SELECT 1 FROM posts p
+                                       WHERE p.id = r.target_id
+                                         AND p.community_id = community_id_param
+                                         AND p.removed_at IS NULL
+                                         AND p.visibility = 'public'
+                                         AND (
+                                             audience = 'both'
+                                             OR (audience = 'public' AND p.is_anon = false)
+                                             OR (audience = 'anon' AND p.is_anon = true)
+                                         )
+                                   )
+                               )
+                               OR (
+                                   r.target_type = 'comment'
+                                   AND EXISTS (
+                                       SELECT 1
+                                       FROM comments c
+                                       JOIN posts p ON p.id = c.post_id
+                                       WHERE c.id = r.target_id
+                                         AND p.community_id = community_id_param
+                                         AND c.deleted_at IS NULL
+                                         AND c.visibility = 'public'
+                                         AND p.removed_at IS NULL
+                                         AND p.visibility = 'public'
+                                         AND (
+                                             audience = 'both'
+                                             OR (audience = 'public' AND c.user_id IS NOT NULL)
+                                             OR (audience = 'anon' AND c.user_id IS NULL)
+                                         )
+                                   )
+                               )
+                           )
+                        ) AS week_count,
+                        (SELECT COUNT(*)
+                         FROM reports r, params
+                         WHERE r.created_at >= month_from_ts AND r.created_at < to_ts
+                           AND r.target_type IN ('post','comment')
+                           AND (
+                               community_id_param IS NULL
+                               OR (
+                                   r.target_type = 'post'
+                                   AND EXISTS (
+                                       SELECT 1 FROM posts p
+                                       WHERE p.id = r.target_id
+                                         AND p.community_id = community_id_param
+                                         AND p.removed_at IS NULL
+                                         AND p.visibility = 'public'
+                                         AND (
+                                             audience = 'both'
+                                             OR (audience = 'public' AND p.is_anon = false)
+                                             OR (audience = 'anon' AND p.is_anon = true)
+                                         )
+                                   )
+                               )
+                               OR (
+                                   r.target_type = 'comment'
+                                   AND EXISTS (
+                                       SELECT 1
+                                       FROM comments c
+                                       JOIN posts p ON p.id = c.post_id
+                                       WHERE c.id = r.target_id
+                                         AND p.community_id = community_id_param
+                                         AND c.deleted_at IS NULL
+                                         AND c.visibility = 'public'
+                                         AND p.removed_at IS NULL
+                                         AND p.visibility = 'public'
+                                         AND (
+                                             audience = 'both'
+                                             OR (audience = 'public' AND c.user_id IS NOT NULL)
+                                             OR (audience = 'anon' AND c.user_id IS NULL)
+                                         )
+                                   )
+                               )
+                           )
+                        ) AS month_count
+                ),
+                moderation_actions AS (
+                    SELECT
+                        (SELECT COUNT(*)
+                         FROM posts p, params
+                         WHERE p.removed_at IS NOT NULL
+                           AND (p.removed_reason IS NULL OR p.removed_reason <> 'user_deleted')
+                           AND p.removed_at >= week_from_ts AND p.removed_at < to_ts
+                           AND (community_id_param IS NULL OR p.community_id = community_id_param)
+                           AND (
+                               audience = 'both'
+                               OR (audience = 'public' AND p.is_anon = false)
+                               OR (audience = 'anon' AND p.is_anon = true)
+                           )
+                        ) +
+                        (SELECT COUNT(*)
+                         FROM comments c
+                         JOIN posts p ON p.id = c.post_id,
+                              params
+                         WHERE c.removed_at IS NOT NULL
+                           AND (c.removed_reason IS NULL OR c.removed_reason <> 'user_deleted')
+                           AND c.removed_at >= week_from_ts AND c.removed_at < to_ts
+                           AND c.deleted_at IS NULL
+                           AND (community_id_param IS NULL OR p.community_id = community_id_param)
+                           AND (
+                               audience = 'both'
+                               OR (audience = 'public' AND c.user_id IS NOT NULL)
+                               OR (audience = 'anon' AND c.user_id IS NULL)
+                           )
+                        ) +
+                        (SELECT COUNT(*)
+                         FROM user_bans b, params
+                         WHERE b.created_at >= week_from_ts AND b.created_at < to_ts
+                           AND (community_id_param IS NULL OR b.user_id IN (SELECT user_id FROM scoped_users_month))
+                        ) +
+                        (SELECT COUNT(*)
+                         FROM user_community_bans cb, params
+                         WHERE cb.created_at >= week_from_ts AND cb.created_at < to_ts
+                           AND (
+                               community_id_param IS NULL
+                               OR cb.scope = 'all_communities'
+                               OR cb.community_id = community_id_param
+                           )
+                        ) +
+                        (SELECT COUNT(*)
+                         FROM reports r, params
+                         WHERE r.resolved_at IS NOT NULL
+                           AND r.status IN ('resolved','dismissed')
+                           AND r.resolved_at >= week_from_ts AND r.resolved_at < to_ts
+                           AND r.target_type IN ('post','comment')
+                           AND (
+                               community_id_param IS NULL
+                               OR (
+                                   r.target_type = 'post'
+                                   AND EXISTS (
+                                       SELECT 1 FROM posts p
+                                       WHERE p.id = r.target_id
+                                         AND p.community_id = community_id_param
+                                         AND (
+                                             audience = 'both'
+                                             OR (audience = 'public' AND p.is_anon = false)
+                                             OR (audience = 'anon' AND p.is_anon = true)
+                                         )
+                                   )
+                               )
+                               OR (
+                                   r.target_type = 'comment'
+                                   AND EXISTS (
+                                       SELECT 1
+                                       FROM comments c
+                                       JOIN posts p ON p.id = c.post_id
+                                       WHERE c.id = r.target_id
+                                         AND p.community_id = community_id_param
+                                         AND (
+                                             audience = 'both'
+                                             OR (audience = 'public' AND c.user_id IS NOT NULL)
+                                             OR (audience = 'anon' AND c.user_id IS NULL)
+                                         )
+                                   )
+                               )
+                           )
+                        ) +
+                        (SELECT COUNT(*)
+                         FROM moderation_queue_items mqi, params
+                         WHERE mqi.reviewed_at IS NOT NULL
+                           AND mqi.status IN ('approved','removed','dismissed')
+                           AND mqi.reviewed_at >= week_from_ts AND mqi.reviewed_at < to_ts
+                           AND (
+                               community_id_param IS NULL
+                               OR (
+                                   mqi.target_type = 'post'
+                                   AND EXISTS (
+                                       SELECT 1 FROM posts p
+                                       WHERE p.id = mqi.target_id
+                                         AND p.community_id = community_id_param
+                                         AND (
+                                             audience = 'both'
+                                             OR (audience = 'public' AND p.is_anon = false)
+                                             OR (audience = 'anon' AND p.is_anon = true)
+                                         )
+                                   )
+                               )
+                               OR (
+                                   mqi.target_type = 'comment'
+                                   AND EXISTS (
+                                       SELECT 1
+                                       FROM comments c
+                                       JOIN posts p ON p.id = c.post_id
+                                       WHERE c.id = mqi.target_id
+                                         AND p.community_id = community_id_param
+                                         AND (
+                                             audience = 'both'
+                                             OR (audience = 'public' AND c.user_id IS NOT NULL)
+                                             OR (audience = 'anon' AND c.user_id IS NULL)
+                                         )
+                                   )
+                               )
+                           )
+                        ) AS week_count,
+                        (SELECT COUNT(*)
+                         FROM posts p, params
+                         WHERE p.removed_at IS NOT NULL
+                           AND (p.removed_reason IS NULL OR p.removed_reason <> 'user_deleted')
+                           AND p.removed_at >= month_from_ts AND p.removed_at < to_ts
+                           AND (community_id_param IS NULL OR p.community_id = community_id_param)
+                           AND (
+                               audience = 'both'
+                               OR (audience = 'public' AND p.is_anon = false)
+                               OR (audience = 'anon' AND p.is_anon = true)
+                           )
+                        ) +
+                        (SELECT COUNT(*)
+                         FROM comments c
+                         JOIN posts p ON p.id = c.post_id,
+                              params
+                         WHERE c.removed_at IS NOT NULL
+                           AND (c.removed_reason IS NULL OR c.removed_reason <> 'user_deleted')
+                           AND c.removed_at >= month_from_ts AND c.removed_at < to_ts
+                           AND c.deleted_at IS NULL
+                           AND (community_id_param IS NULL OR p.community_id = community_id_param)
+                           AND (
+                               audience = 'both'
+                               OR (audience = 'public' AND c.user_id IS NOT NULL)
+                               OR (audience = 'anon' AND c.user_id IS NULL)
+                           )
+                        ) +
+                        (SELECT COUNT(*)
+                         FROM user_bans b, params
+                         WHERE b.created_at >= month_from_ts AND b.created_at < to_ts
+                           AND (community_id_param IS NULL OR b.user_id IN (SELECT user_id FROM scoped_users_month))
+                        ) +
+                        (SELECT COUNT(*)
+                         FROM user_community_bans cb, params
+                         WHERE cb.created_at >= month_from_ts AND cb.created_at < to_ts
+                           AND (
+                               community_id_param IS NULL
+                               OR cb.scope = 'all_communities'
+                               OR cb.community_id = community_id_param
+                           )
+                        ) +
+                        (SELECT COUNT(*)
+                         FROM reports r, params
+                         WHERE r.resolved_at IS NOT NULL
+                           AND r.status IN ('resolved','dismissed')
+                           AND r.resolved_at >= month_from_ts AND r.resolved_at < to_ts
+                           AND r.target_type IN ('post','comment')
+                           AND (
+                               community_id_param IS NULL
+                               OR (
+                                   r.target_type = 'post'
+                                   AND EXISTS (
+                                       SELECT 1 FROM posts p
+                                       WHERE p.id = r.target_id
+                                         AND p.community_id = community_id_param
+                                         AND (
+                                             audience = 'both'
+                                             OR (audience = 'public' AND p.is_anon = false)
+                                             OR (audience = 'anon' AND p.is_anon = true)
+                                         )
+                                   )
+                               )
+                               OR (
+                                   r.target_type = 'comment'
+                                   AND EXISTS (
+                                       SELECT 1
+                                       FROM comments c
+                                       JOIN posts p ON p.id = c.post_id
+                                       WHERE c.id = r.target_id
+                                         AND p.community_id = community_id_param
+                                         AND (
+                                             audience = 'both'
+                                             OR (audience = 'public' AND c.user_id IS NOT NULL)
+                                             OR (audience = 'anon' AND c.user_id IS NULL)
+                                         )
+                                   )
+                               )
+                           )
+                        ) +
+                        (SELECT COUNT(*)
+                         FROM moderation_queue_items mqi, params
+                         WHERE mqi.reviewed_at IS NOT NULL
+                           AND mqi.status IN ('approved','removed','dismissed')
+                           AND mqi.reviewed_at >= month_from_ts AND mqi.reviewed_at < to_ts
+                           AND (
+                               community_id_param IS NULL
+                               OR (
+                                   mqi.target_type = 'post'
+                                   AND EXISTS (
+                                       SELECT 1 FROM posts p
+                                       WHERE p.id = mqi.target_id
+                                         AND p.community_id = community_id_param
+                                         AND (
+                                             audience = 'both'
+                                             OR (audience = 'public' AND p.is_anon = false)
+                                             OR (audience = 'anon' AND p.is_anon = true)
+                                         )
+                                   )
+                               )
+                               OR (
+                                   mqi.target_type = 'comment'
+                                   AND EXISTS (
+                                       SELECT 1
+                                       FROM comments c
+                                       JOIN posts p ON p.id = c.post_id
+                                       WHERE c.id = mqi.target_id
+                                         AND p.community_id = community_id_param
+                                         AND (
+                                             audience = 'both'
+                                             OR (audience = 'public' AND c.user_id IS NOT NULL)
+                                             OR (audience = 'anon' AND c.user_id IS NULL)
+                                         )
+                                   )
+                               )
+                           )
+                        ) AS month_count
+                ),
+                appeals AS (
+                    SELECT
+                        COUNT(*) FILTER (WHERE a.reviewed_at IS NOT NULL) AS reviewed_month,
+                        COUNT(*) FILTER (WHERE a.reviewed_at IS NOT NULL AND a.status = 'approved') AS approved_month
+                    FROM appeals a, params
+                    WHERE a.reviewed_at IS NOT NULL
+                      AND a.reviewed_at >= month_from_ts AND a.reviewed_at < to_ts
+                ),
+                moderator_actions_month AS (
+                    SELECT DISTINCT admin_id
+                    FROM (
+                        SELECT p.removed_by AS admin_id
+                        FROM posts p, params
+                        WHERE p.removed_by IS NOT NULL
+                          AND p.removed_at IS NOT NULL
+                          AND (p.removed_reason IS NULL OR p.removed_reason <> 'user_deleted')
+                          AND p.removed_at >= month_from_ts AND p.removed_at < to_ts
+                          AND (community_id_param IS NULL OR p.community_id = community_id_param)
+                          AND (
+                              audience = 'both'
+                              OR (audience = 'public' AND p.is_anon = false)
+                              OR (audience = 'anon' AND p.is_anon = true)
+                          )
+                        UNION ALL
+                        SELECT c.removed_by AS admin_id
+                        FROM comments c
+                        JOIN posts p ON p.id = c.post_id,
+                             params
+                        WHERE c.removed_by IS NOT NULL
+                          AND c.removed_at IS NOT NULL
+                          AND (c.removed_reason IS NULL OR c.removed_reason <> 'user_deleted')
+                          AND c.removed_at >= month_from_ts AND c.removed_at < to_ts
+                          AND c.deleted_at IS NULL
+                          AND (community_id_param IS NULL OR p.community_id = community_id_param)
+                          AND (
+                              audience = 'both'
+                              OR (audience = 'public' AND c.user_id IS NOT NULL)
+                              OR (audience = 'anon' AND c.user_id IS NULL)
+                          )
+                        UNION ALL
+                        SELECT r.resolved_by AS admin_id
+                        FROM reports r, params
+                        WHERE r.resolved_by IS NOT NULL
+                          AND r.resolved_at IS NOT NULL
+                          AND r.status IN ('resolved','dismissed')
+                          AND r.resolved_at >= month_from_ts AND r.resolved_at < to_ts
+                          AND r.target_type IN ('post','comment')
+                          AND (
+                              community_id_param IS NULL
+                              OR (
+                                  r.target_type = 'post'
+                                  AND EXISTS (
+                                      SELECT 1 FROM posts p
+                                      WHERE p.id = r.target_id
+                                        AND p.community_id = community_id_param
+                                        AND (
+                                            audience = 'both'
+                                            OR (audience = 'public' AND p.is_anon = false)
+                                            OR (audience = 'anon' AND p.is_anon = true)
+                                        )
+                                  )
+                              )
+                              OR (
+                                  r.target_type = 'comment'
+                                  AND EXISTS (
+                                      SELECT 1
+                                      FROM comments c
+                                      JOIN posts p ON p.id = c.post_id
+                                      WHERE c.id = r.target_id
+                                        AND p.community_id = community_id_param
+                                        AND (
+                                            audience = 'both'
+                                            OR (audience = 'public' AND c.user_id IS NOT NULL)
+                                            OR (audience = 'anon' AND c.user_id IS NULL)
+                                        )
+                                  )
+                              )
+                          )
+                        UNION ALL
+                        SELECT b.created_by AS admin_id
+                        FROM user_bans b, params
+                        WHERE b.created_by IS NOT NULL
+                          AND b.created_at >= month_from_ts AND b.created_at < to_ts
+                          AND (community_id_param IS NULL OR b.user_id IN (SELECT user_id FROM scoped_users_month))
+                        UNION ALL
+                        SELECT cb.created_by AS admin_id
+                        FROM user_community_bans cb, params
+                        WHERE cb.created_by IS NOT NULL
+                          AND cb.created_at >= month_from_ts AND cb.created_at < to_ts
+                          AND (
+                              community_id_param IS NULL
+                              OR cb.scope = 'all_communities'
+                              OR cb.community_id = community_id_param
+                          )
+                        UNION ALL
+                        SELECT mqi.reviewed_by AS admin_id
+                        FROM moderation_queue_items mqi, params
+                        WHERE mqi.reviewed_by IS NOT NULL
+                          AND mqi.reviewed_at IS NOT NULL
+                          AND mqi.status IN ('approved','removed','dismissed')
+                          AND mqi.reviewed_at >= month_from_ts AND mqi.reviewed_at < to_ts
+                          AND (
+                              community_id_param IS NULL
+                              OR (
+                                  mqi.target_type = 'post'
+                                  AND EXISTS (
+                                      SELECT 1 FROM posts p
+                                      WHERE p.id = mqi.target_id
+                                        AND p.community_id = community_id_param
+                                        AND (
+                                            audience = 'both'
+                                            OR (audience = 'public' AND p.is_anon = false)
+                                            OR (audience = 'anon' AND p.is_anon = true)
+                                        )
+                                  )
+                              )
+                              OR (
+                                  mqi.target_type = 'comment'
+                                  AND EXISTS (
+                                      SELECT 1
+                                      FROM comments c
+                                      JOIN posts p ON p.id = c.post_id
+                                      WHERE c.id = mqi.target_id
+                                        AND p.community_id = community_id_param
+                                        AND (
+                                            audience = 'both'
+                                            OR (audience = 'public' AND c.user_id IS NOT NULL)
+                                            OR (audience = 'anon' AND c.user_id IS NULL)
+                                        )
+                                  )
+                              )
+                          )
+                    ) x
+                    WHERE admin_id IS NOT NULL
+                ),
+                moderator_actions_count_month AS (
+                    SELECT
+                        (SELECT COUNT(*)
+                         FROM posts p, params
+                         WHERE p.removed_by IS NOT NULL
+                           AND p.removed_at IS NOT NULL
+                           AND (p.removed_reason IS NULL OR p.removed_reason <> 'user_deleted')
+                           AND p.removed_at >= month_from_ts AND p.removed_at < to_ts
+                           AND (community_id_param IS NULL OR p.community_id = community_id_param)
+                           AND (
+                               audience = 'both'
+                               OR (audience = 'public' AND p.is_anon = false)
+                               OR (audience = 'anon' AND p.is_anon = true)
+                           )
+                        ) +
+                        (SELECT COUNT(*)
+                         FROM comments c
+                         JOIN posts p ON p.id = c.post_id,
+                              params
+                         WHERE c.removed_by IS NOT NULL
+                           AND c.removed_at IS NOT NULL
+                           AND (c.removed_reason IS NULL OR c.removed_reason <> 'user_deleted')
+                           AND c.removed_at >= month_from_ts AND c.removed_at < to_ts
+                           AND c.deleted_at IS NULL
+                           AND (community_id_param IS NULL OR p.community_id = community_id_param)
+                           AND (
+                               audience = 'both'
+                               OR (audience = 'public' AND c.user_id IS NOT NULL)
+                               OR (audience = 'anon' AND c.user_id IS NULL)
+                           )
+                        ) +
+                        (SELECT COUNT(*)
+                         FROM reports r, params
+                         WHERE r.resolved_by IS NOT NULL
+                           AND r.resolved_at IS NOT NULL
+                           AND r.status IN ('resolved','dismissed')
+                           AND r.resolved_at >= month_from_ts AND r.resolved_at < to_ts
+                           AND r.target_type IN ('post','comment')
+                           AND (
+                               community_id_param IS NULL
+                               OR (
+                                   r.target_type = 'post'
+                                   AND EXISTS (
+                                       SELECT 1 FROM posts p
+                                       WHERE p.id = r.target_id
+                                         AND p.community_id = community_id_param
+                                         AND (
+                                             audience = 'both'
+                                             OR (audience = 'public' AND p.is_anon = false)
+                                             OR (audience = 'anon' AND p.is_anon = true)
+                                         )
+                                   )
+                               )
+                               OR (
+                                   r.target_type = 'comment'
+                                   AND EXISTS (
+                                       SELECT 1
+                                       FROM comments c
+                                       JOIN posts p ON p.id = c.post_id
+                                       WHERE c.id = r.target_id
+                                         AND p.community_id = community_id_param
+                                         AND (
+                                             audience = 'both'
+                                             OR (audience = 'public' AND c.user_id IS NOT NULL)
+                                             OR (audience = 'anon' AND c.user_id IS NULL)
+                                         )
+                                   )
+                               )
+                           )
+                        ) +
+                        (SELECT COUNT(*)
+                         FROM user_bans b, params
+                         WHERE b.created_by IS NOT NULL
+                           AND b.created_at >= month_from_ts AND b.created_at < to_ts
+                           AND (community_id_param IS NULL OR b.user_id IN (SELECT user_id FROM scoped_users_month))
+                        ) +
+                        (SELECT COUNT(*)
+                         FROM user_community_bans cb, params
+                         WHERE cb.created_by IS NOT NULL
+                           AND cb.created_at >= month_from_ts AND cb.created_at < to_ts
+                           AND (
+                               community_id_param IS NULL
+                               OR cb.scope = 'all_communities'
+                               OR cb.community_id = community_id_param
+                           )
+                        ) +
+                        (SELECT COUNT(*)
+                         FROM moderation_queue_items mqi, params
+                         WHERE mqi.reviewed_by IS NOT NULL
+                           AND mqi.reviewed_at IS NOT NULL
+                           AND mqi.status IN ('approved','removed','dismissed')
+                           AND mqi.reviewed_at >= month_from_ts AND mqi.reviewed_at < to_ts
+                           AND (
+                               community_id_param IS NULL
+                               OR (
+                                   mqi.target_type = 'post'
+                                   AND EXISTS (
+                                       SELECT 1 FROM posts p
+                                       WHERE p.id = mqi.target_id
+                                         AND p.community_id = community_id_param
+                                         AND (
+                                             audience = 'both'
+                                             OR (audience = 'public' AND p.is_anon = false)
+                                             OR (audience = 'anon' AND p.is_anon = true)
+                                         )
+                                   )
+                               )
+                               OR (
+                                   mqi.target_type = 'comment'
+                                   AND EXISTS (
+                                       SELECT 1
+                                       FROM comments c
+                                       JOIN posts p ON p.id = c.post_id
+                                       WHERE c.id = mqi.target_id
+                                         AND p.community_id = community_id_param
+                                         AND (
+                                             audience = 'both'
+                                             OR (audience = 'public' AND c.user_id IS NOT NULL)
+                                             OR (audience = 'anon' AND c.user_id IS NULL)
+                                         )
+                                   )
+                               )
+                           )
+                        ) AS actions_month
+                ),
+                violators_month AS (
+                    SELECT user_id, COUNT(*) AS violations_count
+                    FROM (
+                        SELECT p.author_id AS user_id
+                        FROM posts p, params
+                        WHERE p.author_id IS NOT NULL
+                          AND p.removed_at IS NOT NULL
+                          AND (p.removed_reason IS NULL OR p.removed_reason <> 'user_deleted')
+                          AND p.removed_at >= month_from_ts AND p.removed_at < to_ts
+                          AND (community_id_param IS NULL OR p.community_id = community_id_param)
+                          AND (
+                              audience = 'both'
+                              OR (audience = 'public' AND p.is_anon = false)
+                              OR (audience = 'anon' AND p.is_anon = true)
+                          )
+                        UNION ALL
+                        SELECT c.user_id AS user_id
+                        FROM comments c
+                        JOIN posts p ON p.id = c.post_id,
+                             params
+                        WHERE c.user_id IS NOT NULL
+                          AND c.removed_at IS NOT NULL
+                          AND (c.removed_reason IS NULL OR c.removed_reason <> 'user_deleted')
+                          AND c.removed_at >= month_from_ts AND c.removed_at < to_ts
+                          AND c.deleted_at IS NULL
+                          AND (community_id_param IS NULL OR p.community_id = community_id_param)
+                          AND (
+                              audience = 'both'
+                              OR (audience = 'public' AND c.user_id IS NOT NULL)
+                              OR (audience = 'anon' AND c.user_id IS NULL)
+                          )
+                        UNION ALL
+                        SELECT b.user_id AS user_id
+                        FROM user_bans b, params
+                        WHERE b.created_at >= month_from_ts AND b.created_at < to_ts
+                          AND (community_id_param IS NULL OR b.user_id IN (SELECT user_id FROM scoped_users_month))
+                        UNION ALL
+                        SELECT cb.user_id AS user_id
+                        FROM user_community_bans cb, params
+                        WHERE cb.created_at >= month_from_ts AND cb.created_at < to_ts
+                          AND (
+                              community_id_param IS NULL
+                              OR cb.scope = 'all_communities'
+                              OR cb.community_id = community_id_param
+                          )
+                    ) x
+                    GROUP BY 1
+                ),
+                posters_month AS (
+                    SELECT DISTINCT p.author_id AS user_id
+                    FROM posts p, params
+                    WHERE p.author_id IS NOT NULL
+                      AND p.removed_at IS NULL
+                      AND p.visibility = 'public'
+                      AND p.created_at >= month_from_ts AND p.created_at < to_ts
+                      AND (community_id_param IS NULL OR p.community_id = community_id_param)
+                      AND (
+                          audience = 'both'
+                          OR (audience = 'public' AND p.is_anon = false)
+                          OR (audience = 'anon' AND p.is_anon = true)
+                      )
+                ),
+                posters_moderated_month AS (
+                    SELECT DISTINCT p.author_id AS user_id
+                    FROM posts p, params
+                    WHERE p.author_id IS NOT NULL
+                      AND p.removed_at IS NOT NULL
+                      AND (p.removed_reason IS NULL OR p.removed_reason <> 'user_deleted')
+                      AND p.removed_at >= month_from_ts AND p.removed_at < to_ts
+                      AND (community_id_param IS NULL OR p.community_id = community_id_param)
+                      AND (
+                          audience = 'both'
+                          OR (audience = 'public' AND p.is_anon = false)
+                          OR (audience = 'anon' AND p.is_anon = true)
+                      )
+                )
+                SELECT
+                    ua.week_count AS user_actions_week,
+                    ua.month_count AS user_actions_month,
+                    v.week_count AS violation_actions_week,
+                    v.month_count AS violation_actions_month,
+                    rp.week_count AS reports_week,
+                    rp.month_count AS reports_month,
+                    ma.week_count AS moderation_actions_week,
+                    ma.month_count AS moderation_actions_month,
+                    ap.reviewed_month AS appeals_reviewed_month,
+                    ap.approved_month AS appeals_approved_month,
+                    (SELECT COUNT(*) FROM moderator_actions_month) AS active_moderators_month,
+                    (SELECT actions_month FROM moderator_actions_count_month) AS moderator_actions_month,
+                    (SELECT COUNT(*) FROM violators_month) AS unique_violators_month,
+                    (SELECT COUNT(*) FROM violators_month WHERE violations_count >= 2) AS repeat_offenders_month,
+                    (SELECT COALESCE(SUM(violations_count), 0) FROM violators_month WHERE violations_count >= 2) AS violation_actions_against_repeat_offenders_month,
+                    (SELECT COUNT(*) FROM posters_month) AS posters_month,
+                    (SELECT COUNT(*) FROM posters_month pm JOIN posters_moderated_month mm ON mm.user_id = pm.user_id) AS posters_moderated_month
+                FROM user_actions ua
+                CROSS JOIN violations v
+                CROSS JOIN reports rp
+                CROSS JOIN moderation_actions ma
+                CROSS JOIN appeals ap
+                """;
+        return jdbc.queryForObject(sql, (rs, rowNum) -> {
+            DashboardAntiGrowthSummaryRow row = new DashboardAntiGrowthSummaryRow();
+            row.userActionsWeek = rs.getLong("user_actions_week");
+            row.userActionsMonth = rs.getLong("user_actions_month");
+            row.violationActionsWeek = rs.getLong("violation_actions_week");
+            row.violationActionsMonth = rs.getLong("violation_actions_month");
+            row.reportsWeek = rs.getLong("reports_week");
+            row.reportsMonth = rs.getLong("reports_month");
+            row.moderationActionsWeek = rs.getLong("moderation_actions_week");
+            row.moderationActionsMonth = rs.getLong("moderation_actions_month");
+            row.appealsReviewedMonth = rs.getLong("appeals_reviewed_month");
+            row.appealsApprovedMonth = rs.getLong("appeals_approved_month");
+            row.activeModeratorsMonth = rs.getLong("active_moderators_month");
+            row.moderatorActionsMonth = rs.getLong("moderator_actions_month");
+            row.uniqueViolatorsMonth = rs.getLong("unique_violators_month");
+            row.repeatOffendersMonth = rs.getLong("repeat_offenders_month");
+            row.violationActionsAgainstRepeatOffendersMonth = rs.getLong("violation_actions_against_repeat_offenders_month");
+            row.postersMonth = rs.getLong("posters_month");
+            row.postersModeratedMonth = rs.getLong("posters_moderated_month");
+            return row;
+        }, weekFrom, monthFrom, to, communityId, audience.wireValue());
+    }
+
     public List<ActiveUsersDailyRow> activeUsersDaily(OffsetDateTime from, OffsetDateTime to) {
         if (from == null || to == null) throw new IllegalArgumentException("from/to required");
         OffsetDateTime eventsFrom = from.minusDays(29);
@@ -1449,5 +3344,59 @@ public class AdminAnalyticsRepository {
     public static class SupportTicketsRow {
         public long feedbackCount;
         public long totalUsers;
+    }
+
+    public static class DashboardActiveUsersSummaryRow {
+        public long dau;
+        public long mau30d;
+    }
+
+    public static class DashboardContentVolumeSummaryRow {
+        public long postsDay;
+        public long postsWeek;
+        public long postsMonth;
+        public long commentsDay;
+        public long commentsWeek;
+        public long commentsMonth;
+        public long creatorsMonth;
+    }
+
+    public static class DashboardNewUsersSummaryRow {
+        public long day;
+        public long week;
+        public String definition;
+    }
+
+    public static class DashboardRetentionSummaryRow {
+        public long cohortSize;
+        public long retainedD1;
+        public long retainedD7;
+        public long retainedD30;
+        public String definition;
+    }
+
+    public static class DashboardVerifiedActiveUsersSummaryRow {
+        public long activeUsers;
+        public long verifiedActiveUsers;
+    }
+
+    public static class DashboardAntiGrowthSummaryRow {
+        public long userActionsWeek;
+        public long userActionsMonth;
+        public long violationActionsWeek;
+        public long violationActionsMonth;
+        public long reportsWeek;
+        public long reportsMonth;
+        public long moderationActionsWeek;
+        public long moderationActionsMonth;
+        public long appealsReviewedMonth;
+        public long appealsApprovedMonth;
+        public long activeModeratorsMonth;
+        public long moderatorActionsMonth;
+        public long uniqueViolatorsMonth;
+        public long repeatOffendersMonth;
+        public long violationActionsAgainstRepeatOffendersMonth;
+        public long postersMonth;
+        public long postersModeratedMonth;
     }
 }

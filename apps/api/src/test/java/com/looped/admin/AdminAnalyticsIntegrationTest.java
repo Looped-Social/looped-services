@@ -19,6 +19,7 @@ import java.time.OffsetDateTime;
 import java.util.List;
 
 import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.closeTo;
 import static org.hamcrest.Matchers.greaterThanOrEqualTo;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -220,6 +221,143 @@ class AdminAnalyticsIntegrationTest extends PostgresTestBase {
                 .andExpect(jsonPath("$.items[2].day", equalTo("2026-01-03")))
                 .andExpect(jsonPath("$.items[2].post_shares_count", equalTo(1)))
                 .andExpect(jsonPath("$.items[1].comment_to_post_ratio", greaterThanOrEqualTo(0.0)));
+    }
+
+    @Test
+    void dashboard_aggregates_growth_and_anti_growth_with_utc_to_windows() throws Exception {
+        admins.insert(null, "dash@looped.com", "admin", "active",
+                List.of(AdminPermissions.VIEW_REPORTS));
+        String auth = "Bearer " + token("admin-dash", "dash@looped.com");
+
+        long companyId = jdbc.queryForObject(
+                "INSERT INTO companies(name, domain) VALUES ('DashCo', 'dashco.com') RETURNING id",
+                Long.class);
+        long communityId = jdbc.queryForObject(
+                "INSERT INTO communities(kind, name) VALUES ('company', 'Dash') RETURNING id",
+                Long.class);
+
+        OffsetDateTime u1Created = OffsetDateTime.parse("2026-01-01T00:00:00Z");
+        OffsetDateTime u2Created = OffsetDateTime.parse("2026-01-01T00:00:00Z");
+        long user1 = jdbc.queryForObject(
+                "INSERT INTO users(firebase_uid, handle, company_id, created_at) VALUES (?,?,?,?) RETURNING id",
+                Long.class, "uid-d1", "d1", companyId, u1Created);
+        long user2 = jdbc.queryForObject(
+                "INSERT INTO users(firebase_uid, handle, company_id, created_at) VALUES (?,?,?,?) RETURNING id",
+                Long.class, "uid-d2", "d2", companyId, u2Created);
+        long p1 = jdbc.queryForObject(
+                "INSERT INTO principals(kind, user_id) VALUES ('user', ?) RETURNING id",
+                Long.class, user1);
+        long p2 = jdbc.queryForObject(
+                "INSERT INTO principals(kind, user_id) VALUES ('user', ?) RETURNING id",
+                Long.class, user2);
+
+        long anonProfileId = jdbc.queryForObject(
+                "INSERT INTO anonymous_profiles(company_id, public_key, handle) VALUES (?,?,?) RETURNING id",
+                Long.class, companyId, new byte[]{1, 2, 3, 4}, "anon1");
+        long anonPrincipalId = jdbc.queryForObject(
+                "INSERT INTO principals(kind, anon_profile_id) VALUES ('anon', ?) RETURNING id",
+                Long.class, anonProfileId);
+
+        OffsetDateTime jan1 = OffsetDateTime.parse("2026-01-01T12:00:00Z");
+        OffsetDateTime jan2 = OffsetDateTime.parse("2026-01-02T12:00:00Z");
+        OffsetDateTime jan3 = OffsetDateTime.parse("2026-01-03T12:00:00Z");
+
+        long publicPostJan3 = jdbc.queryForObject(
+                "INSERT INTO posts(author_id, author_principal_id, company_id, community_id, content, created_at) VALUES (?,?,?,?,?,?) RETURNING id",
+                Long.class, user1, p1, companyId, communityId, "public-jan3", jan3);
+        jdbc.queryForObject(
+                "INSERT INTO posts(author_id, author_principal_id, company_id, community_id, content, created_at) VALUES (?,?,?,?,?,?) RETURNING id",
+                Long.class, user1, p1, companyId, communityId, "public-jan1", jan1);
+        jdbc.queryForObject(
+                "INSERT INTO posts(author_id, author_principal_id, company_id, community_id, content, is_anon, created_at) VALUES (?,?,?,?,?,?,?) RETURNING id",
+                Long.class, null, anonPrincipalId, companyId, communityId, "anon-jan3", true, jan3.plusHours(1));
+
+        jdbc.update(
+                "INSERT INTO comments(post_id, user_id, author_principal_id, company_id, content, created_at) VALUES (?,?,?,?,?,?)",
+                publicPostJan3, user2, p2, companyId, "c-public", jan3.plusHours(2));
+        jdbc.update(
+                "INSERT INTO comments(post_id, user_id, author_principal_id, company_id, content, created_at) VALUES (?,?,?,?,?,?)",
+                publicPostJan3, null, anonPrincipalId, companyId, "c-anon", jan3.plusHours(3));
+
+        jdbc.update(
+                "INSERT INTO post_likes(liker_principal_id, post_id, created_at) VALUES (?,?,?)",
+                p2, publicPostJan3, jan3.plusHours(4));
+        jdbc.update(
+                "INSERT INTO post_shares(sharer_principal_id, post_id, created_at) VALUES (?,?,?)",
+                p2, publicPostJan3, jan2);
+
+        jdbc.update(
+                "INSERT INTO community_verifications(user_id, community_id, method, verified, verified_at) VALUES (?,?,?,?,?)",
+                user2, communityId, "manual", true, jan2);
+
+        mockMvc.perform(get("/v1/admin/analytics/dashboard?community_id=" + communityId + "&audience=both&to=2026-01-03")
+                        .header("Authorization", auth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.meta.to", equalTo("2026-01-03")))
+                .andExpect(jsonPath("$.meta.audience", equalTo("both")))
+                .andExpect(jsonPath("$.meta.community_id", equalTo((int) communityId)))
+                .andExpect(jsonPath("$.growth.active_users.dau", equalTo(2)))
+                .andExpect(jsonPath("$.growth.active_users.mau_30d", equalTo(2)))
+                .andExpect(jsonPath("$.growth.posts_count.day", equalTo(2)))
+                .andExpect(jsonPath("$.growth.posts_count.week", equalTo(3)))
+                .andExpect(jsonPath("$.growth.posts_count.month", equalTo(3)))
+                .andExpect(jsonPath("$.growth.comment_to_post_ratio_month.ratio", closeTo(2.0 / 3.0, 0.0001)))
+                .andExpect(jsonPath("$.growth.new_users.day", equalTo(0)))
+                .andExpect(jsonPath("$.growth.new_users.week", equalTo(1)))
+                .andExpect(jsonPath("$.growth.verified_user_rate.verified_users", equalTo(1)))
+                .andExpect(jsonPath("$.growth.verified_user_rate.active_users", equalTo(2)))
+                .andExpect(jsonPath("$.growth.retention_rate.cohort_size", equalTo(1)))
+                .andExpect(jsonPath("$.growth.retention_rate.retained_d1", equalTo(1)))
+                .andExpect(jsonPath("$.both.time_to_first_actions_seconds.first_verification_p50", closeTo(129600.0, 0.0001)));
+    }
+
+    @Test
+    void dashboard_applies_audience_filter_to_content_counts() throws Exception {
+        admins.insert(null, "dash2@looped.com", "admin", "active",
+                List.of(AdminPermissions.VIEW_REPORTS));
+        String auth = "Bearer " + token("admin-dash2", "dash2@looped.com");
+
+        long companyId = jdbc.queryForObject(
+                "INSERT INTO companies(name, domain) VALUES ('DashCo2', 'dashco2.com') RETURNING id",
+                Long.class);
+        long communityId = jdbc.queryForObject(
+                "INSERT INTO communities(kind, name) VALUES ('company', 'Dash2') RETURNING id",
+                Long.class);
+        long userId = jdbc.queryForObject(
+                "INSERT INTO users(firebase_uid, handle, company_id, created_at) VALUES (?,?,?,?) RETURNING id",
+                Long.class, "uid-dx", "dx", companyId, OffsetDateTime.parse("2026-01-01T00:00:00Z"));
+        long userPrincipalId = jdbc.queryForObject(
+                "INSERT INTO principals(kind, user_id) VALUES ('user', ?) RETURNING id",
+                Long.class, userId);
+        long anonProfileId = jdbc.queryForObject(
+                "INSERT INTO anonymous_profiles(company_id, public_key, handle) VALUES (?,?,?) RETURNING id",
+                Long.class, companyId, new byte[]{9, 9, 9, 9}, "anon2");
+        long anonPrincipalId = jdbc.queryForObject(
+                "INSERT INTO principals(kind, anon_profile_id) VALUES ('anon', ?) RETURNING id",
+                Long.class, anonProfileId);
+
+        OffsetDateTime jan3 = OffsetDateTime.parse("2026-01-03T12:00:00Z");
+        jdbc.queryForObject(
+                "INSERT INTO posts(author_id, author_principal_id, company_id, community_id, content, created_at) VALUES (?,?,?,?,?,?) RETURNING id",
+                Long.class, userId, userPrincipalId, companyId, communityId, "public", jan3);
+        long anonPostId = jdbc.queryForObject(
+                "INSERT INTO posts(author_id, author_principal_id, company_id, community_id, content, is_anon, created_at) VALUES (?,?,?,?,?,?,?) RETURNING id",
+                Long.class, null, anonPrincipalId, companyId, communityId, "anon", true, jan3.plusHours(1));
+        jdbc.update(
+                "INSERT INTO comments(post_id, user_id, author_principal_id, company_id, content, created_at) VALUES (?,?,?,?,?,?)",
+                anonPostId, null, anonPrincipalId, companyId, "anon-comment", jan3.plusHours(2));
+
+        mockMvc.perform(get("/v1/admin/analytics/dashboard?community_id=" + communityId + "&audience=public&to=2026-01-03")
+                        .header("Authorization", auth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.growth.posts_count.day", equalTo(1)));
+
+        mockMvc.perform(get("/v1/admin/analytics/dashboard?community_id=" + communityId + "&audience=anon&to=2026-01-03")
+                        .header("Authorization", auth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.growth.posts_count.day", equalTo(1)))
+                .andExpect(jsonPath("$.growth.comment_to_post_ratio_month.comments_month", equalTo(1)))
+                .andExpect(jsonPath("$.growth.comment_to_post_ratio_month.posts_month", equalTo(1)));
     }
 
     @Test

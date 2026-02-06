@@ -28,13 +28,50 @@ public class AdminAnalyticsController {
     private final AdminAuthService auth;
     private final AdminAnalyticsRepository analytics;
     private final CommunityLogoResolver logos;
+    private final AdminDashboardAnalyticsService dashboard;
 
     public AdminAnalyticsController(AdminAuthService auth,
                                     AdminAnalyticsRepository analytics,
-                                    CommunityLogoResolver logos) {
+                                    CommunityLogoResolver logos,
+                                    AdminDashboardAnalyticsService dashboard) {
         this.auth = auth;
         this.analytics = analytics;
         this.logos = logos;
+        this.dashboard = dashboard;
+    }
+
+    @GetMapping("/dashboard")
+    public ResponseEntity<?> dashboard(
+            @AuthenticationPrincipal Jwt jwt,
+            @RequestParam(value = "community_id", required = false) Long communityIdSnake,
+            @RequestParam(value = "communityId", required = false) Long communityIdCamel,
+            @RequestParam(value = "audience", required = false) String audience,
+            @RequestParam(value = "to", required = false) String to
+    ) {
+        String email = jwt.getClaimAsString("email");
+        var authRes = auth.requirePermission(jwt.getSubject(), email, AdminPermissions.VIEW_REPORTS);
+        if (authRes.status() != AdminAuthService.Status.OK) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "forbidden"));
+        }
+
+        Long communityId = communityIdSnake != null ? communityIdSnake : communityIdCamel;
+        if (communityId != null && !analytics.communityExists(communityId)) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "community_not_found"));
+        }
+
+        LocalDate toDay;
+        try {
+            toDay = (to == null || to.isBlank()) ? LocalDate.now(ZoneOffset.UTC) : LocalDate.parse(to);
+        } catch (DateTimeParseException e) {
+            return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of("error", "invalid_date"));
+        }
+
+        AdminDashboardAudience aud = AdminDashboardAudience.parseOrDefault(audience);
+        if (aud == null) {
+            return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of("error", "invalid_audience"));
+        }
+
+        return ResponseEntity.ok(dashboard.dashboard(toDay, communityId, aud));
     }
 
     @GetMapping("/communities/leaderboard")
