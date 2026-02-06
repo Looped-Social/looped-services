@@ -1950,7 +1950,7 @@ public class AdminAnalyticsRepository {
                                OR (
 	                                   r.target_type = 'post'
 	                                   AND EXISTS (
-	                                       SELECT 1 FROM posts p
+	                                       SELECT 1 FROM posts p, params
 	                                       WHERE p.id = r.target_id
 	                                         AND p.community_id = params.community_id_param
 	                                         AND p.removed_at IS NULL
@@ -1965,9 +1965,10 @@ public class AdminAnalyticsRepository {
 	                               OR (
 	                                   r.target_type = 'comment'
 	                                   AND EXISTS (
-                                       SELECT 1
+	                                       SELECT 1
 	                                       FROM comments c
-	                                       JOIN posts p ON p.id = c.post_id
+	                                       JOIN posts p ON p.id = c.post_id,
+	                                            params
 	                                       WHERE c.id = r.target_id
 	                                         AND p.community_id = params.community_id_param
 	                                         AND c.deleted_at IS NULL
@@ -1992,7 +1993,7 @@ public class AdminAnalyticsRepository {
                                OR (
 	                                   r.target_type = 'post'
 	                                   AND EXISTS (
-	                                       SELECT 1 FROM posts p
+	                                       SELECT 1 FROM posts p, params
 	                                       WHERE p.id = r.target_id
 	                                         AND p.community_id = params.community_id_param
 	                                         AND p.removed_at IS NULL
@@ -2007,9 +2008,10 @@ public class AdminAnalyticsRepository {
 	                               OR (
 	                                   r.target_type = 'comment'
 	                                   AND EXISTS (
-                                       SELECT 1
+	                                       SELECT 1
 	                                       FROM comments c
-	                                       JOIN posts p ON p.id = c.post_id
+	                                       JOIN posts p ON p.id = c.post_id,
+	                                            params
 	                                       WHERE c.id = r.target_id
 	                                         AND p.community_id = params.community_id_param
 	                                         AND c.deleted_at IS NULL
@@ -2080,7 +2082,7 @@ public class AdminAnalyticsRepository {
                                OR (
 	                                   r.target_type = 'post'
 	                                   AND EXISTS (
-	                                       SELECT 1 FROM posts p
+	                                       SELECT 1 FROM posts p, params
 	                                       WHERE p.id = r.target_id
 	                                         AND p.community_id = params.community_id_param
 	                                         AND (
@@ -2093,9 +2095,10 @@ public class AdminAnalyticsRepository {
 	                               OR (
 	                                   r.target_type = 'comment'
 	                                   AND EXISTS (
-                                       SELECT 1
+	                                       SELECT 1
 	                                       FROM comments c
-	                                       JOIN posts p ON p.id = c.post_id
+	                                       JOIN posts p ON p.id = c.post_id,
+	                                            params
 	                                       WHERE c.id = r.target_id
 	                                         AND p.community_id = params.community_id_param
 	                                         AND (
@@ -2117,7 +2120,7 @@ public class AdminAnalyticsRepository {
                                OR (
 	                                   mqi.target_type = 'post'
 	                                   AND EXISTS (
-	                                       SELECT 1 FROM posts p
+	                                       SELECT 1 FROM posts p, params
 	                                       WHERE p.id = mqi.target_id
 	                                         AND p.community_id = params.community_id_param
 	                                         AND (
@@ -2130,9 +2133,10 @@ public class AdminAnalyticsRepository {
 	                               OR (
 	                                   mqi.target_type = 'comment'
 	                                   AND EXISTS (
-                                       SELECT 1
+	                                       SELECT 1
 	                                       FROM comments c
-	                                       JOIN posts p ON p.id = c.post_id
+	                                       JOIN posts p ON p.id = c.post_id,
+	                                            params
 	                                       WHERE c.id = mqi.target_id
 	                                         AND p.community_id = params.community_id_param
 	                                         AND (
@@ -2196,7 +2200,7 @@ public class AdminAnalyticsRepository {
                                OR (
 	                                   r.target_type = 'post'
 	                                   AND EXISTS (
-	                                       SELECT 1 FROM posts p
+	                                       SELECT 1 FROM posts p, params
 	                                       WHERE p.id = r.target_id
 	                                         AND p.community_id = params.community_id_param
 	                                         AND (
@@ -2209,9 +2213,10 @@ public class AdminAnalyticsRepository {
 	                               OR (
 	                                   r.target_type = 'comment'
 	                                   AND EXISTS (
-                                       SELECT 1
+	                                       SELECT 1
 	                                       FROM comments c
-	                                       JOIN posts p ON p.id = c.post_id
+	                                       JOIN posts p ON p.id = c.post_id,
+	                                            params
 	                                       WHERE c.id = r.target_id
 	                                         AND p.community_id = params.community_id_param
 	                                         AND (
@@ -2233,7 +2238,7 @@ public class AdminAnalyticsRepository {
                                OR (
 	                                   mqi.target_type = 'post'
 	                                   AND EXISTS (
-	                                       SELECT 1 FROM posts p
+	                                       SELECT 1 FROM posts p, params
 	                                       WHERE p.id = mqi.target_id
 	                                         AND p.community_id = params.community_id_param
 	                                         AND (
@@ -2246,9 +2251,10 @@ public class AdminAnalyticsRepository {
 	                               OR (
 	                                   mqi.target_type = 'comment'
 	                                   AND EXISTS (
-                                       SELECT 1
+	                                       SELECT 1
 	                                       FROM comments c
-	                                       JOIN posts p ON p.id = c.post_id
+	                                       JOIN posts p ON p.id = c.post_id,
+	                                            params
 	                                       WHERE c.id = mqi.target_id
 	                                         AND p.community_id = params.community_id_param
 	                                         AND (
@@ -2313,7 +2319,7 @@ public class AdminAnalyticsRepository {
                               OR (
 	                                  r.target_type = 'post'
 	                                  AND EXISTS (
-	                                      SELECT 1 FROM posts p
+	                                      SELECT 1 FROM posts p, params
 	                                      WHERE p.id = r.target_id
 	                                        AND p.community_id = params.community_id_param
 	                                        AND (
@@ -2326,9 +2332,10 @@ public class AdminAnalyticsRepository {
 	                              OR (
 	                                  r.target_type = 'comment'
 	                                  AND EXISTS (
-                                      SELECT 1
+	                                      SELECT 1
 	                                      FROM comments c
-	                                      JOIN posts p ON p.id = c.post_id
+	                                      JOIN posts p ON p.id = c.post_id,
+	                                           params
 	                                      WHERE c.id = r.target_id
 	                                        AND p.community_id = params.community_id_param
 	                                        AND (
@@ -2367,7 +2374,7 @@ public class AdminAnalyticsRepository {
                               OR (
 	                                  mqi.target_type = 'post'
 	                                  AND EXISTS (
-	                                      SELECT 1 FROM posts p
+	                                      SELECT 1 FROM posts p, params
 	                                      WHERE p.id = mqi.target_id
 	                                        AND p.community_id = params.community_id_param
 	                                        AND (
@@ -2380,9 +2387,10 @@ public class AdminAnalyticsRepository {
 	                              OR (
 	                                  mqi.target_type = 'comment'
 	                                  AND EXISTS (
-                                      SELECT 1
+	                                      SELECT 1
 	                                      FROM comments c
-	                                      JOIN posts p ON p.id = c.post_id
+	                                      JOIN posts p ON p.id = c.post_id,
+	                                           params
 	                                      WHERE c.id = mqi.target_id
 	                                        AND p.community_id = params.community_id_param
 	                                        AND (
@@ -2437,28 +2445,29 @@ public class AdminAnalyticsRepository {
                            AND (
                                community_id_param IS NULL
                                OR (
-	                                   r.target_type = 'post'
-	                                   AND EXISTS (
-	                                       SELECT 1 FROM posts p
-	                                       WHERE p.id = r.target_id
-	                                         AND p.community_id = params.community_id_param
-	                                         AND (
-	                                             params.audience = 'both'
+		                                   r.target_type = 'post'
+		                                   AND EXISTS (
+		                                       SELECT 1 FROM posts p, params
+		                                       WHERE p.id = r.target_id
+		                                         AND p.community_id = params.community_id_param
+		                                         AND (
+		                                             params.audience = 'both'
 	                                             OR (params.audience = 'public' AND p.is_anon = false)
 	                                             OR (params.audience = 'anon' AND p.is_anon = true)
 	                                         )
 	                                   )
 	                               )
 	                               OR (
-	                                   r.target_type = 'comment'
-	                                   AND EXISTS (
-                                       SELECT 1
-	                                       FROM comments c
-	                                       JOIN posts p ON p.id = c.post_id
-	                                       WHERE c.id = r.target_id
-	                                         AND p.community_id = params.community_id_param
-	                                         AND (
-	                                             params.audience = 'both'
+		                                   r.target_type = 'comment'
+		                                   AND EXISTS (
+		                                       SELECT 1
+		                                       FROM comments c
+		                                       JOIN posts p ON p.id = c.post_id,
+		                                            params
+		                                       WHERE c.id = r.target_id
+		                                         AND p.community_id = params.community_id_param
+		                                         AND (
+		                                             params.audience = 'both'
 	                                             OR (params.audience = 'public' AND c.user_id IS NOT NULL)
 	                                             OR (params.audience = 'anon' AND c.user_id IS NULL)
 	                                         )
@@ -2491,28 +2500,29 @@ public class AdminAnalyticsRepository {
                            AND (
                                community_id_param IS NULL
                                OR (
-	                                   mqi.target_type = 'post'
-	                                   AND EXISTS (
-	                                       SELECT 1 FROM posts p
-	                                       WHERE p.id = mqi.target_id
-	                                         AND p.community_id = params.community_id_param
-	                                         AND (
-	                                             params.audience = 'both'
+		                                   mqi.target_type = 'post'
+		                                   AND EXISTS (
+		                                       SELECT 1 FROM posts p, params
+		                                       WHERE p.id = mqi.target_id
+		                                         AND p.community_id = params.community_id_param
+		                                         AND (
+		                                             params.audience = 'both'
 	                                             OR (params.audience = 'public' AND p.is_anon = false)
 	                                             OR (params.audience = 'anon' AND p.is_anon = true)
 	                                         )
 	                                   )
 	                               )
 	                               OR (
-	                                   mqi.target_type = 'comment'
-	                                   AND EXISTS (
-                                       SELECT 1
-	                                       FROM comments c
-	                                       JOIN posts p ON p.id = c.post_id
-	                                       WHERE c.id = mqi.target_id
-	                                         AND p.community_id = params.community_id_param
-	                                         AND (
-	                                             params.audience = 'both'
+		                                   mqi.target_type = 'comment'
+		                                   AND EXISTS (
+		                                       SELECT 1
+		                                       FROM comments c
+		                                       JOIN posts p ON p.id = c.post_id,
+		                                            params
+		                                       WHERE c.id = mqi.target_id
+		                                         AND p.community_id = params.community_id_param
+		                                         AND (
+		                                             params.audience = 'both'
 	                                             OR (params.audience = 'public' AND c.user_id IS NOT NULL)
 	                                             OR (params.audience = 'anon' AND c.user_id IS NULL)
 	                                         )
