@@ -107,15 +107,17 @@ public class AdminUsersController {
             if (u.disabledReason == null) node.putNull("disabled_reason"); else node.put("disabled_reason", u.disabledReason);
             if (u.deletedAt == null) node.putNull("deleted_at"); else node.putPOJO("deleted_at", u.deletedAt);
 
-            node.putNull("ban");
+            ObjectNode banNode = JSON.createObjectNode();
+            banNode.put("status", "none");
+            node.set("ban", banNode);
             var ban = bans.findActiveByUserId(u.id);
             ban.ifPresent(b -> {
-                ObjectNode banNode = JSON.createObjectNode();
-                banNode.put("status", "banned");
-                if (b.reason == null) banNode.putNull("reason"); else banNode.put("reason", b.reason);
-                banNode.putPOJO("created_at", b.createdAt);
-                if (b.expiresAt == null) banNode.putNull("expires_at"); else banNode.putPOJO("expires_at", b.expiresAt);
-                node.set("ban", banNode);
+                ObjectNode activeBanNode = JSON.createObjectNode();
+                activeBanNode.put("status", "banned");
+                if (b.reason == null) activeBanNode.putNull("reason"); else activeBanNode.put("reason", b.reason);
+                activeBanNode.putPOJO("created_at", b.createdAt);
+                if (b.expiresAt == null) activeBanNode.putNull("expires_at"); else activeBanNode.putPOJO("expires_at", b.expiresAt);
+                node.set("ban", activeBanNode);
             });
             return node;
         }).toList();

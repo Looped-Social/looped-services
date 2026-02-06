@@ -236,16 +236,16 @@ Response (200)
       "disabled_reason": null,
       "deleted_at": null,
       "ban": {
-        "status": "banned",
-        "reason": "harassment",
-        "created_at": "2024-01-02T00:00:00Z",
-        "expires_at": null
+        "status": "none"
       }
     }
   ],
   "next_cursor": "eyJ0Ijo..."
 }
 ```
+
+Notes
+- `ban.status` is `none` when the user is not currently banned, otherwise `banned` with details (`reason`, `created_at`, `expires_at`).
 
 Errors
 - `403 { "error": "forbidden", "message": "..." }`
