@@ -1939,7 +1939,7 @@ public class AdminAnalyticsRepository {
                            )
                         ) AS month_count
                 ),
-                reports AS (
+                reports_counts AS (
                     SELECT
                         (SELECT COUNT(*)
                          FROM reports r, params
@@ -2025,9 +2025,9 @@ public class AdminAnalyticsRepository {
 	                                         )
 	                                   )
 	                               )
-	                           )
-	                        ) AS month_count
-	                ),
+		                           )
+		                        ) AS month_count
+		                ),
                 moderation_actions AS (
                     SELECT
                         (SELECT COUNT(*)
@@ -2623,14 +2623,14 @@ public class AdminAnalyticsRepository {
                     (SELECT COUNT(*) FROM violators_month) AS unique_violators_month,
                     (SELECT COUNT(*) FROM violators_month WHERE violations_count >= 2) AS repeat_offenders_month,
                     (SELECT COALESCE(SUM(violations_count), 0) FROM violators_month WHERE violations_count >= 2) AS violation_actions_against_repeat_offenders_month,
-                    (SELECT COUNT(*) FROM posters_month) AS posters_month,
-                    (SELECT COUNT(*) FROM posters_month pm JOIN posters_moderated_month mm ON mm.user_id = pm.user_id) AS posters_moderated_month
-                FROM user_actions ua
-                CROSS JOIN violations v
-                CROSS JOIN reports rp
-                CROSS JOIN moderation_actions ma
-                CROSS JOIN appeals ap
-                """;
+	                    (SELECT COUNT(*) FROM posters_month) AS posters_month,
+	                    (SELECT COUNT(*) FROM posters_month pm JOIN posters_moderated_month mm ON mm.user_id = pm.user_id) AS posters_moderated_month
+	                FROM user_actions ua
+	                CROSS JOIN violations v
+	                CROSS JOIN reports_counts rp
+	                CROSS JOIN moderation_actions ma
+	                CROSS JOIN appeals ap
+	                """;
         return jdbc.queryForObject(sql, (rs, rowNum) -> {
             DashboardAntiGrowthSummaryRow row = new DashboardAntiGrowthSummaryRow();
             row.userActionsWeek = rs.getLong("user_actions_week");
