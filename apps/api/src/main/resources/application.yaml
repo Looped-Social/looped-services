@@ -72,6 +72,20 @@ cors:
 
 admin:
   edge-secret: ${ADMIN_EDGE_SECRET:}
+  ops-alerts:
+    enabled: ${ADMIN_OPS_ALERTS_ENABLED:false}
+    environment: ${APP_ENV:}
+    required-environment: ${ADMIN_OPS_ALERTS_REQUIRED_ENV:prod}
+    time-zone: ${ADMIN_OPS_ALERTS_TIME_ZONE:America/New_York}
+    daily-cron: "${ADMIN_OPS_ALERTS_DAILY_CRON:0 0 17 * * *}"
+    hourly-cron: "${ADMIN_OPS_ALERTS_HOURLY_CRON:0 0 * * * *}"
+    verification-pending-threshold: ${ADMIN_OPS_ALERTS_VERIFICATION_PENDING_THRESHOLD:100}
+    reports-open-threshold: ${ADMIN_OPS_ALERTS_REPORTS_OPEN_THRESHOLD:50}
+    moderation-queue-open-threshold: ${ADMIN_OPS_ALERTS_MODERATION_QUEUE_OPEN_THRESHOLD:75}
+    spike-fraction-threshold: ${ADMIN_OPS_ALERTS_SPIKE_FRACTION_THRESHOLD:0.30}
+    spike-absolute-threshold: ${ADMIN_OPS_ALERTS_SPIKE_ABSOLUTE_THRESHOLD:10}
+    hourly-cooldown: ${ADMIN_OPS_ALERTS_HOURLY_COOLDOWN:PT2H}
+    admin-base-url: ${ADMIN_OPS_ALERTS_ADMIN_BASE_URL:}
 
 redis:
   url: ${REDIS_URL:redis://localhost:6379}

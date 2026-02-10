@@ -123,6 +123,17 @@ public class EmailService {
         sendEmail(to, subject, text, html);
     }
 
+    public void sendAdminOpsEmail(String to, String subject, String textBody, String htmlBody) {
+        if (!isEnabled()) return;
+        if (to == null || to.isBlank()) return;
+        String resolvedSubject = (subject == null || subject.isBlank()) ? "Looped admin alert" : subject.trim();
+        String resolvedText = textBody == null ? "" : textBody;
+        String resolvedHtml = (htmlBody == null || htmlBody.isBlank())
+                ? "<html><body><pre>" + escape(resolvedText) + "</pre></body></html>"
+                : htmlBody;
+        sendEmail(to, resolvedSubject, resolvedText, resolvedHtml);
+    }
+
     private String buildVerifyLink(Long communityId, String code) {
         String base = props.getVerifyBaseUrl();
         if (base == null || base.isBlank()) return null;
