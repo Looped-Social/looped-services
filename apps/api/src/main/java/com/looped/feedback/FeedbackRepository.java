@@ -9,6 +9,7 @@ import java.sql.SQLException;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 
 @Repository
 public class FeedbackRepository {
@@ -66,6 +67,24 @@ public class FeedbackRepository {
         params.add(limit);
 
         return jdbc.query(sql.toString(), params.toArray(), MAPPER);
+    }
+
+    public Optional<Row> findById(long id) {
+        List<Row> rows = jdbc.query(
+                "SELECT f.*, u.handle AS user_handle FROM feedback f " +
+                        "LEFT JOIN users u ON u.id = f.user_id " +
+                        "WHERE f.id = ? LIMIT 1",
+                MAPPER, id
+        );
+        return rows.isEmpty() ? Optional.empty() : Optional.of(rows.get(0));
+    }
+
+    public boolean review(long id, String status, Long reviewedBy, String reviewedNote) {
+        int rows = jdbc.update(
+                "UPDATE feedback SET status = ?, reviewed_at = now(), reviewed_by = ?, reviewed_note = ? WHERE id = ?",
+                status, reviewedBy, reviewedNote, id
+        );
+        return rows > 0;
     }
 
     private static final RowMapper<Row> MAPPER = new RowMapper<>() {

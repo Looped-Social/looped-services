@@ -1323,13 +1323,28 @@ Response (200)
 }
 ```
 
+### GET /v1/admin/analytics/kpis/support/tickets
+Feedback/support ticket volume KPI. Requires `view_reports`.
+
+Query params:
+- `from`/`to` (optional): YYYY-MM-DD date range
+
+Response (200)
+```json
+{
+  "feedback_count": 73,
+  "total_users": 1200,
+  "feedback_per_1000_users": 60.8333
+}
+```
+
 ## Feedback (Admin)
 
 ### GET /v1/admin/feedback
 List feedback submissions. Requires `view_feedback`.
 
 Query params:
-- `status` (optional): `open`, `resolved`
+- `status` (optional): free-form status filter (common values: `open`, `seen`, `replied`, `closed`)
 - `from`/`to` (optional): YYYY-MM-DD date range
 - `cursor` (optional)
 - `limit` (default 50)
@@ -1352,6 +1367,58 @@ Response (200)
   "next_cursor": "eyJ0Ijo..."
 }
 ```
+
+### POST /v1/admin/feedback/{id}/seen
+Mark a feedback item as seen/reviewed. Requires `view_feedback`.
+
+Request (optional body)
+```json
+{
+  "note": "triaged by support"
+}
+```
+
+Response (200)
+```json
+{
+  "status": "seen"
+}
+```
+
+Errors:
+- `403 { "error": "forbidden" }` missing permission
+- `404 { "error": "not_found" }` feedback id does not exist
+
+### POST /v1/admin/feedback/{id}/reply
+Send an email reply to the submitter and mark the item as replied. Requires `view_feedback`.
+
+Request
+```json
+{
+  "subject": "Thanks for your feedback",
+  "message": "We received this and are working on it.",
+  "note": "responded by email"
+}
+```
+
+Notes:
+- `subject` is optional. If omitted, backend defaults to `Re: <feedback title>`.
+- `message` is required.
+- Uses the `email` saved on the feedback row.
+
+Response (200)
+```json
+{
+  "status": "replied"
+}
+```
+
+Errors:
+- `403 { "error": "forbidden" }` missing permission
+- `404 { "error": "not_found" }` feedback id does not exist
+- `422 { "error": "no_contact_email" }` feedback row has no email
+- `503 { "error": "email_not_configured" }` SES/email not configured
+- `502 { "error": "email_send_failed" }` provider send failed
 
 ## User appeals (API)
 
