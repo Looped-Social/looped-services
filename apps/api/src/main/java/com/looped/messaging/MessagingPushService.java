@@ -194,7 +194,9 @@ public class MessagingPushService {
 
     private boolean canReceiveDm(long conversationId, long recipientId) {
         var req = messageRequests.findByConversationRecipient(conversationId, recipientId);
-        return req.isEmpty() || "approved".equals(req.get().status);
+        if (req.isEmpty()) return true;
+        if ("approved".equals(req.get().status)) return true;
+        return messageRequests.hasApprovedForConversation(conversationId);
     }
 
     private Map<Long, List<String>> tokensByUserIds(List<Long> userIds) {

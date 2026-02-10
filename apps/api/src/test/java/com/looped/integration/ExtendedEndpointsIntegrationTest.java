@@ -246,6 +246,52 @@ class ExtendedEndpointsIntegrationTest extends PostgresTestBase {
     }
 
     @Test
+    void start_conversation_is_idempotent_for_same_pair() throws Exception {
+        long companyId = jdbc.queryForObject("INSERT INTO companies(name, domain) VALUES ('IdemCo','idem.co') RETURNING id", Long.class);
+        long senderId = jdbc.queryForObject("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?) RETURNING id",
+                Long.class, "uid-idem-a", "idem-a", companyId);
+        long recipientId = jdbc.queryForObject("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?) RETURNING id",
+                Long.class, "uid-idem-b", "idem-b", companyId);
+
+        String senderAuth = "Bearer " + token("uid-idem-a");
+
+        var firstStartResp = mockMvc.perform(post("/v1/conversations")
+                        .header("Authorization", senderAuth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"participantUserId\":" + recipientId + "}"))
+                .andExpect(status().isCreated())
+                .andReturn();
+
+        long firstConversationId = new com.fasterxml.jackson.databind.ObjectMapper()
+                .readTree(firstStartResp.getResponse().getContentAsString())
+                .get("id").asLong();
+
+        var secondStartResp = mockMvc.perform(post("/v1/conversations")
+                        .header("Authorization", senderAuth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"participantUserId\":" + recipientId + "}"))
+                .andExpect(status().isCreated())
+                .andReturn();
+
+        long secondConversationId = new com.fasterxml.jackson.databind.ObjectMapper()
+                .readTree(secondStartResp.getResponse().getContentAsString())
+                .get("id").asLong();
+
+        assertEquals(firstConversationId, secondConversationId);
+        Integer conversationCount = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM conversations",
+                Integer.class
+        );
+        Integer participantCount = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM conversation_participants WHERE conversation_id = ?",
+                Integer.class,
+                firstConversationId
+        );
+        assertEquals(1, conversationCount);
+        assertEquals(2, participantCount);
+    }
+
+    @Test
     void cannot_start_conversation_with_self() throws Exception {
         long companyId = jdbc.queryForObject("INSERT INTO companies(name, domain) VALUES ('SelfCo','self.co') RETURNING id", Long.class);
         long userId = jdbc.queryForObject("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?) RETURNING id",
@@ -282,6 +328,7 @@ class ExtendedEndpointsIntegrationTest extends PostgresTestBase {
         String conversationId = new com.fasterxml.jackson.databind.ObjectMapper()
                 .readTree(startResp.getResponse().getContentAsString())
                 .get("id").asText();
+        long conversationIdLong = Long.parseLong(conversationId);
 
         mockMvc.perform(post("/v1/conversations/" + conversationId + "/messages")
                         .header("Authorization", senderAuth)
@@ -346,6 +393,36 @@ class ExtendedEndpointsIntegrationTest extends PostgresTestBase {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items", hasSize(2)))
                 .andExpect(jsonPath("$.items[*].content", containsInAnyOrder("request hello", "request hello 2")));
+
+        mockMvc.perform(post("/v1/conversations/" + conversationId + "/messages")
+                        .header("Authorization", recipientAuth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"content\":\"approved reply\",\"attachments\":[]}"))
+                .andExpect(status().isCreated());
+
+        mockMvc.perform(get("/v1/message-requests")
+                        .header("Authorization", senderAuth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items", hasSize(0)));
+
+        mockMvc.perform(post("/v1/conversations/" + conversationId + "/messages")
+                        .header("Authorization", senderAuth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"content\":\"reply back\",\"attachments\":[]}"))
+                .andExpect(status().isCreated());
+
+        mockMvc.perform(get("/v1/conversations/" + conversationId + "/messages")
+                        .header("Authorization", senderAuth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[*].content", hasItems("approved reply", "reply back")));
+
+        Integer reversePendingCount = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM conversation_message_requests WHERE conversation_id = ? AND recipient_id = ? AND status = 'pending'",
+                Integer.class,
+                conversationIdLong,
+                senderId
+        );
+        assertEquals(0, reversePendingCount);
     }
 
     @Test

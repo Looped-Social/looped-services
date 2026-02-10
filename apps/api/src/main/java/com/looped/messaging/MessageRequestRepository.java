@@ -73,7 +73,11 @@ public class MessageRequestRepository {
                 "cm.created_at AS message_created_at " +
                 "FROM conversation_message_requests cmr " +
                 "JOIN conversation_messages cm ON cm.id = cmr.message_id " +
-                "WHERE cmr.recipient_id = ? AND cmr.status = 'pending'";
+                "WHERE cmr.recipient_id = ? AND cmr.status = 'pending' " +
+                "AND NOT EXISTS (" +
+                "SELECT 1 FROM conversation_message_requests approved " +
+                "WHERE approved.conversation_id = cmr.conversation_id AND approved.status = 'approved'" +
+                ")";
         if (cursorTs == null || cursorId == null) {
             base += " ORDER BY cmr.updated_at DESC, cmr.id DESC LIMIT " + limit;
             return jdbc.query(base, mapperRow, recipientId);
@@ -107,6 +111,23 @@ public class MessageRequestRepository {
                 status, requestId, recipientId
         );
         return rows > 0;
+    }
+
+    public boolean updateConversationStatus(long conversationId, String status) {
+        int rows = jdbc.update(
+                "UPDATE conversation_message_requests SET status = ?, updated_at = now() WHERE conversation_id = ?",
+                status, conversationId
+        );
+        return rows > 0;
+    }
+
+    public boolean hasApprovedForConversation(long conversationId) {
+        Boolean exists = jdbc.queryForObject(
+                "SELECT EXISTS (SELECT 1 FROM conversation_message_requests WHERE conversation_id = ? AND status = 'approved')",
+                Boolean.class,
+                conversationId
+        );
+        return Boolean.TRUE.equals(exists);
     }
 
     public static class RequestRow {

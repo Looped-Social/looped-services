@@ -159,9 +159,9 @@ public class ConversationService {
         var company = conversations.conversationCompany(conversationId);
         if (company.isEmpty()) return MessagesResult.notFound();
         if (!conversations.isParticipant(conversationId, actor.get().id)) return MessagesResult.forbidden();
-        var request = messageRequests.findByConversationRecipient(conversationId, actor.get().id);
-        if (request.isPresent() && !REQUEST_STATUS_APPROVED.equals(request.get().status)) {
-            return REQUEST_STATUS_REJECTED.equals(request.get().status)
+        String blockingStatus = blockingRequestStatus(conversationId, actor.get().id);
+        if (blockingStatus != null) {
+            return REQUEST_STATUS_REJECTED.equals(blockingStatus)
                     ? MessagesResult.messageRequestRejected()
                     : MessagesResult.messageRequestPending();
         }
@@ -194,9 +194,9 @@ public class ConversationService {
         if (company.isEmpty()) return SendResult.notFound();
         if (!conversations.isParticipant(conversationId, actor.get().id)) return SendResult.forbidden();
         if (!attachmentsValid(attachments)) return SendResult.invalidAttachments();
-        var request = messageRequests.findByConversationRecipient(conversationId, actor.get().id);
-        if (request.isPresent() && !REQUEST_STATUS_APPROVED.equals(request.get().status)) {
-            return REQUEST_STATUS_REJECTED.equals(request.get().status)
+        String blockingStatus = blockingRequestStatus(conversationId, actor.get().id);
+        if (blockingStatus != null) {
+            return REQUEST_STATUS_REJECTED.equals(blockingStatus)
                     ? SendResult.messageRequestRejected()
                     : SendResult.messageRequestPending();
         }
@@ -272,6 +272,7 @@ public class ConversationService {
     }
 
     private void maybeCreateMessageRequest(long senderId, long conversationId, long messageId) {
+        if (messageRequests.hasApprovedForConversation(conversationId)) return;
         List<Long> recipients = conversations.listOtherParticipantIds(conversationId, senderId);
         if (recipients.isEmpty()) return;
         long recipientId = recipients.get(0);
@@ -293,6 +294,14 @@ public class ConversationService {
         if (REQUEST_STATUS_PENDING.equals(existing.get().status)) {
             messageRequests.updatePendingMessage(conversationId, recipientId, messageId);
         }
+    }
+
+    private String blockingRequestStatus(long conversationId, long actorId) {
+        var request = messageRequests.findByConversationRecipient(conversationId, actorId);
+        if (request.isEmpty()) return null;
+        if (REQUEST_STATUS_APPROVED.equals(request.get().status)) return null;
+        if (messageRequests.hasApprovedForConversation(conversationId)) return null;
+        return request.get().status;
     }
 
     private boolean canStartConversation(UserRepository.UserRow sender, UserRepository.UserRow recipient) {

@@ -93,6 +93,10 @@ public class ConversationRepository {
                 "JOIN users uo ON uo.id = cp2.user_id AND uo.deleted_at IS NULL " +
                 "LEFT JOIN conversation_message_requests cmr " +
                 "ON cmr.conversation_id = c.id AND cmr.recipient_id = ? AND cmr.status IN ('pending', 'rejected') " +
+                "AND NOT EXISTS (" +
+                "SELECT 1 FROM conversation_message_requests approved " +
+                "WHERE approved.conversation_id = c.id AND approved.status = 'approved'" +
+                ") " +
                 "WHERE cmr.id IS NULL ";
         if (cursorTs == null || cursorId == null) {
             base += "ORDER BY activity_at DESC, c.id DESC LIMIT " + limit;

@@ -128,6 +128,10 @@ public class MessagingSearchRepository {
                         "JOIN conversation_participants cp ON cp.conversation_id = c.id AND cp.user_id = ? " +
                         "LEFT JOIN conversation_message_requests cmr " +
                         "ON cmr.conversation_id = c.id AND cmr.recipient_id = ? AND cmr.status IN ('pending', 'rejected') " +
+                        "AND NOT EXISTS (" +
+                        "SELECT 1 FROM conversation_message_requests approved " +
+                        "WHERE approved.conversation_id = c.id AND approved.status = 'approved'" +
+                        ") " +
                         "JOIN LATERAL (" +
                         "  SELECT cp2.user_id FROM conversation_participants cp2 " +
                         "  WHERE cp2.conversation_id = c.id AND cp2.user_id <> ? LIMIT 1" +

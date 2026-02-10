@@ -87,7 +87,11 @@ public class MessageRequestService {
 
         String status = request.get().status;
         if (STATUS_PENDING.equals(status)) {
-            requests.updateStatus(requestId, actor.get().id, targetStatus);
+            if (STATUS_APPROVED.equals(targetStatus)) {
+                requests.updateConversationStatus(request.get().conversationId, STATUS_APPROVED);
+            } else {
+                requests.updateStatus(requestId, actor.get().id, targetStatus);
+            }
             status = targetStatus;
         }
         return ResolveResult.ok(status);
