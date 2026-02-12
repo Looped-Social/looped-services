@@ -359,6 +359,16 @@ public class PostsService {
         return GetResult.ok(p.get());
     }
 
+    public PublicGetResult getPublic(long id) {
+        var post = posts.findByIdIncludingRemoved(id);
+        if (post.isEmpty()) return PublicGetResult.notFound();
+        if (post.get().removedAt != null) return PublicGetResult.unavailable();
+        if (post.get().visibility == null || !post.get().visibility.equalsIgnoreCase("public")) {
+            return PublicGetResult.unavailable();
+        }
+        return PublicGetResult.ok(post.get());
+    }
+
     @Transactional
     public EditResult edit(String firebaseUid, long postId, String content, AnonProofService.AnonActionProof anonProof) {
         var post = posts.findByIdIncludingRemoved(postId);
@@ -473,6 +483,14 @@ public class PostsService {
         static GetResult forbidden() { return new GetResult(Status.FORBIDDEN, null); }
         static GetResult notFound() { return new GetResult(Status.NOT_FOUND, null); }
         static GetResult communityBanned() { return new GetResult(Status.COMMUNITY_BANNED, null); }
+    }
+
+    public enum PublicGetStatus { OK, NOT_FOUND, UNAVAILABLE }
+
+    public record PublicGetResult(PublicGetStatus status, PostRepository.PostRow post) {
+        static PublicGetResult ok(PostRepository.PostRow p) { return new PublicGetResult(PublicGetStatus.OK, p); }
+        static PublicGetResult notFound() { return new PublicGetResult(PublicGetStatus.NOT_FOUND, null); }
+        static PublicGetResult unavailable() { return new PublicGetResult(PublicGetStatus.UNAVAILABLE, null); }
     }
 
     public enum Status {
