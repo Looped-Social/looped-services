@@ -2,6 +2,7 @@ package com.looped.anon;
 
 import com.looped.communities.CommunitiesRepository;
 import com.looped.communities.CommunityVerificationsRepository;
+import com.looped.communities.SpecializationJoinsRepository;
 import com.looped.principals.PrincipalRepository;
 import com.looped.anon.crypto.PemKeyUtils;
 import com.looped.users.UserRepository;
@@ -27,6 +28,7 @@ public class AnonController {
     private final UserRepository users;
     private final CommunitiesRepository communities;
     private final CommunityVerificationsRepository communityVerifications;
+    private final SpecializationJoinsRepository specializationJoins;
     private final AnonymousProfilesRepository profiles;
     private final PrincipalRepository principals;
     private final AnonEnrollmentSanctionsRepository sanctions;
@@ -38,6 +40,7 @@ public class AnonController {
     public AnonController(UserRepository users,
                           CommunitiesRepository communities,
                           CommunityVerificationsRepository communityVerifications,
+                          SpecializationJoinsRepository specializationJoins,
                           AnonymousProfilesRepository profiles,
                           PrincipalRepository principals,
                           AnonEnrollmentSanctionsRepository sanctions,
@@ -48,6 +51,7 @@ public class AnonController {
         this.users = users;
         this.communities = communities;
         this.communityVerifications = communityVerifications;
+        this.specializationJoins = specializationJoins;
         this.profiles = profiles;
         this.principals = principals;
         this.sanctions = sanctions;
@@ -84,6 +88,13 @@ public class AnonController {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
                     "error", "community_not_verified",
                     "message", "You must be verified before enrolling"
+            ));
+        }
+        if (requiresSpecializationJoin(community.get())
+                && !specializationJoins.exists(user.get().id, body.communityId())) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
+                    "error", "specialization_not_joined",
+                    "message", "You must join this specialization before enrolling"
             ));
         }
         byte[] blindedMessage;
@@ -153,6 +164,14 @@ public class AnonController {
 
     private boolean requiresVerification(CommunitiesRepository.CommunityRow community) {
         return community != null && !"specialization".equalsIgnoreCase(community.kind);
+    }
+
+    private boolean requiresSpecializationJoin(CommunitiesRepository.CommunityRow community) {
+        if (community == null || community.kind == null) return false;
+        if (!"specialization".equalsIgnoreCase(community.kind)) return false;
+        if (community.specializationType == null) return false;
+        String type = community.specializationType.trim().toLowerCase(java.util.Locale.ROOT);
+        return "major".equals(type) || "field".equals(type);
     }
 
     @PostMapping("/register")

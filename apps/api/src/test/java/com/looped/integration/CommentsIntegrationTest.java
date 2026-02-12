@@ -193,6 +193,75 @@ class CommentsIntegrationTest extends PostgresTestBase {
     }
 
     @Test
+    void comment_like_requires_community_verification() throws Exception {
+        long companyId = jdbc.queryForObject("INSERT INTO companies(name, domain) VALUES ('LikeVerifyCo','like-verify.co') RETURNING id", Long.class);
+        long authorId = jdbc.queryForObject("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?) RETURNING id",
+                Long.class, "uid-lv-author", "lvauthor", companyId);
+        long commenterId = jdbc.queryForObject("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?) RETURNING id",
+                Long.class, "uid-lv-commenter", "lvcommenter", companyId);
+        jdbc.queryForObject("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?) RETURNING id",
+                Long.class, "uid-lv-liker", "lvliker", companyId);
+        long authorPrincipal = jdbc.queryForObject("INSERT INTO principals(kind, user_id) VALUES ('user', ?) RETURNING id", Long.class, authorId);
+        long communityId = jdbc.queryForObject("INSERT INTO communities(kind, name) VALUES ('company', 'LikeVerifyCo') RETURNING id", Long.class);
+        jdbc.update("INSERT INTO community_verifications(user_id, community_id, method, verified, verified_at) VALUES (?,?,?,?, now())",
+                authorId, communityId, "manual", true);
+        jdbc.update("INSERT INTO community_verifications(user_id, community_id, method, verified, verified_at) VALUES (?,?,?,?, now())",
+                commenterId, communityId, "manual", true);
+        long postId = jdbc.queryForObject("INSERT INTO posts(author_id, author_principal_id, company_id, community_id, content) VALUES (?,?,?,?,?) RETURNING id",
+                Long.class, authorId, authorPrincipal, companyId, communityId, "post");
+
+        var createResp = mockMvc.perform(post("/v1/posts/" + postId + "/comments")
+                        .header("Authorization", "Bearer " + token("uid-lv-commenter"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"content\":\"comment\"}"))
+                .andExpect(status().isCreated())
+                .andReturn();
+        long commentId = mapper.readTree(createResp.getResponse().getContentAsString()).get("id").asLong();
+
+        mockMvc.perform(post("/v1/comments/" + commentId + "/like")
+                        .header("Authorization", "Bearer " + token("uid-lv-liker")))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error").value("community_not_verified"));
+    }
+
+    @Test
+    void comment_like_requires_specialization_join() throws Exception {
+        long companyId = jdbc.queryForObject("INSERT INTO companies(name, domain) VALUES ('LikeSpecCo','like-spec.co') RETURNING id", Long.class);
+        long joinedUserId = jdbc.queryForObject("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?) RETURNING id",
+                Long.class, "uid-ls-joined", "lsjoined", companyId);
+        jdbc.queryForObject("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?) RETURNING id",
+                Long.class, "uid-ls-notjoined", "lsnotjoined", companyId);
+        long specializationId = jdbc.queryForObject(
+                "INSERT INTO communities(kind, specialization_type, name) VALUES ('specialization','field','LikeSpecField') RETURNING id",
+                Long.class
+        );
+        jdbc.update("INSERT INTO specialization_joins(user_id, specialization_id) VALUES (?, ?)", joinedUserId, specializationId);
+
+        String joinedAuth = "Bearer " + token("uid-ls-joined");
+        var postResp = mockMvc.perform(post("/v1/posts")
+                        .header("Authorization", joinedAuth)
+                        .header("Idempotency-Key", "ls-post-1")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"content\":\"post\",\"communityId\":" + specializationId + "}"))
+                .andExpect(status().isCreated())
+                .andReturn();
+        long postId = mapper.readTree(postResp.getResponse().getContentAsString()).get("id").asLong();
+
+        var commentResp = mockMvc.perform(post("/v1/posts/" + postId + "/comments")
+                        .header("Authorization", joinedAuth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"content\":\"comment\"}"))
+                .andExpect(status().isCreated())
+                .andReturn();
+        long commentId = mapper.readTree(commentResp.getResponse().getContentAsString()).get("id").asLong();
+
+        mockMvc.perform(post("/v1/comments/" + commentId + "/like")
+                        .header("Authorization", "Bearer " + token("uid-ls-notjoined")))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error").value("specialization_not_joined"));
+    }
+
+    @Test
     void edit_delete_and_unlike_comments() throws Exception {
         long companyId = jdbc.queryForObject("INSERT INTO companies(name, domain) VALUES ('EditCo','edit.co') RETURNING id", Long.class);
         long authorId = jdbc.queryForObject("INSERT INTO users(firebase_uid, handle, company_id, display_name) VALUES (?,?,?,?) RETURNING id",

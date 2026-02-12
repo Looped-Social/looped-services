@@ -103,4 +103,26 @@ class LikesIntegrationTest extends PostgresTestBase {
         mockMvc.perform(post("/v1/posts/" + postId + "/like").header("Authorization", auth))
                 .andExpect(status().isCreated());
     }
+
+    @Test
+    void like_requires_community_verification() throws Exception {
+        long companyId = jdbc.queryForObject("INSERT INTO companies(name, domain) VALUES ('Acme4','acme4.com') RETURNING id", Long.class);
+        long authorId = jdbc.queryForObject("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?) RETURNING id",
+                Long.class, "uid-like4-author", "like4author", companyId);
+        jdbc.queryForObject("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?) RETURNING id",
+                Long.class, "uid-like4-viewer", "like4viewer", companyId);
+        long authorPrincipal = jdbc.queryForObject("INSERT INTO principals(kind, user_id) VALUES ('user', ?) RETURNING id", Long.class, authorId);
+        long communityId = jdbc.queryForObject("INSERT INTO communities(kind, name) VALUES ('company', 'Acme4') RETURNING id", Long.class);
+        jdbc.update("INSERT INTO community_verifications(user_id, community_id, method, verified, verified_at) VALUES (?,?,?,?, now())",
+                authorId, communityId, "manual", true);
+        long postId = jdbc.queryForObject(
+                "INSERT INTO posts(author_id, author_principal_id, company_id, community_id, content) VALUES (?,?,?,?,?) RETURNING id",
+                Long.class, authorId, authorPrincipal, companyId, communityId, "secured post"
+        );
+
+        mockMvc.perform(post("/v1/posts/" + postId + "/like")
+                        .header("Authorization", "Bearer " + token("uid-like4-viewer")))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error", equalTo("community_not_verified")));
+    }
 }

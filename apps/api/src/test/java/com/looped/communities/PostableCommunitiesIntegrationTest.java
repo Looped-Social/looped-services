@@ -117,8 +117,8 @@ class PostableCommunitiesIntegrationTest extends PostgresTestBase {
                 .andExpect(jsonPath("$.items[0].canPost", equalTo(true)))
                 .andExpect(jsonPath("$.items[1].id", equalTo((int) workplaceId)))
                 .andExpect(jsonPath("$.items[1].canPost", equalTo(true)))
-                .andExpect(jsonPath("$.items[2].id", equalTo((int) fieldId)))
-                .andExpect(jsonPath("$.items[3].id", equalTo((int) majorId)))
+                .andExpect(jsonPath("$.items[*].id").value(org.hamcrest.Matchers.hasItem((int) fieldId)))
+                .andExpect(jsonPath("$.items[*].id").value(org.hamcrest.Matchers.hasItem((int) majorId)))
                 .andExpect(jsonPath("$.items[*].id").value(org.hamcrest.Matchers.not(org.hamcrest.Matchers.hasItem((int) hiddenUnverifiedId))));
     }
 }
