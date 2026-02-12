@@ -79,6 +79,15 @@ class PublicPostsIntegrationTest extends PostgresTestBase {
                 2,
                 5
         );
+        long pollId = jdbc.queryForObject(
+                "INSERT INTO polls(post_id, question, max_selections, closes_at) VALUES (?,?,?, now() + interval '7 days') RETURNING id",
+                Long.class,
+                postId,
+                "Best lunch spot?",
+                1
+        );
+        jdbc.update("INSERT INTO poll_options(poll_id, text, sort_order) VALUES (?,?,?)", pollId, "Tacos", 0);
+        jdbc.update("INSERT INTO poll_options(poll_id, text, sort_order) VALUES (?,?,?)", pollId, "Sushi", 1);
 
         mockMvc.perform(get("/v1/public/posts/" + postId))
                 .andExpect(status().isOk())
@@ -92,6 +101,9 @@ class PublicPostsIntegrationTest extends PostgresTestBase {
                 .andExpect(jsonPath("$.comments_count", equalTo(2)))
                 .andExpect(jsonPath("$.share_count", equalTo(5)))
                 .andExpect(jsonPath("$.media_asset_ids[0]", equalTo((int) mediaId)))
+                .andExpect(jsonPath("$.poll.question", equalTo("Best lunch spot?")))
+                .andExpect(jsonPath("$.poll.options.length()", equalTo(2)))
+                .andExpect(jsonPath("$.poll.totalVotes", equalTo(0)))
                 .andExpect(jsonPath("$.author_id").doesNotExist())
                 .andExpect(jsonPath("$.author_principal_id").doesNotExist())
                 .andExpect(jsonPath("$.company_id").doesNotExist())

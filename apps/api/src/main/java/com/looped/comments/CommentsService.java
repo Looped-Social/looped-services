@@ -108,6 +108,32 @@ public class CommentsService {
         return ListResult.ok(rows, next);
     }
 
+    public PublicListResult listPublic(long postId, String cursor, int limit) {
+        var post = posts.findByIdIncludingRemoved(postId);
+        if (post.isEmpty()) return PublicListResult.postNotFound();
+        if (post.get().removedAt != null) return PublicListResult.postUnavailable();
+        if (post.get().visibility == null || !post.get().visibility.equalsIgnoreCase("public")) {
+            return PublicListResult.postUnavailable();
+        }
+        OffsetDateTime cTs = null; Long cId = null;
+        if (cursor != null && !cursor.isBlank()) {
+            try {
+                var decoded = Pagination.decode(cursor);
+                cTs = decoded.timestamp();
+                cId = decoded.id();
+            } catch (IllegalArgumentException ignored) {}
+        }
+
+        long publicViewerPrincipalId = 0L;
+        var rows = comments.findByPost(postId, publicViewerPrincipalId, post.get().authorPrincipalId, cTs, cId, limit);
+        String next = null;
+        if (rows.size() == limit) {
+            var last = rows.get(rows.size() - 1).comment;
+            next = Pagination.encode(last.createdAt, last.id);
+        }
+        return PublicListResult.ok(rows, next);
+    }
+
     @Transactional
     public CreateResult create(String firebaseUid, long postId, String content, Long mediaAssetId, Long parentId, AnonProofService.AnonActionProof anonProof) {
         var post = posts.findById(postId);
@@ -243,6 +269,35 @@ public class CommentsService {
             next = Pagination.encode(last.createdAt, last.id);
         }
         return RepliesResult.ok(rows, next);
+    }
+
+    public PublicRepliesResult repliesPublic(long commentId, String cursor, int limit) {
+        var parent = comments.findById(commentId);
+        if (parent.isEmpty()) return PublicRepliesResult.commentNotFound();
+        var post = posts.findByIdIncludingRemoved(parent.get().postId);
+        if (post.isEmpty()) return PublicRepliesResult.commentNotFound();
+        if (post.get().removedAt != null) return PublicRepliesResult.postUnavailable();
+        if (post.get().visibility == null || !post.get().visibility.equalsIgnoreCase("public")) {
+            return PublicRepliesResult.postUnavailable();
+        }
+
+        OffsetDateTime cTs = null; Long cId = null;
+        if (cursor != null && !cursor.isBlank()) {
+            try {
+                var decoded = Pagination.decode(cursor);
+                cTs = decoded.timestamp();
+                cId = decoded.id();
+            } catch (IllegalArgumentException ignored) {}
+        }
+
+        long publicViewerPrincipalId = 0L;
+        var rows = comments.findReplies(post.get().id, parent.get().id, publicViewerPrincipalId, post.get().authorPrincipalId, cTs, cId, limit);
+        String next = null;
+        if (rows.size() == limit) {
+            var last = rows.get(rows.size() - 1).comment;
+            next = Pagination.encode(last.createdAt, last.id);
+        }
+        return PublicRepliesResult.ok(rows, next);
     }
 
     private AccessStatus checkAccess(long userId, Long communityId) {
@@ -533,6 +588,30 @@ public class CommentsService {
         static RepliesResult commentNotFound() { return new RepliesResult(Status.COMMENT_NOT_FOUND, List.of(), null); }
         static RepliesResult userNotFound() { return new RepliesResult(Status.USER_NOT_FOUND, List.of(), null); }
         static RepliesResult invalidAnonProof() { return new RepliesResult(Status.INVALID_ANON_PROOF, List.of(), null); }
+    }
+
+    public enum PublicListStatus { OK, POST_NOT_FOUND, POST_UNAVAILABLE }
+
+    public record PublicListResult(PublicListStatus status, List<CommentsRepository.CommentViewRow> comments, String nextCursor) {
+        static PublicListResult ok(List<CommentsRepository.CommentViewRow> comments, String nextCursor) {
+            return new PublicListResult(PublicListStatus.OK, comments, nextCursor);
+        }
+        static PublicListResult postNotFound() { return new PublicListResult(PublicListStatus.POST_NOT_FOUND, List.of(), null); }
+        static PublicListResult postUnavailable() { return new PublicListResult(PublicListStatus.POST_UNAVAILABLE, List.of(), null); }
+    }
+
+    public enum PublicRepliesStatus { OK, COMMENT_NOT_FOUND, POST_UNAVAILABLE }
+
+    public record PublicRepliesResult(PublicRepliesStatus status, List<CommentsRepository.CommentViewRow> comments, String nextCursor) {
+        static PublicRepliesResult ok(List<CommentsRepository.CommentViewRow> comments, String nextCursor) {
+            return new PublicRepliesResult(PublicRepliesStatus.OK, comments, nextCursor);
+        }
+        static PublicRepliesResult commentNotFound() {
+            return new PublicRepliesResult(PublicRepliesStatus.COMMENT_NOT_FOUND, List.of(), null);
+        }
+        static PublicRepliesResult postUnavailable() {
+            return new PublicRepliesResult(PublicRepliesStatus.POST_UNAVAILABLE, List.of(), null);
+        }
     }
 
     public record LikeResult(Status status, boolean created, int likesCount, boolean likedByCreator, boolean userLiked) {
