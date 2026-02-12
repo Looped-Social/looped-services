@@ -78,8 +78,8 @@ public class FirebaseAdminService {
             auth.deleteUser(firebaseUid);
             return DeleteResult.ok();
         } catch (FirebaseAuthException e) {
-            String code = e.getErrorCode() != null ? e.getErrorCode().name() : null;
-            if ("user-not-found".equalsIgnoreCase(code)) {
+            String code = normalizeFirebaseErrorCode(e);
+            if (isUserNotFoundCode(code)) {
                 return DeleteResult.ok();
             }
             return DeleteResult.failed(code);
@@ -109,7 +109,10 @@ public class FirebaseAdminService {
             auth.revokeRefreshTokens(firebaseUid);
             return UnlinkProviderResult.ok(true);
         } catch (FirebaseAuthException e) {
-            String code = e.getErrorCode() != null ? e.getErrorCode().name() : null;
+            String code = normalizeFirebaseErrorCode(e);
+            if (isUserNotFoundCode(code)) {
+                return UnlinkProviderResult.notFound(code);
+            }
             return UnlinkProviderResult.failed(code);
         } catch (Exception e) {
             return UnlinkProviderResult.failed(e.getMessage());
@@ -127,8 +130,8 @@ public class FirebaseAdminService {
             auth.updateUser(new UserRecord.UpdateRequest(firebaseUid).setDisabled(disabled));
             return UpdateDisabledResult.ok();
         } catch (FirebaseAuthException e) {
-            String code = e.getErrorCode() != null ? e.getErrorCode().name() : null;
-            if ("user-not-found".equalsIgnoreCase(code)) {
+            String code = normalizeFirebaseErrorCode(e);
+            if (isUserNotFoundCode(code)) {
                 return UpdateDisabledResult.ok();
             }
             return UpdateDisabledResult.failed(code);
@@ -148,8 +151,8 @@ public class FirebaseAdminService {
             auth.revokeRefreshTokens(firebaseUid);
             return RevokeTokensResult.ok();
         } catch (FirebaseAuthException e) {
-            String code = e.getErrorCode() != null ? e.getErrorCode().name() : null;
-            if ("user-not-found".equalsIgnoreCase(code)) {
+            String code = normalizeFirebaseErrorCode(e);
+            if (isUserNotFoundCode(code)) {
                 return RevokeTokensResult.ok();
             }
             return RevokeTokensResult.failed(code);
@@ -174,6 +177,7 @@ public class FirebaseAdminService {
 
     public record UnlinkProviderResult(UnlinkProviderStatus status, boolean unlinked, String error) {
         static UnlinkProviderResult ok(boolean unlinked) { return new UnlinkProviderResult(UnlinkProviderStatus.OK, unlinked, null); }
+        static UnlinkProviderResult notFound(String error) { return new UnlinkProviderResult(UnlinkProviderStatus.NOT_FOUND, false, error); }
         static UnlinkProviderResult skipped(String error) { return new UnlinkProviderResult(UnlinkProviderStatus.SKIPPED, false, error); }
         static UnlinkProviderResult failed(String error) { return new UnlinkProviderResult(UnlinkProviderStatus.FAILED, false, error); }
     }
@@ -192,9 +196,28 @@ public class FirebaseAdminService {
 
     public enum DeleteStatus { OK, SKIPPED, FAILED }
 
-    public enum UnlinkProviderStatus { OK, SKIPPED, FAILED }
+    public enum UnlinkProviderStatus { OK, NOT_FOUND, SKIPPED, FAILED }
 
     public enum UpdateDisabledStatus { OK, SKIPPED, FAILED }
 
     public enum RevokeTokensStatus { OK, SKIPPED, FAILED }
+
+    private String normalizeFirebaseErrorCode(FirebaseAuthException e) {
+        if (e == null) return null;
+        String code = null;
+        if (e.getErrorCode() != null) {
+            code = e.getErrorCode().name();
+        }
+        if (code == null || code.isBlank()) {
+            code = e.getMessage();
+        }
+        if (code == null) return null;
+        return code.trim().toLowerCase(java.util.Locale.ROOT).replace('_', '-');
+    }
+
+    private boolean isUserNotFoundCode(String normalizedCode) {
+        if (normalizedCode == null || normalizedCode.isBlank()) return false;
+        if (normalizedCode.equals("user-not-found")) return true;
+        return normalizedCode.contains("user-not-found") || normalizedCode.contains("no-user-record");
+    }
 }

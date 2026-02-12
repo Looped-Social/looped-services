@@ -485,6 +485,19 @@ public class UserRepository {
         return rows > 0;
     }
 
+    public boolean markDeletedSelf(long userId, Long deletedBy, String reason) {
+        int rows = jdbcTemplate.update(
+                "UPDATE users SET " +
+                        "deleted_at = COALESCE(deleted_at, now()), " +
+                        "deleted_by = COALESCE(deleted_by, ?), " +
+                        "deleted_source = COALESCE(deleted_source, 'self'), " +
+                        "deleted_reason = COALESCE(deleted_reason, ?) " +
+                        "WHERE id = ?",
+                deletedBy, reason, userId
+        );
+        return rows > 0;
+    }
+
     public void updateEmail(long userId, String email) {
         String normalized = normalizeEmail(email);
         if (normalized == null) return;
@@ -502,6 +515,18 @@ public class UserRepository {
                 MAPPER, firebaseUid, normalized, firebaseUid, firebaseUid
         );
         return list.isEmpty() ? Optional.empty() : Optional.of(list.get(0));
+    }
+
+    public int repairMissingAuthorIdsForUser(long userId) {
+        return jdbcTemplate.update(
+                "UPDATE posts p SET author_id = ? " +
+                        "FROM principals pr " +
+                        "WHERE p.author_id IS NULL " +
+                        "AND COALESCE(p.is_anon, false) = false " +
+                        "AND p.author_principal_id = pr.id " +
+                        "AND pr.user_id = ?",
+                userId, userId
+        );
     }
 
     public long insert(String firebaseUid, String handle, String email, long companyId,

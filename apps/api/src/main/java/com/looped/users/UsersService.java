@@ -15,6 +15,8 @@ import com.looped.settings.AppConfigService;
 import com.looped.shared.Pagination;
 import com.looped.shared.RankPagination;
 import com.looped.verification.VerificationRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DataAccessException;
 import org.springframework.stereotype.Service;
@@ -27,6 +29,7 @@ import java.util.Optional;
 
 @Service
 public class UsersService {
+    private static final Logger log = LoggerFactory.getLogger(UsersService.class);
     private final UserRepository users;
     private final VerificationRepository verifications;
     private final PostRepository posts;
@@ -603,7 +606,9 @@ public class UsersService {
             return users.isFirebaseUidTombstoned(firebaseUid) ? LoginStatus.PURGED : LoginStatus.MISSING;
         }
         if (existing.get().deletedAt == null) return LoginStatus.ACTIVE;
-        if ("admin".equalsIgnoreCase(existing.get().deletedSource)) {
+        if ("admin".equalsIgnoreCase(existing.get().deletedSource)
+                || "self".equalsIgnoreCase(existing.get().deletedSource)
+                || "repair".equalsIgnoreCase(existing.get().deletedSource)) {
             return LoginStatus.PURGED;
         }
         OffsetDateTime cutoff = OffsetDateTime.now().minusDays(deactivatedRetentionDays);
@@ -903,14 +908,25 @@ public class UsersService {
             users.softDelete(user.id, user.id);
             return DeleteResult.ok(FirebaseDeleteStatus.NOT_REQUESTED, null);
         }
+        int repairedPosts = users.repairMissingAuthorIdsForUser(user.id);
+        if (repairedPosts > 0) {
+            log.warn("delete_repair_missing_author_ids uid={} user_id={} repaired_posts={}", firebaseUid, user.id, repairedPosts);
+        }
         var firebaseResult = firebaseAdmin.deleteUser(firebaseUid);
         var firebaseHandled = handleFirebaseResult(firebaseResult);
         if (firebaseHandled.status() != DeleteStatus.OK) {
             return firebaseHandled;
         }
-        var deleted = users.deleteById(user.id);
-        deleted.ifPresent(users::insertTombstone);
-        return DeleteResult.ok(firebaseHandled.firebaseStatus, firebaseHandled.error);
+        try {
+            var deleted = users.deleteById(user.id);
+            deleted.ifPresent(users::insertTombstone);
+            return DeleteResult.ok(firebaseHandled.firebaseStatus, firebaseHandled.error);
+        } catch (DataAccessException e) {
+            users.markDeletedSelf(user.id, user.id, "hard_delete_failed");
+            log.error("hard_delete_failed_fallback_to_self_deleted uid={} user_id={} error={}",
+                    firebaseUid, user.id, e.getMessage());
+            return DeleteResult.ok(firebaseHandled.firebaseStatus, "local_delete_pending");
+        }
     }
 
     public enum DeleteMode { HARD, SOFT }

@@ -259,8 +259,10 @@ public class UsersController {
         if (deleteMode == UsersService.DeleteMode.SOFT) {
             return ResponseEntity.noContent().build();
         }
+        boolean deletePending = "local_delete_pending".equalsIgnoreCase(res.error());
         return ResponseEntity.ok(Map.of(
                 "status", "deleted",
+                "delete_pending", deletePending,
                 "firebase_status", res.firebaseStatus() == null ? "unknown" : res.firebaseStatus().name().toLowerCase(java.util.Locale.ROOT),
                 "firebase_deleted", res.firebaseStatus() == UsersService.FirebaseDeleteStatus.OK
         ));
@@ -285,8 +287,10 @@ public class UsersController {
                     "error", "firebase_admin_not_configured"
             ));
         }
+        boolean deletePending = "local_delete_pending".equalsIgnoreCase(res.error());
         return ResponseEntity.ok(Map.of(
                 "status", "deleted",
+                "delete_pending", deletePending,
                 "firebase_status", res.firebaseStatus() == null ? "unknown" : res.firebaseStatus().name().toLowerCase(java.util.Locale.ROOT),
                 "firebase_deleted", res.firebaseStatus() == UsersService.FirebaseDeleteStatus.OK
         ));
