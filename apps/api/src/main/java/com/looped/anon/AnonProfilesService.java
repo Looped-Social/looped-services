@@ -6,6 +6,7 @@ import com.looped.posts.LikesRepository;
 import com.looped.posts.PostPayloads;
 import com.looped.posts.PostRepository;
 import com.looped.posts.PostStateService;
+import com.looped.posts.PostViewerCapabilitiesService;
 import com.looped.posts.RepostsRepository;
 import com.looped.posts.SavedPostsRepository;
 import com.looped.principals.PrincipalProfilesRepository;
@@ -35,6 +36,7 @@ public class AnonProfilesService {
     private final SavedPostsRepository savedPosts;
     private final RepostsRepository reposts;
     private final PostStateService postState;
+    private final PostViewerCapabilitiesService viewerCapabilities;
     private final CommentsRepository comments;
     private final AnonContentRepository content;
     private final CommunitiesRepository communities;
@@ -53,6 +55,7 @@ public class AnonProfilesService {
                                SavedPostsRepository savedPosts,
                                RepostsRepository reposts,
                                PostStateService postState,
+                               PostViewerCapabilitiesService viewerCapabilities,
                                CommentsRepository comments,
                                AnonContentRepository content,
                                CommunitiesRepository communities,
@@ -70,6 +73,7 @@ public class AnonProfilesService {
         this.savedPosts = savedPosts;
         this.reposts = reposts;
         this.postState = postState;
+        this.viewerCapabilities = viewerCapabilities;
         this.comments = comments;
         this.content = content;
         this.communities = communities;
@@ -360,6 +364,18 @@ public class AnonProfilesService {
             }
         }
 
+        java.util.Map<Long, java.util.Map<String, Object>> capabilitiesByPostId = java.util.Map.of();
+        if (!postsById.isEmpty() || !replyPostsById.isEmpty()) {
+            java.util.Map<Long, PostRepository.PostRow> allPosts = new java.util.HashMap<>(postsById);
+            allPosts.putAll(replyPostsById);
+            capabilitiesByPostId = viewerCapabilities.byPostId(
+                    actor.get().id,
+                    actor.get().companyId,
+                    new java.util.ArrayList<>(allPosts.values()),
+                    java.util.Map.of()
+            );
+        }
+
         String defaultProfileImageUrl = appConfig.defaultProfileImageUrl();
         java.util.List<java.util.Map<String, Object>> items = new java.util.ArrayList<>();
         for (var ref : refs) {
@@ -369,7 +385,7 @@ public class AnonProfilesService {
                 items.add(java.util.Map.of(
                         "type", "post",
                         "created_at", ref.createdAt(),
-                        "post", PostPayloads.from(p, defaultProfileImageUrl)
+                        "post", withCapabilities(PostPayloads.from(p, defaultProfileImageUrl), capabilitiesByPostId.get(p.id))
                 ));
             } else if ("reply".equals(ref.type())) {
                 var c = repliesById.get(ref.entityId());
@@ -381,7 +397,12 @@ public class AnonProfilesService {
                 if (includePostPreview) {
                     var host = postsById.get(c.postId);
                     if (host == null) host = replyPostsById.get(c.postId);
-                    if (host != null) payload.put("post", PostPayloads.from(host, defaultProfileImageUrl));
+                    if (host != null) {
+                        payload.put("post", withCapabilities(
+                                PostPayloads.from(host, defaultProfileImageUrl),
+                                capabilitiesByPostId.get(host.id)
+                        ));
+                    }
                 }
                 items.add(payload);
             }
@@ -393,6 +414,12 @@ public class AnonProfilesService {
             next = Pagination.encode(last.createdAt(), last.sortId());
         }
         return ContentResult.ok(items, next);
+    }
+
+    private java.util.Map<String, Object> withCapabilities(java.util.Map<String, Object> postPayload,
+                                                           java.util.Map<String, Object> viewerCapabilitiesPayload) {
+        PostPayloads.putViewerCapabilities(postPayload, viewerCapabilitiesPayload);
+        return postPayload;
     }
 
     public RepostsResult reposts(String firebaseUid, long anonProfileId, String cursor, int limit) {

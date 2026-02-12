@@ -95,6 +95,12 @@ public final class PostPayloads {
         return out;
     }
 
+    public static void putViewerCapabilities(Map<String, Object> payload, Map<String, Object> viewerCapabilities) {
+        if (payload == null || viewerCapabilities == null || viewerCapabilities.isEmpty()) return;
+        payload.put("viewerCapabilities", viewerCapabilities);
+        payload.put("viewer_capabilities", viewerCapabilities);
+    }
+
     public static Map<String, Object> search(PostRepository.PostRow row) {
         return search(row, null);
     }

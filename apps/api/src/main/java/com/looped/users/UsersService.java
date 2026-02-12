@@ -9,6 +9,7 @@ import com.looped.communities.SpecializationJoinsRepository;
 import com.looped.media.MediaRepository;
 import com.looped.posts.PostRepository;
 import com.looped.posts.PostStateService;
+import com.looped.posts.PostViewerCapabilitiesService;
 import com.looped.principals.PrincipalRepository;
 import com.looped.settings.AppConfigService;
 import com.looped.shared.Pagination;
@@ -31,6 +32,7 @@ public class UsersService {
     private final PostRepository posts;
     private final PrincipalRepository principals;
     private final PostStateService postState;
+    private final PostViewerCapabilitiesService viewerCapabilities;
     private final CommentsRepository comments;
     private final UserContentRepository content;
     private final CompanyRepository companies;
@@ -50,6 +52,7 @@ public class UsersService {
                         PostRepository posts,
                         PrincipalRepository principals,
                         PostStateService postState,
+                        PostViewerCapabilitiesService viewerCapabilities,
                         CommentsRepository comments,
                         UserContentRepository content,
                         CompanyRepository companies,
@@ -68,6 +71,7 @@ public class UsersService {
         this.posts = posts;
         this.principals = principals;
         this.postState = postState;
+        this.viewerCapabilities = viewerCapabilities;
         this.comments = comments;
         this.content = content;
         this.companies = companies;
@@ -199,6 +203,18 @@ public class UsersService {
             }
         }
 
+        java.util.Map<Long, java.util.Map<String, Object>> capabilitiesByPostId = java.util.Map.of();
+        if (!postsById.isEmpty() || !replyPostsById.isEmpty()) {
+            java.util.Map<Long, PostRepository.PostRow> allPosts = new java.util.HashMap<>(postsById);
+            allPosts.putAll(replyPostsById);
+            capabilitiesByPostId = viewerCapabilities.byPostId(
+                    actor.id,
+                    actor.companyId,
+                    new java.util.ArrayList<>(allPosts.values()),
+                    java.util.Map.of()
+            );
+        }
+
         String defaultProfileImageUrl = appConfig.defaultProfileImageUrl();
         java.util.List<java.util.Map<String, Object>> items = new java.util.ArrayList<>();
         for (var ref : refs) {
@@ -208,7 +224,7 @@ public class UsersService {
                 items.add(java.util.Map.of(
                         "type", "post",
                         "created_at", ref.createdAt(),
-                        "post", com.looped.posts.PostPayloads.from(p, defaultProfileImageUrl)
+                        "post", withCapabilities(com.looped.posts.PostPayloads.from(p, defaultProfileImageUrl), capabilitiesByPostId.get(p.id))
                 ));
             } else if ("reply".equals(ref.type())) {
                 var c = repliesById.get(ref.entityId());
@@ -220,7 +236,12 @@ public class UsersService {
                 if (includePostPreview) {
                     var host = postsById.get(c.postId);
                     if (host == null) host = replyPostsById.get(c.postId);
-                    if (host != null) payload.put("post", com.looped.posts.PostPayloads.from(host, defaultProfileImageUrl));
+                    if (host != null) {
+                        payload.put("post", withCapabilities(
+                                com.looped.posts.PostPayloads.from(host, defaultProfileImageUrl),
+                                capabilitiesByPostId.get(host.id)
+                        ));
+                    }
                 }
                 items.add(payload);
             }
@@ -232,6 +253,12 @@ public class UsersService {
             next = Pagination.encode(last.createdAt(), last.sortId());
         }
         return ContentResult.ok(items, next);
+    }
+
+    private java.util.Map<String, Object> withCapabilities(java.util.Map<String, Object> postPayload,
+                                                           java.util.Map<String, Object> viewerCapabilitiesPayload) {
+        com.looped.posts.PostPayloads.putViewerCapabilities(postPayload, viewerCapabilitiesPayload);
+        return postPayload;
     }
 
     public UpdateProfileResult updateProfile(String firebaseUid, String displayName, String bio, boolean isAnonymous,

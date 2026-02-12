@@ -1,6 +1,7 @@
 package com.looped.anon;
 
 import com.looped.posts.PostPayloads;
+import com.looped.posts.PostViewerCapabilitiesService;
 import com.looped.principals.PrincipalPayloads;
 import com.looped.comments.CommentPayloads;
 import com.looped.settings.AppConfigService;
@@ -30,10 +31,14 @@ import java.util.Map;
 public class AnonProfilesController {
     private final AnonProfilesService service;
     private final AppConfigService appConfig;
+    private final PostViewerCapabilitiesService viewerCapabilities;
 
-    public AnonProfilesController(AnonProfilesService service, AppConfigService appConfig) {
+    public AnonProfilesController(AnonProfilesService service,
+                                  AppConfigService appConfig,
+                                  PostViewerCapabilitiesService viewerCapabilities) {
         this.service = service;
         this.appConfig = appConfig;
+        this.viewerCapabilities = viewerCapabilities;
     }
 
     @GetMapping("/{id}")
@@ -135,7 +140,7 @@ public class AnonProfilesController {
             case USER_NOT_PROVISIONED -> ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "user_not_provisioned"));
             case NOT_FOUND -> ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "not_found"));
             case FORBIDDEN -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "forbidden"));
-            case OK -> ResponseEntity.ok(toPostListPayload(res.posts(), res.nextCursor()));
+            case OK -> ResponseEntity.ok(toPostListPayload(jwt.getSubject(), res.posts(), res.nextCursor()));
         };
     }
 
@@ -181,7 +186,7 @@ public class AnonProfilesController {
             case USER_NOT_PROVISIONED -> ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "user_not_provisioned"));
             case NOT_FOUND -> ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "not_found"));
             case FORBIDDEN -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "forbidden"));
-            case OK -> ResponseEntity.ok(toPostListPayload(res.posts(), res.nextCursor()));
+            case OK -> ResponseEntity.ok(toPostListPayload(jwt.getSubject(), res.posts(), res.nextCursor()));
         };
     }
 
@@ -223,7 +228,7 @@ public class AnonProfilesController {
                     "error", "invalid_anon_proof",
                     "message", "Invalid anonymous proof"
             ));
-            case OK -> ResponseEntity.ok(toPostListPayload(res.posts(), res.nextCursor()));
+            case OK -> ResponseEntity.ok(toPostListPayload(null, res.posts(), res.nextCursor()));
         };
     }
 
@@ -265,7 +270,7 @@ public class AnonProfilesController {
                     "error", "invalid_anon_proof",
                     "message", "Invalid anonymous proof"
             ));
-            case OK -> ResponseEntity.ok(toPostListPayload(res.posts(), res.nextCursor()));
+            case OK -> ResponseEntity.ok(toPostListPayload(null, res.posts(), res.nextCursor()));
         };
     }
 
@@ -492,9 +497,16 @@ public class AnonProfilesController {
         };
     }
 
-    private Map<String, Object> toPostListPayload(List<com.looped.posts.PostRepository.PostRow> posts, String nextCursor) {
+    private Map<String, Object> toPostListPayload(String firebaseUid,
+                                                  List<com.looped.posts.PostRepository.PostRow> posts,
+                                                  String nextCursor) {
         String defaultProfileImageUrl = appConfig.defaultProfileImageUrl();
-        List<Map<String, Object>> items = posts.stream().map(row -> PostPayloads.from(row, defaultProfileImageUrl)).toList();
+        var capabilitiesByPostId = viewerCapabilities.byPostId(firebaseUid, posts, Map.of());
+        List<Map<String, Object>> items = posts.stream().map(row -> {
+            Map<String, Object> payload = PostPayloads.from(row, defaultProfileImageUrl);
+            PostPayloads.putViewerCapabilities(payload, capabilitiesByPostId.get(row.id));
+            return payload;
+        }).toList();
         Map<String, Object> body = new HashMap<>();
         body.put("items", items);
         if (nextCursor != null) body.put("next_cursor", nextCursor);

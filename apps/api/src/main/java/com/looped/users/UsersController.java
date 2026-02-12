@@ -1,6 +1,7 @@
 package com.looped.users;
 
 import com.looped.posts.PostPayloads;
+import com.looped.posts.PostViewerCapabilitiesService;
 import com.looped.comments.CommentsService;
 import com.looped.settings.AppConfigService;
 import jakarta.validation.constraints.NotBlank;
@@ -25,11 +26,16 @@ public class UsersController {
     private final UsersService service;
     private final CommentsService commentsService;
     private final AppConfigService appConfig;
+    private final PostViewerCapabilitiesService viewerCapabilities;
 
-    public UsersController(UsersService service, CommentsService commentsService, AppConfigService appConfig) {
+    public UsersController(UsersService service,
+                           CommentsService commentsService,
+                           AppConfigService appConfig,
+                           PostViewerCapabilitiesService viewerCapabilities) {
         this.service = service;
         this.commentsService = commentsService;
         this.appConfig = appConfig;
+        this.viewerCapabilities = viewerCapabilities;
     }
 
     @PostMapping("/onboard")
@@ -458,7 +464,12 @@ public class UsersController {
             ));
             case OK -> {
                 String defaultProfileImageUrl = appConfig.defaultProfileImageUrl();
-                List<Map<String, Object>> items = res.posts().stream().map(row -> PostPayloads.from(row, defaultProfileImageUrl)).toList();
+                var capabilitiesByPostId = viewerCapabilities.byPostId(jwt.getSubject(), res.posts(), Map.of());
+                List<Map<String, Object>> items = res.posts().stream().map(row -> {
+                    Map<String, Object> payload = PostPayloads.from(row, defaultProfileImageUrl);
+                    PostPayloads.putViewerCapabilities(payload, capabilitiesByPostId.get(row.id));
+                    return payload;
+                }).toList();
                 Map<String, Object> body = new HashMap<>();
                 body.put("items", items);
                 if (res.nextCursor() != null) {

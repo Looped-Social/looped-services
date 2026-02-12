@@ -25,12 +25,18 @@ public class PostsController {
     private final PostSearchService postSearchService;
     private final PollsService pollsService;
     private final AppConfigService appConfig;
+    private final PostViewerCapabilitiesService viewerCapabilities;
 
-    public PostsController(PostsService postsService, PostSearchService postSearchService, PollsService pollsService, AppConfigService appConfig) {
+    public PostsController(PostsService postsService,
+                           PostSearchService postSearchService,
+                           PollsService pollsService,
+                           AppConfigService appConfig,
+                           PostViewerCapabilitiesService viewerCapabilities) {
         this.postsService = postsService;
         this.postSearchService = postSearchService;
         this.pollsService = pollsService;
         this.appConfig = appConfig;
+        this.viewerCapabilities = viewerCapabilities;
     }
 
     @GetMapping("/search")
@@ -57,10 +63,12 @@ public class PostsController {
                 String defaultProfileImageUrl = appConfig.defaultProfileImageUrl();
                 List<Long> postIds = res.posts().stream().map(p -> p.id).toList();
                 var pollsByPostId = pollsService.viewsByPostId(viewerPrincipalId, postIds);
+                var capabilitiesByPostId = viewerCapabilities.byPostId(jwt.getSubject(), res.posts(), pollsByPostId);
                 List<Map<String, Object>> items = res.posts().stream().map(row -> {
                     Map<String, Object> payload = PostPayloads.search(row, defaultProfileImageUrl);
                     var poll = pollsByPostId.get(row.id);
                     if (poll != null) payload.put("poll", PollPayloads.from(poll));
+                    PostPayloads.putViewerCapabilities(payload, capabilitiesByPostId.get(row.id));
                     return payload;
                 }).toList();
                 Map<String, Object> body = new HashMap<>();
@@ -206,8 +214,11 @@ public class PostsController {
                 String defaultProfileImageUrl = appConfig.defaultProfileImageUrl();
                 var payload = PostPayloads.from(res.post(), defaultProfileImageUrl);
                 Long viewerPrincipalId = jwt == null ? null : pollsService.viewerPrincipalId(jwt.getSubject());
-                var poll = pollsService.viewsByPostId(viewerPrincipalId, List.of(res.post().id)).get(res.post().id);
+                var pollsByPostId = pollsService.viewsByPostId(viewerPrincipalId, List.of(res.post().id));
+                var poll = pollsByPostId.get(res.post().id);
                 if (poll != null) payload.put("poll", PollPayloads.from(poll));
+                var capabilitiesByPostId = viewerCapabilities.byPostId(jwt == null ? null : jwt.getSubject(), List.of(res.post()), pollsByPostId);
+                PostPayloads.putViewerCapabilities(payload, capabilitiesByPostId.get(res.post().id));
                 yield new ResponseEntity<>(payload, res.created() ? HttpStatus.CREATED : HttpStatus.OK);
             }
             default -> ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
@@ -229,8 +240,11 @@ public class PostsController {
                 String defaultProfileImageUrl = appConfig.defaultProfileImageUrl();
                 var payload = PostPayloads.from(res.post(), defaultProfileImageUrl);
                 Long viewerPrincipalId = pollsService.viewerPrincipalId(jwt.getSubject());
-                var poll = pollsService.viewsByPostId(viewerPrincipalId, List.of(res.post().id)).get(res.post().id);
+                var pollsByPostId = pollsService.viewsByPostId(viewerPrincipalId, List.of(res.post().id));
+                var poll = pollsByPostId.get(res.post().id);
                 if (poll != null) payload.put("poll", PollPayloads.from(poll));
+                var capabilitiesByPostId = viewerCapabilities.byPostId(jwt.getSubject(), List.of(res.post()), pollsByPostId);
+                PostPayloads.putViewerCapabilities(payload, capabilitiesByPostId.get(res.post().id));
                 yield ResponseEntity.ok(payload);
             }
             default -> ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
@@ -290,7 +304,12 @@ public class PostsController {
                     "error", "post_removed",
                     "message", "Post has been removed"
             ));
-            case OK -> ResponseEntity.ok(PostPayloads.from(res.post(), appConfig.defaultProfileImageUrl()));
+            case OK -> {
+                var payload = PostPayloads.from(res.post(), appConfig.defaultProfileImageUrl());
+                var capabilitiesByPostId = viewerCapabilities.byPostId(jwt == null ? null : jwt.getSubject(), List.of(res.post()), Map.of());
+                PostPayloads.putViewerCapabilities(payload, capabilitiesByPostId.get(res.post().id));
+                yield ResponseEntity.ok(payload);
+            }
         };
     }
 

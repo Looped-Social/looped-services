@@ -7,8 +7,11 @@ import org.springframework.stereotype.Repository;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.OffsetDateTime;
+import java.util.Collection;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 @Repository
 public class UserCommunityBanRepository {
@@ -52,6 +55,40 @@ public class UserCommunityBanRepository {
                 userId, communityId
         );
         return Boolean.TRUE.equals(exists);
+    }
+
+    public ActiveBanScope activeScope(long userId, Collection<Long> communityIds) {
+        String sql = "SELECT scope, community_id FROM user_community_bans " +
+                "WHERE user_id = ? AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > now()) ";
+        java.util.List<Object> args = new java.util.ArrayList<>();
+        args.add(userId);
+        if (communityIds == null || communityIds.isEmpty()) {
+            sql += "AND scope = 'all_communities'";
+        } else {
+            String placeholders = String.join(",", java.util.Collections.nCopies(communityIds.size(), "?"));
+            sql += "AND (scope = 'all_communities' OR (scope = 'community' AND community_id IN (" + placeholders + ")))";
+            args.addAll(communityIds);
+        }
+        return jdbc.query(
+                sql,
+                rs -> {
+                    boolean allCommunities = false;
+                    Set<Long> scopedCommunityIds = new HashSet<>();
+                    while (rs.next()) {
+                        String scope = rs.getString("scope");
+                        if ("all_communities".equalsIgnoreCase(scope)) {
+                            allCommunities = true;
+                            continue;
+                        }
+                        long communityId = rs.getLong("community_id");
+                        if (!rs.wasNull()) {
+                            scopedCommunityIds.add(communityId);
+                        }
+                    }
+                    return new ActiveBanScope(allCommunities, Set.copyOf(scopedCommunityIds));
+                },
+                args.toArray()
+        );
     }
 
     public Optional<BanRow> findActiveForUserAndCommunity(long userId, long communityId) {
@@ -130,5 +167,13 @@ public class UserCommunityBanRepository {
         public OffsetDateTime revokedAt;
         public Long createdBy;
         public Long revokedBy;
+    }
+
+    public record ActiveBanScope(boolean allCommunities, Set<Long> communityIds) {
+        public boolean isBanned(Long communityId) {
+            if (allCommunities) return true;
+            if (communityId == null) return false;
+            return communityIds.contains(communityId);
+        }
     }
 }

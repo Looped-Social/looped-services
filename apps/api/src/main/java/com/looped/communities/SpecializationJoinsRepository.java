@@ -106,6 +106,23 @@ public class SpecializationJoinsRepository {
         return Set.copyOf(rows);
     }
 
+    public Set<Long> joinedIdsByTypes(long userId, Collection<String> specializationTypes) {
+        if (specializationTypes == null || specializationTypes.isEmpty()) return Set.of();
+        String placeholders = String.join(",", java.util.Collections.nCopies(specializationTypes.size(), "?"));
+        java.util.List<Object> args = new java.util.ArrayList<>();
+        args.add(userId);
+        args.addAll(specializationTypes);
+        List<Long> rows = jdbc.query(
+                "SELECT j.specialization_id FROM specialization_joins j " +
+                        "JOIN communities c ON c.id = j.specialization_id " +
+                        "WHERE j.user_id = ? AND c.kind = 'specialization' " +
+                        "AND lower(COALESCE(c.specialization_type, '')) IN (" + placeholders + ")",
+                (rs, rowNum) -> rs.getLong("specialization_id"),
+                args.toArray()
+        );
+        return Set.copyOf(rows);
+    }
+
     public int countMembers(long specializationId) {
         Integer count = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM specialization_joins j " +

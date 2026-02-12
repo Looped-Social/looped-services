@@ -8,7 +8,9 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.OffsetDateTime;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 @Repository
@@ -158,6 +160,37 @@ public class CommunityFollowsRepository {
         return Set.copyOf(rows);
     }
 
+    public Map<Long, FollowMeta> followedMetaByCommunityIds(long userId, Collection<Long> communityIds) {
+        if (communityIds == null || communityIds.isEmpty()) return Map.of();
+        String placeholders = String.join(",", java.util.Collections.nCopies(communityIds.size(), "?"));
+        java.util.List<Object> args = new java.util.ArrayList<>();
+        args.add(userId);
+        args.addAll(communityIds);
+        return jdbc.query(
+                "SELECT community_id, is_pinned, sort_order, created_at " +
+                        "FROM community_follows " +
+                        "WHERE user_id = ? AND community_id IN (" + placeholders + ")",
+                rs -> {
+                    Map<Long, FollowMeta> out = new HashMap<>();
+                    while (rs.next()) {
+                        int sortOrder = rs.getInt("sort_order");
+                        boolean sortOrderNull = rs.wasNull();
+                        boolean isPinned = rs.getBoolean("is_pinned");
+                        out.put(
+                                rs.getLong("community_id"),
+                                new FollowMeta(
+                                        isPinned,
+                                        sortOrderNull ? null : sortOrder,
+                                        rs.getObject("created_at", OffsetDateTime.class)
+                                )
+                        );
+                    }
+                    return out;
+                },
+                args.toArray()
+        );
+    }
+
     public int countSpecializations(long userId, String specializationType) {
         Integer count = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM community_follows cf " +
@@ -193,4 +226,6 @@ public class CommunityFollowsRepository {
         public OffsetDateTime followedAt;
         public OffsetDateTime lastActivity;
     }
+
+    public record FollowMeta(boolean isPinned, Integer sortOrder, OffsetDateTime followedAt) {}
 }

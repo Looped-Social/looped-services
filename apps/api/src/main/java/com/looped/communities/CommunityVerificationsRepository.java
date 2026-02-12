@@ -35,6 +35,42 @@ public class CommunityVerificationsRepository {
         return rows.verified && (rows.expiresAt == null || rows.expiresAt.isAfter(OffsetDateTime.now()));
     }
 
+    public Map<Long, VerificationState> statesByCommunityIds(long userId, Collection<Long> communityIds) {
+        if (communityIds == null || communityIds.isEmpty()) return Map.of();
+        String placeholders = String.join(",", java.util.Collections.nCopies(communityIds.size(), "?"));
+        List<Object> args = new ArrayList<>();
+        args.add(userId);
+        args.addAll(communityIds);
+        return jdbc.query(
+                "SELECT community_id, verified, expires_at FROM community_verifications " +
+                        "WHERE user_id = ? AND community_id IN (" + placeholders + ")",
+                rs -> {
+                    Map<Long, VerificationState> out = new HashMap<>();
+                    while (rs.next()) {
+                        out.put(
+                                rs.getLong("community_id"),
+                                new VerificationState(
+                                        rs.getBoolean("verified"),
+                                        rs.getObject("expires_at", OffsetDateTime.class)
+                                )
+                        );
+                    }
+                    return out;
+                },
+                args.toArray()
+        );
+    }
+
+    public java.util.Set<Long> activeVerifiedCommunityIdsForUser(long userId) {
+        List<Long> rows = jdbc.query(
+                "SELECT community_id FROM community_verifications " +
+                        "WHERE user_id = ? AND verified = true AND (expires_at IS NULL OR expires_at > now())",
+                (rs, rowNum) -> rs.getLong("community_id"),
+                userId
+        );
+        return java.util.Set.copyOf(rows);
+    }
+
     public boolean hasActiveVerifiedCommunityOfKind(long userId, String communityKind) {
         if (communityKind == null || communityKind.isBlank()) return false;
         String normalizedKind = communityKind.trim().toLowerCase(Locale.ROOT);
@@ -201,7 +237,7 @@ public class CommunityVerificationsRepository {
         );
     }
 
-    private record VerificationState(boolean verified, OffsetDateTime expiresAt) {}
+    public record VerificationState(boolean verified, OffsetDateTime expiresAt) {}
 
     public static class UserVerificationRow {
         public long communityId;

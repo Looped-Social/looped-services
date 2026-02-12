@@ -8,8 +8,11 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 
 @Repository
@@ -342,6 +345,21 @@ public class CommunitiesRepository {
                 MAPPER, id
         );
         return list.isEmpty() ? Optional.empty() : Optional.of(list.get(0));
+    }
+
+    public Map<Long, CommunityRow> findByIds(Collection<Long> ids) {
+        if (ids == null || ids.isEmpty()) return Map.of();
+        String placeholders = String.join(",", java.util.Collections.nCopies(ids.size(), "?"));
+        List<CommunityRow> rows = jdbc.query(
+                "SELECT " + BASE_COLUMNS + " FROM communities WHERE id IN (" + placeholders + ")",
+                MAPPER,
+                ids.toArray()
+        );
+        Map<Long, CommunityRow> out = new HashMap<>();
+        for (CommunityRow row : rows) {
+            out.put(row.id, row);
+        }
+        return out;
     }
 
     public List<CommunityRow> list(OffsetDateTime cursorTs, Long cursorId, int limit) {

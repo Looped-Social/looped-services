@@ -29,11 +29,16 @@ public class PostCollectionsController {
     private final PostCollectionsService service;
     private final PollsService pollsService;
     private final AppConfigService appConfig;
+    private final PostViewerCapabilitiesService viewerCapabilities;
 
-    public PostCollectionsController(PostCollectionsService service, PollsService pollsService, AppConfigService appConfig) {
+    public PostCollectionsController(PostCollectionsService service,
+                                     PollsService pollsService,
+                                     AppConfigService appConfig,
+                                     PostViewerCapabilitiesService viewerCapabilities) {
         this.service = service;
         this.pollsService = pollsService;
         this.appConfig = appConfig;
+        this.viewerCapabilities = viewerCapabilities;
     }
 
     @GetMapping("/liked")
@@ -49,7 +54,7 @@ public class PostCollectionsController {
                     "error", "user_not_provisioned",
                     "message", "Complete onboarding before viewing liked posts"
             ));
-            case OK -> ResponseEntity.ok(toListPayload(res.posts(), res.nextCursor(), pollsService.viewerPrincipalId(jwt.getSubject())));
+            case OK -> ResponseEntity.ok(toListPayload(res.posts(), res.nextCursor(), jwt.getSubject(), pollsService.viewerPrincipalId(jwt.getSubject())));
             default -> ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
                     "error", "unexpected_status",
                     "message", "Unexpected status for liked posts"
@@ -70,7 +75,7 @@ public class PostCollectionsController {
                     "error", "user_not_provisioned",
                     "message", "Complete onboarding before viewing saved posts"
             ));
-            case OK -> ResponseEntity.ok(toListPayload(res.posts(), res.nextCursor(), pollsService.viewerPrincipalId(jwt.getSubject())));
+            case OK -> ResponseEntity.ok(toListPayload(res.posts(), res.nextCursor(), jwt.getSubject(), pollsService.viewerPrincipalId(jwt.getSubject())));
             default -> ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
                     "error", "unexpected_status",
                     "message", "Unexpected status for saved posts"
@@ -112,7 +117,7 @@ public class PostCollectionsController {
                     "error", "user_not_provisioned",
                     "message", "Complete onboarding before viewing reposted posts"
             ));
-            case OK -> ResponseEntity.ok(toListPayload(res.posts(), res.nextCursor(), pollsService.viewerPrincipalId(jwt.getSubject())));
+            case OK -> ResponseEntity.ok(toListPayload(res.posts(), res.nextCursor(), jwt.getSubject(), pollsService.viewerPrincipalId(jwt.getSubject())));
             default -> ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
                     "error", "unexpected_status",
                     "message", "Unexpected status for reposted posts"
@@ -221,14 +226,19 @@ public class PostCollectionsController {
         }
     }
 
-    private Map<String, Object> toListPayload(List<PostRepository.PostRow> posts, String nextCursor, Long viewerPrincipalId) {
+    private Map<String, Object> toListPayload(List<PostRepository.PostRow> posts,
+                                              String nextCursor,
+                                              String firebaseUid,
+                                              Long viewerPrincipalId) {
         String defaultProfileImageUrl = appConfig.defaultProfileImageUrl();
         List<Long> postIds = posts == null ? List.of() : posts.stream().map(p -> p.id).toList();
         var pollsByPostId = pollsService.viewsByPostId(viewerPrincipalId, postIds);
+        var capabilitiesByPostId = viewerCapabilities.byPostId(firebaseUid, posts, pollsByPostId);
         List<Map<String, Object>> items = posts.stream().map(row -> {
             Map<String, Object> payload = PostPayloads.from(row, defaultProfileImageUrl);
             var poll = pollsByPostId.get(row.id);
             if (poll != null) payload.put("poll", PollPayloads.from(poll));
+            PostPayloads.putViewerCapabilities(payload, capabilitiesByPostId.get(row.id));
             return payload;
         }).toList();
         Map<String, Object> body = new HashMap<>();
