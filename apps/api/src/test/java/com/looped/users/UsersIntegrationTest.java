@@ -58,17 +58,23 @@ class UsersIntegrationTest extends PostgresTestBase {
     }
 
     private String tokenWithEmail(String sub, String email) {
+        return tokenWithEmail(sub, email, null);
+    }
+
+    private String tokenWithEmail(String sub, String email, Boolean emailVerified) {
         Instant now = Instant.now();
-        JwtClaimsSet claims = JwtClaimsSet.builder()
+        var claims = JwtClaimsSet.builder()
                 .issuer("http://test-issuer")
                 .issuedAt(now)
                 .expiresAt(now.plusSeconds(3600))
                 .subject(sub)
                 .audience(List.of("test-app"))
-                .claim("email", email)
-                .build();
+                .claim("email", email);
+        if (emailVerified != null) {
+            claims.claim("email_verified", emailVerified);
+        }
         JwsHeader header = JwsHeader.with(SignatureAlgorithm.RS256).build();
-        return jwtEncoder.encode(JwtEncoderParameters.from(header, claims)).getTokenValue();
+        return jwtEncoder.encode(JwtEncoderParameters.from(header, claims.build())).getTokenValue();
     }
 
     @Test
@@ -263,6 +269,42 @@ class UsersIntegrationTest extends PostgresTestBase {
                 Integer.class
         );
         org.junit.jupiter.api.Assertions.assertEquals(1, tombstones.intValue());
+    }
+
+    @Test
+    void onboard_claims_existing_user_by_verified_email_when_uid_changes() throws Exception {
+        long companyId = jdbc.queryForObject("INSERT INTO companies(name, domain) VALUES ('ClaimOnb','claim-onb.co') RETURNING id", Long.class);
+        long userId = jdbc.queryForObject(
+                "INSERT INTO users(firebase_uid, handle, email, company_id) VALUES (?,?,?,?) RETURNING id",
+                Long.class, "uid-existing", "existing", "existing@claim-onb.co", companyId
+        );
+
+        String onboardBody = """
+                {
+                  "username": "freshname",
+                  "firstName": "Fresh",
+                  "lastName": "User",
+                  "dateOfBirth": "1991-01-01"
+                }
+                """;
+        mockMvc.perform(post("/v1/users/onboard")
+                        .header("Authorization", "Bearer " + tokenWithEmail("uid-new-provider", "existing@claim-onb.co", true))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(onboardBody))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.id", equalTo((int) userId)))
+                .andExpect(jsonPath("$.handle", equalTo("existing")));
+
+        Integer totalUsers = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM users WHERE LOWER(email) = LOWER('existing@claim-onb.co')",
+                Integer.class
+        );
+        org.junit.jupiter.api.Assertions.assertEquals(1, totalUsers.intValue());
+        String mappedUid = jdbc.queryForObject(
+                "SELECT firebase_uid FROM users WHERE id = ?",
+                String.class, userId
+        );
+        org.junit.jupiter.api.Assertions.assertEquals("uid-new-provider", mappedUid);
     }
 
     @Test

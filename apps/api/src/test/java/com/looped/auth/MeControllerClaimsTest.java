@@ -23,7 +23,7 @@ class MeControllerClaimsTest {
         AppConfigService appConfig = mock(AppConfigService.class);
         MeController controller = new MeController(users, appConfig);
 
-        when(users.onLogin("uid")).thenReturn(UsersService.LoginStatus.ACTIVE);
+        when(users.onLogin("uid", "test@example.com", null)).thenReturn(UsersService.LoginStatus.ACTIVE);
         doNothing().when(users).syncEmail(anyString(), anyString());
         when(users.onboardingState("uid")).thenReturn(new UsersService.OnboardingState(false, "verification"));
         when(users.currentProfile("uid")).thenReturn(Optional.empty());
@@ -47,7 +47,7 @@ class MeControllerClaimsTest {
         AppConfigService appConfig = mock(AppConfigService.class);
         MeController controller = new MeController(users, appConfig);
 
-        when(users.onLogin("uid")).thenReturn(UsersService.LoginStatus.ACTIVE);
+        when(users.onLogin("uid", null, null)).thenReturn(UsersService.LoginStatus.ACTIVE);
         when(users.onboardingState("uid")).thenReturn(new UsersService.OnboardingState(false, "verification"));
         when(users.currentProfile("uid")).thenReturn(Optional.empty());
 
@@ -62,4 +62,3 @@ class MeControllerClaimsTest {
         assertThat(resp.get("sign_in_provider")).isNull();
     }
 }
-

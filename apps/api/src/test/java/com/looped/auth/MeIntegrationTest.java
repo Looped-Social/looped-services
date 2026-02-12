@@ -39,17 +39,23 @@ class MeIntegrationTest extends PostgresTestBase {
     JdbcTemplate jdbc;
 
     private String token(String sub) {
+        return token(sub, sub + "@example.com", null);
+    }
+
+    private String token(String sub, String email, Boolean emailVerified) {
         Instant now = Instant.now();
-        JwtClaimsSet claims = JwtClaimsSet.builder()
+        var claims = JwtClaimsSet.builder()
                 .issuer("http://test-issuer")
                 .issuedAt(now)
                 .expiresAt(now.plusSeconds(3600))
                 .subject(sub)
                 .audience(List.of("test-app"))
-                .claim("email", sub + "@example.com")
-                .build();
+                .claim("email", email);
+        if (emailVerified != null) {
+            claims.claim("email_verified", emailVerified);
+        }
         JwsHeader header = JwsHeader.with(SignatureAlgorithm.RS256).build();
-        return jwtEncoder.encode(JwtEncoderParameters.from(header, claims)).getTokenValue();
+        return jwtEncoder.encode(JwtEncoderParameters.from(header, claims.build())).getTokenValue();
     }
 
     @Test
@@ -79,6 +85,28 @@ class MeIntegrationTest extends PostgresTestBase {
                 .andExpect(jsonPath("$.onboarding_complete").value(false))
                 .andExpect(jsonPath("$.onboarding_step").value("verification"))
                 .andExpect(jsonPath("$.user.handle").value("alice"));
+    }
+
+    @Test
+    void me_claims_existing_user_by_verified_email_when_uid_changes() throws Exception {
+        long companyId = jdbc.queryForObject(
+                "INSERT INTO companies(name, domain) VALUES ('ClaimCo', 'claimco.com') RETURNING id",
+                Long.class);
+        long userId = jdbc.queryForObject(
+                "INSERT INTO users(firebase_uid, handle, email, company_id) VALUES (?,?,?,?) RETURNING id",
+                Long.class, "uid-old", "owner@claimco.com", companyId);
+
+        String t = token("uid-new", "owner@claimco.com", true);
+        mockMvc.perform(get("/v1/me").header("Authorization", "Bearer " + t))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.provisioned").value(true))
+                .andExpect(jsonPath("$.user.handle").value("owner"));
+
+        String mappedUid = jdbc.queryForObject(
+                "SELECT firebase_uid FROM users WHERE id = ?",
+                String.class, userId
+        );
+        org.junit.jupiter.api.Assertions.assertEquals("uid-new", mappedUid);
     }
 
     @Test

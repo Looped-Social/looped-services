@@ -29,7 +29,9 @@ public class MeController {
         resp.put("iss", jwt.getIssuer() != null ? jwt.getIssuer().toString() : null);
         resp.put("aud", jwt.getAudience());
         resp.put("sign_in_provider", signInProvider(jwt));
-        var loginStatus = users.onLogin(jwt.getSubject());
+        String email = jwt.getClaimAsString("email");
+        Boolean emailVerified = jwt.getClaimAsBoolean("email_verified");
+        var loginStatus = users.onLogin(jwt.getSubject(), email, emailVerified);
         if (loginStatus == UsersService.LoginStatus.PURGED) {
             resp.put("provisioned", false);
             resp.put("account_deleted", true);
@@ -44,10 +46,9 @@ public class MeController {
             resp.put("onboarding_step", "profile_setup");
             return resp;
         }
-        Object email = jwt.getClaims().get("email");
         if (email != null) {
             resp.put("email", email);
-            users.syncEmail(jwt.getSubject(), email.toString());
+            users.syncEmail(jwt.getSubject(), email);
         }
 
         var onboarding = users.onboardingState(jwt.getSubject());

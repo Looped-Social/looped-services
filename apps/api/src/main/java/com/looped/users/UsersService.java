@@ -368,11 +368,22 @@ public class UsersService {
 
     public OnboardResult onboard(String firebaseUid, String email, String username,
                                  String firstName, String lastName, LocalDate dateOfBirth) {
+        return onboard(firebaseUid, email, null, username, firstName, lastName, dateOfBirth);
+    }
+
+    public OnboardResult onboard(String firebaseUid, String email, Boolean emailVerified, String username,
+                                 String firstName, String lastName, LocalDate dateOfBirth) {
         if (firebaseUid == null || firebaseUid.isBlank()) return OnboardResult.badRequest("invalid_user");
         if (email == null || email.isBlank()) return OnboardResult.badRequest("email_required");
         if (users.isFirebaseUidTombstoned(firebaseUid)) return OnboardResult.conflict("account_deleted");
         var existing = users.findByFirebaseUidIncludingDeleted(firebaseUid);
         if (existing.isPresent()) return OnboardResult.conflict("already_onboarded");
+
+        var claimed = claimActiveAccountByEmail(firebaseUid, email, emailVerified);
+        if (claimed.isPresent()) {
+            var verification = verifications.findByUserId(claimed.get().id).orElse(null);
+            return OnboardResult.ok(buildProfile(claimed.get(), verification));
+        }
 
         String normalizedHandle = normalizeHandle(username);
         if (normalizedHandle == null) return OnboardResult.badRequest("invalid_username");
@@ -578,9 +589,17 @@ public class UsersService {
     }
 
     public LoginStatus onLogin(String firebaseUid) {
+        return onLogin(firebaseUid, null, null);
+    }
+
+    public LoginStatus onLogin(String firebaseUid, String email, Boolean emailVerified) {
         if (firebaseUid == null || firebaseUid.isBlank()) return LoginStatus.MISSING;
         var existing = users.findByFirebaseUidIncludingDeleted(firebaseUid);
         if (existing.isEmpty()) {
+            var claimed = claimActiveAccountByEmail(firebaseUid, email, emailVerified);
+            if (claimed.isPresent()) {
+                return LoginStatus.ACTIVE;
+            }
             return users.isFirebaseUidTombstoned(firebaseUid) ? LoginStatus.PURGED : LoginStatus.MISSING;
         }
         if (existing.get().deletedAt == null) return LoginStatus.ACTIVE;
@@ -637,6 +656,13 @@ public class UsersService {
 
     private OffsetDateTime handleReuseCutoff() {
         return OffsetDateTime.now().minusDays(usernameTombstoneDays);
+    }
+
+    private Optional<UserRepository.UserRow> claimActiveAccountByEmail(String firebaseUid, String email, Boolean emailVerified) {
+        if (firebaseUid == null || firebaseUid.isBlank()) return Optional.empty();
+        if (email == null || email.isBlank()) return Optional.empty();
+        if (Boolean.FALSE.equals(emailVerified)) return Optional.empty();
+        return users.claimActiveByEmail(email, firebaseUid);
     }
 
     private UserProfile buildProfile(UserRepository.UserRow row, VerificationRepository.Row verification) {

@@ -44,7 +44,8 @@ public class UsersController {
             @Validated @RequestBody OnboardRequest body
     ) {
         String email = jwt.getClaimAsString("email");
-        var res = service.onboard(jwt.getSubject(), email, body.username(), body.firstName(), body.lastName(), body.dateOfBirth());
+        Boolean emailVerified = jwt.getClaimAsBoolean("email_verified");
+        var res = service.onboard(jwt.getSubject(), email, emailVerified, body.username(), body.firstName(), body.lastName(), body.dateOfBirth());
         return switch (res.status()) {
             case BAD_REQUEST -> ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of("error", res.error()));
             case CONFLICT -> ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", res.error()));

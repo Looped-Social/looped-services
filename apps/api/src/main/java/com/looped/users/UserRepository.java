@@ -491,6 +491,19 @@ public class UserRepository {
         jdbcTemplate.update("UPDATE users SET email = ? WHERE id = ?", normalized, userId);
     }
 
+    public Optional<UserRow> claimActiveByEmail(String email, String firebaseUid) {
+        String normalized = normalizeEmail(email);
+        if (normalized == null || firebaseUid == null || firebaseUid.isBlank()) return Optional.empty();
+        var list = jdbcTemplate.query(
+                "UPDATE users SET firebase_uid = ? " +
+                        "WHERE LOWER(email) = LOWER(?) AND deleted_at IS NULL AND firebase_uid <> ? " +
+                        "AND NOT EXISTS (SELECT 1 FROM users x WHERE x.firebase_uid = ?) " +
+                        "RETURNING " + BASE_COLUMNS,
+                MAPPER, firebaseUid, normalized, firebaseUid, firebaseUid
+        );
+        return list.isEmpty() ? Optional.empty() : Optional.of(list.get(0));
+    }
+
     public long insert(String firebaseUid, String handle, String email, long companyId,
                        String firstName, String lastName, java.time.LocalDate dateOfBirth) {
         Long id = jdbcTemplate.query(
