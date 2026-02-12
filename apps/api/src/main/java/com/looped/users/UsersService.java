@@ -909,8 +909,11 @@ public class UsersService {
             return DeleteResult.ok(FirebaseDeleteStatus.NOT_REQUESTED, null);
         }
         int repairedPosts = users.repairMissingAuthorIdsForUser(user.id);
-        if (repairedPosts > 0) {
-            log.warn("delete_repair_missing_author_ids uid={} user_id={} repaired_posts={}", firebaseUid, user.id, repairedPosts);
+        int repairedComments = users.repairMissingCommentUserIdsForUser(user.id);
+        int repairedCommentLikes = users.repairMissingCommentLikeUserIdsForUser(user.id);
+        if (repairedPosts > 0 || repairedComments > 0 || repairedCommentLikes > 0) {
+            log.warn("delete_repair_user_fk_backfills uid={} user_id={} repaired_posts={} repaired_comments={} repaired_comment_likes={}",
+                    firebaseUid, user.id, repairedPosts, repairedComments, repairedCommentLikes);
         }
         var firebaseResult = firebaseAdmin.deleteUser(firebaseUid);
         var firebaseHandled = handleFirebaseResult(firebaseResult);

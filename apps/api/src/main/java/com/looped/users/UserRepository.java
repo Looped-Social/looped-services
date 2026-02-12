@@ -491,7 +491,8 @@ public class UserRepository {
                         "deleted_at = COALESCE(deleted_at, now()), " +
                         "deleted_by = COALESCE(deleted_by, ?), " +
                         "deleted_source = COALESCE(deleted_source, 'self'), " +
-                        "deleted_reason = COALESCE(deleted_reason, ?) " +
+                        "deleted_reason = COALESCE(deleted_reason, ?), " +
+                        "email = NULL " +
                         "WHERE id = ?",
                 deletedBy, reason, userId
         );
@@ -524,6 +525,28 @@ public class UserRepository {
                         "WHERE p.author_id IS NULL " +
                         "AND COALESCE(p.is_anon, false) = false " +
                         "AND p.author_principal_id = pr.id " +
+                        "AND pr.user_id = ?",
+                userId, userId
+        );
+    }
+
+    public int repairMissingCommentUserIdsForUser(long userId) {
+        return jdbcTemplate.update(
+                "UPDATE comments c SET user_id = ? " +
+                        "FROM principals pr " +
+                        "WHERE c.user_id IS NULL " +
+                        "AND c.author_principal_id = pr.id " +
+                        "AND pr.user_id = ?",
+                userId, userId
+        );
+    }
+
+    public int repairMissingCommentLikeUserIdsForUser(long userId) {
+        return jdbcTemplate.update(
+                "UPDATE comment_likes cl SET user_id = ? " +
+                        "FROM principals pr " +
+                        "WHERE cl.user_id IS NULL " +
+                        "AND cl.liker_principal_id = pr.id " +
                         "AND pr.user_id = ?",
                 userId, userId
         );
