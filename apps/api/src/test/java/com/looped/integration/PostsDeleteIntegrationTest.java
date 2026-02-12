@@ -21,6 +21,7 @@ import java.util.List;
 import static org.hamcrest.Matchers.equalTo;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -103,5 +104,38 @@ class PostsDeleteIntegrationTest extends PostgresTestBase {
                         .contentType(MediaType.APPLICATION_JSON))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.error").value(equalTo("forbidden")));
+    }
+
+    @Test
+    void author_can_delete_existing_post_after_verification_expires() throws Exception {
+        long companyId = jdbc.queryForObject("INSERT INTO companies(name, domain) VALUES ('DeleteExpiredCo','delete-expired.co') RETURNING id", Long.class);
+        long authorId = jdbc.queryForObject("INSERT INTO users(firebase_uid, handle, company_id, display_name) VALUES (?,?,?,?) RETURNING id",
+                Long.class, "uid-del-exp-author", "delexpauthor", companyId, "Author");
+        long authorPrincipal = jdbc.queryForObject("INSERT INTO principals(kind, user_id) VALUES ('user', ?) RETURNING id", Long.class, authorId);
+        long communityId = jdbc.queryForObject("INSERT INTO communities(kind, name) VALUES ('company', 'DeleteExpiredCo') RETURNING id", Long.class);
+        jdbc.update("INSERT INTO community_verifications(user_id, community_id, method, verified, verified_at, expires_at) VALUES (?,?,?,?, now(), now() + interval '1 day')",
+                authorId, communityId, "manual", true);
+        long postId = jdbc.queryForObject("INSERT INTO posts(author_id, author_principal_id, company_id, community_id, content) VALUES (?,?,?,?,?) RETURNING id",
+                Long.class, authorId, authorPrincipal, companyId, communityId, "post before expiry");
+
+        jdbc.update("UPDATE community_verifications SET expires_at = now() - interval '1 day' WHERE user_id = ? AND community_id = ?",
+                authorId, communityId);
+
+        String authorAuth = "Bearer " + token("uid-del-exp-author");
+
+        mockMvc.perform(post("/v1/posts")
+                        .header("Authorization", authorAuth)
+                        .header("Idempotency-Key", "expired-create-attempt")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"content\":\"should fail\",\"communityId\":" + communityId + "}"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error").value(equalTo("community_not_verified")));
+
+        mockMvc.perform(delete("/v1/posts/" + postId)
+                        .header("Authorization", authorAuth)
+                        .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value((int) postId))
+                .andExpect(jsonPath("$.deleted").value(true));
     }
 }
