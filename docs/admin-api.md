@@ -783,10 +783,14 @@ Notes:
 ### POST /v1/admin/communities/{id}/change-kind
 Change the community type ("kind"). Requires `create_community`.
 
-This is intentionally restricted to a small set of safe transitions:
+Allowed transitions:
 - `company` ↔ `school`
-- `sector` → `company|school`
-- `field` ↔ `major` (specializations only)
+- `company|school` ↔ `field|major`
+- `field` ↔ `major`
+
+Notes:
+- `kind: "field"` and `kind: "major"` map to `kind="specialization"` with `specialization_type` set accordingly.
+- `sector` is not supported for this endpoint.
 
 Request
 ```json

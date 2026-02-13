@@ -118,7 +118,7 @@ class AdminCommunitiesEditIntegrationTest extends PostgresTestBase {
     }
 
     @Test
-    void change_kind_rejects_specialization_to_company() throws Exception {
+    void change_kind_allows_specialization_to_company() throws Exception {
         admins.insert(null, "admin-kind2@looped.com", "admin", "active",
                 List.of(AdminPermissions.CREATE_COMMUNITY));
         String auth = "Bearer " + token("admin-kind2", "admin-kind2@looped.com");
@@ -132,8 +132,39 @@ class AdminCommunitiesEditIntegrationTest extends PostgresTestBase {
                         .header("Authorization", auth)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"kind\":\"company\"}"))
-                .andExpect(status().isUnprocessableEntity())
-                .andExpect(jsonPath("$.error", equalTo("invalid_transition")));
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id", equalTo((int) fieldId)))
+                .andExpect(jsonPath("$.kind", equalTo("company")))
+                .andExpect(jsonPath("$.specialization_type").doesNotExist());
+    }
+
+    @Test
+    void change_kind_allows_company_to_major_and_back_to_school() throws Exception {
+        admins.insert(null, "admin-kind3@looped.com", "admin", "active",
+                List.of(AdminPermissions.CREATE_COMMUNITY));
+        String auth = "Bearer " + token("admin-kind3", "admin-kind3@looped.com");
+
+        long communityId = jdbc.queryForObject(
+                "INSERT INTO communities(kind, name) VALUES ('company', 'BridgeType') RETURNING id",
+                Long.class
+        );
+
+        mockMvc.perform(post("/v1/admin/communities/" + communityId + "/change-kind")
+                        .header("Authorization", auth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"kind\":\"major\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id", equalTo((int) communityId)))
+                .andExpect(jsonPath("$.kind", equalTo("specialization")))
+                .andExpect(jsonPath("$.specialization_type", equalTo("major")));
+
+        mockMvc.perform(post("/v1/admin/communities/" + communityId + "/change-kind")
+                        .header("Authorization", auth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"kind\":\"school\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id", equalTo((int) communityId)))
+                .andExpect(jsonPath("$.kind", equalTo("school")))
+                .andExpect(jsonPath("$.specialization_type").doesNotExist());
     }
 }
-

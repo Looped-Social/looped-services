@@ -407,7 +407,7 @@ public class AdminCommunitiesController {
         if (!isAllowedKindTransition(currentKind, currentSpecType, target.kind(), target.specializationType())) {
             return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of(
                     "error", "invalid_transition",
-                    "message", "Changing community kind is only allowed for company<->school, sector->company/school, and field<->major specializations"
+                    "message", "Changing community kind is only allowed among company, school, field, and major"
             ));
         }
         if (Objects.equals(currentKind, target.kind()) && Objects.equals(currentSpecType, target.specializationType())) {
@@ -583,15 +583,16 @@ public class AdminCommunitiesController {
                                            String toKind,
                                            String toSpecType) {
         if (fromKind == null || toKind == null) return false;
-        if ("specialization".equals(fromKind) || "specialization".equals(toKind)) {
-            if (!"specialization".equals(fromKind) || !"specialization".equals(toKind)) return false;
-            if (fromSpecType == null || toSpecType == null) return false;
-            return (("field".equals(fromSpecType) || "major".equals(fromSpecType))
-                    && ("field".equals(toSpecType) || "major".equals(toSpecType)));
-        }
-        boolean fromOk = "company".equals(fromKind) || "school".equals(fromKind) || "sector".equals(fromKind);
-        boolean toOk = "company".equals(toKind) || "school".equals(toKind);
-        return fromOk && toOk;
+        if (!isAllowedAdminCommunityKind(fromKind, fromSpecType)) return false;
+        if (!isAllowedAdminCommunityKind(toKind, toSpecType)) return false;
+        return true;
+    }
+
+    private boolean isAllowedAdminCommunityKind(String kind, String specializationType) {
+        if (kind == null) return false;
+        if ("company".equals(kind) || "school".equals(kind)) return true;
+        if (!"specialization".equals(kind)) return false;
+        return "field".equals(specializationType) || "major".equals(specializationType);
     }
 
     private java.util.Set<String> parseCsvSet(String csv) {
