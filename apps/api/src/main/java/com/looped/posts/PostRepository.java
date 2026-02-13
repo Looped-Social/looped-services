@@ -147,7 +147,7 @@ public class PostRepository {
         return out.isEmpty() ? null : out;
     }
 
-    public PostRow insert(Long authorId, long authorPrincipalId, long companyId, Long communityId, String content, Long mediaAssetId,
+    public PostRow insert(Long authorId, long authorPrincipalId, long companyId, long communityId, String content, Long mediaAssetId,
                           boolean isAnon, Long anonProfileId, Long anonCompanyId, byte[] anonCert, String anonCertKid,
                           byte[] anonSig, byte[] anonEphemeralPubkey) {
         Long id = jdbc.query(

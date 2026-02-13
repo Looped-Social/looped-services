@@ -194,6 +194,19 @@ class PostsIntegrationTest extends PostgresTestBase {
     }
 
     @Test
+    void create_requires_community_id() throws Exception {
+        String auth = "Bearer " + token("uid-missing-community");
+
+        mockMvc.perform(post("/v1/posts")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", auth)
+                        .header("Idempotency-Key", "k-missing-community")
+                        .content("{\"content\":\"hello\"}"))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.error", equalTo("community_required")));
+    }
+
+    @Test
     void get_allows_cross_company() throws Exception {
         long acme = jdbc.queryForObject(
                 "INSERT INTO companies(name, domain) VALUES ('Acme', 'acme.com') RETURNING id",

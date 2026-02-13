@@ -182,7 +182,7 @@
     - Body: `{ personaPubkey, anonCert, anonCertKid }`
     - Response: `{ anon_profile_id, handle, anon_cert_kid, expires_at }`
   - **Anonymous actions** (NO JWT; reject Authorization with `400 { error: "anon_jwt_not_allowed" }`):
-    - `POST /v1/posts` with `{ isAnon: true, anonProfileId, anonCert, anonCertKid, anonSig, anonTimestamp }`
+    - `POST /v1/posts` with `{ communityId, isAnon: true, anonProfileId, anonCert, anonCertKid, anonSig, anonTimestamp }`
     - `PUT /v1/posts/{id}` with `{ content, asAnon: true, anonProfileId, anonCert, anonCertKid, anonSig }`
     - `DELETE /v1/posts/{id}` with `{ asAnon: true, anonProfileId, anonCert, anonCertKid, anonSig }`
     - `DELETE /v1/posts/{id}/like` with `{ asAnon: true, anonProfileId, anonCert, anonCertKid, anonSig }`
@@ -206,21 +206,26 @@
       - `GET /v1/comments/{id}/replies?asAnon=true&anonProfileId=&anonCert=&anonCertKid=&anonSig=`
       - `GET /v1/users/{id}/replies?asAnon=true&anonProfileId=&anonCert=&anonCertKid=&anonSig=`
     - When `asAnon=true`, all anon proof fields are required; missing fields return `403 { "error": "invalid_anon_proof" }`.
-  - Comment payload additions:
-    - `author_principal_id`, `author_is_anonymous`, and `author.principal_id`.
-    - `author.id` is the `anon_profile_id` when `author_is_anonymous=true`; otherwise it is the user id.
-    - `is_deleted` indicates a soft-deleted comment (content is empty when deleted).
-  - Anonymous proof action strings:
-    - `comment` (target: post_id), `comment_like` (target: comment_id)
-    - `comment_edit` (target: comment_id), `comment_delete` (target: comment_id), `comment_unlike` (target: comment_id)
-    - `comment_list` (target: post_id), `comment_replies` (target: comment_id), `comment_user_replies` (target: user_id)
-    - `comment_anon_replies` (target: anon_profile_id)
-    - `post_delete` (target: post_id)
-    - `post_edit` (target: post_id)
-    - `unlike` (target: post_id)
-    - `anon_posts_liked` (target: anon_profile_id)
-    - `anon_posts_saved` (target: anon_profile_id)
-    - `anon_display_community` (target: anon_profile_id)
+
+- **Posts create requirements**
+  - `POST /v1/posts` always requires a target community.
+  - Send `communityId` in the body. `loopId`/`loop_id` are accepted aliases for backward compatibility.
+  - If omitted, API returns `422 { "error": "community_required", "message": "communityId is required" }`.
+- Comment payload additions:
+  - `author_principal_id`, `author_is_anonymous`, and `author.principal_id`.
+  - `author.id` is the `anon_profile_id` when `author_is_anonymous=true`; otherwise it is the user id.
+  - `is_deleted` indicates a soft-deleted comment (content is empty when deleted).
+- Anonymous proof action strings:
+  - `comment` (target: post_id), `comment_like` (target: comment_id)
+  - `comment_edit` (target: comment_id), `comment_delete` (target: comment_id), `comment_unlike` (target: comment_id)
+  - `comment_list` (target: post_id), `comment_replies` (target: comment_id), `comment_user_replies` (target: user_id)
+  - `comment_anon_replies` (target: anon_profile_id)
+  - `post_delete` (target: post_id)
+  - `post_edit` (target: post_id)
+  - `unlike` (target: post_id)
+  - `anon_posts_liked` (target: anon_profile_id)
+  - `anon_posts_saved` (target: anon_profile_id)
+  - `anon_display_community` (target: anon_profile_id)
 - **Profile stats & DTO extensions**
   - User DTO now includes `stats` block with follower/following/posts/comments counts; display/bio/anonymity fields included across `/v1/me`, `/v1/users/{id}`, and update alias responses.
   - User DTO may include `display_community` `{ id, name, short_name?, kind, specialization_type? }` when the user has a verified display community selected.
