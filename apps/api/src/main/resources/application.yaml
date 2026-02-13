@@ -135,6 +135,9 @@ email:
 onboarding:
   default-company-domain: ${ONBOARDING_DEFAULT_COMPANY_DOMAIN:looped.global}
 
+share:
+  base-url: ${SHARE_BASE_URL:https://mylooped.app}
+
 retention:
   deactivated-days: ${RETENTION_DEACTIVATED_DAYS:90}
   username-tombstone-days: ${RETENTION_USERNAME_TOMBSTONE_DAYS:14}

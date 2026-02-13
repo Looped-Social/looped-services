@@ -712,6 +712,7 @@ public class UsersService {
         String trimmed = raw.trim().toLowerCase(Locale.ROOT);
         if (trimmed.isBlank()) return null;
         if (!trimmed.matches("^[a-z0-9_]{3,30}$")) return null;
+        if (UserShareLinksService.isReservedSlug(trimmed)) return null;
         return trimmed;
     }
 

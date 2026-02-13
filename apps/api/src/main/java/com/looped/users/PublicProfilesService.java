@@ -10,24 +10,25 @@ import org.springframework.stereotype.Service;
 import java.time.OffsetDateTime;
 import java.util.HashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
-import java.util.Optional;
 
 @Service
 public class PublicProfilesService {
     private final UserRepository users;
+    private final UserShareLinksService shareLinks;
     private final PostRepository posts;
     private final RepostsRepository reposts;
     private final PrincipalRepository principals;
     private final AppConfigService appConfig;
 
     public PublicProfilesService(UserRepository users,
+                                 UserShareLinksService shareLinks,
                                  PostRepository posts,
                                  RepostsRepository reposts,
                                  PrincipalRepository principals,
                                  AppConfigService appConfig) {
         this.users = users;
+        this.shareLinks = shareLinks;
         this.posts = posts;
         this.reposts = reposts;
         this.principals = principals;
@@ -119,27 +120,14 @@ public class PublicProfilesService {
     }
 
     private LookupResult resolvePublicTarget(String rawUsername) {
-        String normalized = normalizeUsername(rawUsername);
-        if (normalized == null) return new LookupResult(Status.NOT_FOUND, null);
-
-        Optional<UserRepository.UserRow> user = users.findByHandleIncludingDeleted(normalized);
-        if (user.isEmpty()) return new LookupResult(Status.NOT_FOUND, null);
-        if (user.get().deletedAt != null || user.get().disabledAt != null) {
+        var resolved = shareLinks.resolveBySlug(rawUsername);
+        if (resolved.status() == UserShareLinksService.Status.NOT_FOUND) {
+            return new LookupResult(Status.NOT_FOUND, null);
+        }
+        if (resolved.status() == UserShareLinksService.Status.UNAVAILABLE) {
             return new LookupResult(Status.UNAVAILABLE, null);
         }
-        if (user.get().companyId == null) return new LookupResult(Status.NOT_FOUND, null);
-        return new LookupResult(Status.OK, user.get());
-    }
-
-    static String normalizeUsername(String raw) {
-        if (raw == null) return null;
-        String normalized = raw.trim().toLowerCase(Locale.ROOT);
-        if (normalized.startsWith("@")) {
-            normalized = normalized.substring(1);
-        }
-        if (normalized.isBlank()) return null;
-        if (!normalized.matches("^[a-z0-9_]{3,30}$")) return null;
-        return normalized;
+        return new LookupResult(Status.OK, resolved.user());
     }
 
     public enum Status { OK, NOT_FOUND, UNAVAILABLE }
