@@ -19,7 +19,9 @@ import java.time.Instant;
 import java.util.List;
 
 import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.hasSize;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -143,5 +145,99 @@ class AdminAnnouncementsIntegrationTest extends PostgresTestBase {
                                 """))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.error", equalTo("forbidden")));
+    }
+
+    @Test
+    void list_announcements_supports_scope_and_company_filters_newest_first() throws Exception {
+        admins.insert(null, "admin-list@looped.com", "owner", "active",
+                List.of(AdminPermissions.SEND_ANNOUNCEMENTS, AdminPermissions.SEND_GLOBAL_ANNOUNCEMENTS));
+        String auth = "Bearer " + token("admin-list", "admin-list@looped.com");
+
+        long companyA = jdbc.queryForObject(
+                "INSERT INTO companies(name, domain) VALUES ('Alpha Co','alpha.co') RETURNING id",
+                Long.class
+        );
+        long companyB = jdbc.queryForObject(
+                "INSERT INTO companies(name, domain) VALUES ('Beta Co','beta.co') RETURNING id",
+                Long.class
+        );
+        jdbc.queryForObject(
+                "INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?) RETURNING id",
+                Long.class, "uid-list-a", "lista", companyA
+        );
+        jdbc.queryForObject(
+                "INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?) RETURNING id",
+                Long.class, "uid-list-b", "listb", companyB
+        );
+
+        mockMvc.perform(post("/v1/admin/announcements")
+                        .header("Authorization", auth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "companyId": %d,
+                                  "title": "Company Alpha",
+                                  "body": "Alpha body"
+                                }
+                                """.formatted(companyA)))
+                .andExpect(status().isCreated());
+
+        mockMvc.perform(post("/v1/admin/announcements/global")
+                        .header("Authorization", auth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "title": "Global announcement",
+                                  "body": "Global body"
+                                }
+                                """))
+                .andExpect(status().isCreated());
+
+        mockMvc.perform(post("/v1/admin/announcements")
+                        .header("Authorization", auth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "companyId": %d,
+                                  "title": "Company Beta",
+                                  "body": "Beta body"
+                                }
+                                """.formatted(companyB)))
+                .andExpect(status().isCreated());
+
+        var page1 = mockMvc.perform(get("/v1/admin/announcements?limit=2")
+                        .header("Authorization", auth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items", hasSize(2)))
+                .andExpect(jsonPath("$.items[0].title", equalTo("Company Beta")))
+                .andExpect(jsonPath("$.items[0].scope", equalTo("company")))
+                .andExpect(jsonPath("$.items[1].title", equalTo("Global announcement")))
+                .andExpect(jsonPath("$.items[1].scope", equalTo("global")))
+                .andReturn();
+
+        String page1Json = page1.getResponse().getContentAsString();
+        String cursor = com.jayway.jsonpath.JsonPath.read(page1Json, "$.next_cursor");
+
+        mockMvc.perform(get("/v1/admin/announcements?cursor=" + cursor + "&limit=2")
+                        .header("Authorization", auth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items", hasSize(1)))
+                .andExpect(jsonPath("$.items[0].title", equalTo("Company Alpha")))
+                .andExpect(jsonPath("$.items[0].scope", equalTo("company")));
+
+        mockMvc.perform(get("/v1/admin/announcements?scope=global")
+                        .header("Authorization", auth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items", hasSize(1)))
+                .andExpect(jsonPath("$.items[0].title", equalTo("Global announcement")))
+                .andExpect(jsonPath("$.items[0].scope", equalTo("global")));
+
+        mockMvc.perform(get("/v1/admin/announcements?scope=company&companyId=" + companyA)
+                        .header("Authorization", auth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items", hasSize(1)))
+                .andExpect(jsonPath("$.items[0].title", equalTo("Company Alpha")))
+                .andExpect(jsonPath("$.items[0].scope", equalTo("company")))
+                .andExpect(jsonPath("$.items[0].company_id", equalTo((int) companyA)));
     }
 }

@@ -223,4 +223,163 @@ class PublicProfilesIntegrationTest extends PostgresTestBase {
                 .andExpect(jsonPath("$.followers_count", nullValue()))
                 .andExpect(jsonPath("$.following_count", nullValue()));
     }
+
+    @Test
+    void public_profile_posts_returns_share_safe_posts_with_pagination_shape() throws Exception {
+        long companyId = jdbc.queryForObject(
+                "INSERT INTO companies(name, domain) VALUES ('Public Posts Co', 'public-posts.co') RETURNING id",
+                Long.class
+        );
+        long userId = jdbc.queryForObject(
+                "INSERT INTO users(firebase_uid, handle, company_id, display_name) VALUES (?,?,?,?) RETURNING id",
+                Long.class,
+                "uid-public-profile-posts",
+                "postpreview",
+                companyId,
+                "Post Preview"
+        );
+        long userPrincipalId = jdbc.queryForObject(
+                "INSERT INTO principals(kind, user_id) VALUES ('user', ?) RETURNING id",
+                Long.class,
+                userId
+        );
+        long communityId = jdbc.queryForObject(
+                "INSERT INTO communities(kind, name, short_name) VALUES ('company', 'Preview Community', 'preview') RETURNING id",
+                Long.class
+        );
+        long publicPostId = jdbc.queryForObject(
+                "INSERT INTO posts(author_id, author_principal_id, company_id, community_id, content, visibility) VALUES (?,?,?,?,?,'public') RETURNING id",
+                Long.class,
+                userId,
+                userPrincipalId,
+                companyId,
+                communityId,
+                "Visible post"
+        );
+        long pollId = jdbc.queryForObject(
+                "INSERT INTO polls(post_id, question, max_selections, closes_at) VALUES (?,?,?, now() + interval '7 days') RETURNING id",
+                Long.class,
+                publicPostId,
+                "Where to meet?"
+                ,1
+        );
+        jdbc.update("INSERT INTO poll_options(poll_id, text, sort_order) VALUES (?,?,?)", pollId, "Cafe", 0);
+        jdbc.update("INSERT INTO poll_options(poll_id, text, sort_order) VALUES (?,?,?)", pollId, "Lobby", 1);
+        jdbc.update(
+                "INSERT INTO posts(author_id, author_principal_id, company_id, community_id, content, visibility) VALUES (?,?,?,?,?,'quarantined')",
+                userId,
+                userPrincipalId,
+                companyId,
+                communityId,
+                "Hidden post"
+        );
+
+        mockMvc.perform(get("/v1/public/profiles/postpreview/posts?limit=20"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items.length()", equalTo(1)))
+                .andExpect(jsonPath("$.items[0].id", equalTo((int) publicPostId)))
+                .andExpect(jsonPath("$.items[0].content", equalTo("Visible post")))
+                .andExpect(jsonPath("$.items[0].poll.question", equalTo("Where to meet?")))
+                .andExpect(jsonPath("$.items[0].author_id").doesNotExist())
+                .andExpect(jsonPath("$.items[0].author_principal_id").doesNotExist())
+                .andExpect(jsonPath("$.items[0].company_id").doesNotExist())
+                .andExpect(jsonPath("$.items[0].user_liked").doesNotExist())
+                .andExpect(jsonPath("$.items[0].viewer_has_reposted").doesNotExist());
+    }
+
+    @Test
+    void public_profile_reposts_returns_repost_items_with_public_post_payload() throws Exception {
+        long companyId = jdbc.queryForObject(
+                "INSERT INTO companies(name, domain) VALUES ('Public Reposts Co', 'public-reposts.co') RETURNING id",
+                Long.class
+        );
+        long reposterUserId = jdbc.queryForObject(
+                "INSERT INTO users(firebase_uid, handle, company_id, display_name) VALUES (?,?,?,?) RETURNING id",
+                Long.class,
+                "uid-public-profile-reposter",
+                "repostpreview",
+                companyId,
+                "Repost Preview"
+        );
+        long reposterPrincipalId = jdbc.queryForObject(
+                "INSERT INTO principals(kind, user_id) VALUES ('user', ?) RETURNING id",
+                Long.class,
+                reposterUserId
+        );
+        long authorUserId = jdbc.queryForObject(
+                "INSERT INTO users(firebase_uid, handle, company_id, display_name) VALUES (?,?,?,?) RETURNING id",
+                Long.class,
+                "uid-public-profile-repost-author",
+                "originauthor",
+                companyId,
+                "Origin Author"
+        );
+        long authorPrincipalId = jdbc.queryForObject(
+                "INSERT INTO principals(kind, user_id) VALUES ('user', ?) RETURNING id",
+                Long.class,
+                authorUserId
+        );
+        long communityId = jdbc.queryForObject(
+                "INSERT INTO communities(kind, name) VALUES ('company', 'Repost Community') RETURNING id",
+                Long.class
+        );
+        long postId = jdbc.queryForObject(
+                "INSERT INTO posts(author_id, author_principal_id, company_id, community_id, content, visibility) VALUES (?,?,?,?,?,'public') RETURNING id",
+                Long.class,
+                authorUserId,
+                authorPrincipalId,
+                companyId,
+                communityId,
+                "Original post"
+        );
+        long repostId = jdbc.queryForObject(
+                "INSERT INTO post_reposts(reposter_principal_id, post_id) VALUES (?,?) RETURNING id",
+                Long.class,
+                reposterPrincipalId,
+                postId
+        );
+
+        mockMvc.perform(get("/v1/public/profiles/repostpreview/reposts?limit=20"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items.length()", equalTo(1)))
+                .andExpect(jsonPath("$.items[0].repost_id", equalTo((int) repostId)))
+                .andExpect(jsonPath("$.items[0].reposted_at").exists())
+                .andExpect(jsonPath("$.items[0].post.id", equalTo((int) postId)))
+                .andExpect(jsonPath("$.items[0].post.content", equalTo("Original post")))
+                .andExpect(jsonPath("$.items[0].post.author_id").doesNotExist())
+                .andExpect(jsonPath("$.items[0].post.author_principal_id").doesNotExist())
+                .andExpect(jsonPath("$.items[0].post.company_id").doesNotExist())
+                .andExpect(jsonPath("$.items[0].post.user_liked").doesNotExist())
+                .andExpect(jsonPath("$.items[0].post.viewer_has_reposted").doesNotExist());
+    }
+
+    @Test
+    void public_profile_posts_and_reposts_return_not_found_or_unavailable_consistently() throws Exception {
+        mockMvc.perform(get("/v1/public/profiles/no_such_person/posts"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error", equalTo("profile_not_found")));
+
+        mockMvc.perform(get("/v1/public/profiles/no_such_person/reposts"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error", equalTo("profile_not_found")));
+
+        long companyId = jdbc.queryForObject(
+                "INSERT INTO companies(name, domain) VALUES ('Public Unavailable Co', 'public-unavailable.co') RETURNING id",
+                Long.class
+        );
+        jdbc.update(
+                "INSERT INTO users(firebase_uid, handle, company_id, disabled_at, disabled_reason) VALUES (?,?,?, now(), 'policy')",
+                "uid-disabled-public-profile",
+                "disabledpreview",
+                companyId
+        );
+
+        mockMvc.perform(get("/v1/public/profiles/disabledpreview/posts"))
+                .andExpect(status().isGone())
+                .andExpect(jsonPath("$.error", equalTo("profile_unavailable")));
+
+        mockMvc.perform(get("/v1/public/profiles/disabledpreview/reposts"))
+                .andExpect(status().isGone())
+                .andExpect(jsonPath("$.error", equalTo("profile_unavailable")));
+    }
 }

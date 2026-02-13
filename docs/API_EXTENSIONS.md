@@ -170,6 +170,7 @@
   - `POST /v1/posts/{id}/share` → `{ post_id, share_count }`
   - Every call records a share event and increments `share_count`.
 - **Admin**
+  - `GET /v1/admin/announcements?scope=all|company|global&companyId=&cursor=&limit=` → `{ items, next_cursor }` (announcement history; newest first).
   - `POST /v1/admin/announcements` → `{ sent: <int> }` (broadcasts in-app announcement notifications to a company).
   - `POST /v1/admin/announcements/global` → `{ sent: <int> }` (broadcasts to all active users app-wide; requires `send_global_announcements`).
   - Push announcements are delivered to opted-in devices (`notifications.preferences.channels.push` and `announcement=true`).

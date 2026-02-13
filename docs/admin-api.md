@@ -164,6 +164,50 @@ Response (201)
 }
 ```
 
+### GET /v1/admin/announcements
+List announcement history (newest first). Requires `send_announcements` or `send_global_announcements`.
+
+Query params
+- `scope` (optional): `all` (default), `company`, `global`
+- `companyId` (optional): filter to one company id
+- `cursor` (optional)
+- `limit` (optional, default `50`, max `200`)
+
+Response (200)
+```json
+{
+  "items": [
+    {
+      "id": 901,
+      "scope": "company",
+      "company_id": 42,
+      "company_name": "Acme Co",
+      "title": "Maintenance window",
+      "body": "We are deploying at 10pm ET.",
+      "deeplink": "looped://announcement/maintenance",
+      "sent": 128,
+      "actor_admin_id": 1,
+      "created_at": "2026-02-13T15:00:00Z"
+    },
+    {
+      "id": 900,
+      "scope": "global",
+      "title": "Platform update",
+      "body": "We shipped stability improvements.",
+      "sent": 9451,
+      "actor_admin_id": 1,
+      "created_at": "2026-02-13T14:00:00Z"
+    }
+  ],
+  "next_cursor": "MjAyNi0wMi0xM1QxNDowMDowMFp8OTAw"
+}
+```
+
+Errors
+- `403 { "error": "forbidden" }` when missing announcement permissions
+- `422 { "error": "invalid_scope" }` for unsupported `scope`
+- `422 { "error": "invalid_company_filter" }` when `scope=global` with `companyId`
+
 ### POST /v1/admin/announcements/global
 Send an app-wide announcement to all active users. Requires `send_global_announcements`.
 
