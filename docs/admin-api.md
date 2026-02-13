@@ -1478,6 +1478,7 @@ Submit a community request.
 
 Notes
 - `kind` supports `company`, `school`, `major`, `field`.
+- `workplace` is accepted as an alias for `company`.
 - To attach an image, upload via `/v1/media/presign` + `/v1/media/callback`, then pass the returned `key` as `imageKey`.
 - JSON aliases accepted: `type` → `kind`, `about` → `description`, `image_key` → `imageKey`.
 

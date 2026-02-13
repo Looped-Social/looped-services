@@ -45,8 +45,10 @@ public class NotificationService {
             var rows = repo.findByUser(actor.get().id, cTs, cId, limit);
             lastBatchSize = rows.size();
             if (rows.isEmpty()) break;
+            var activeActorUserIds = activeActorUserIds(rows);
             var mutedByChannelId = mutedChannelsForUser(actor.get().id, rows);
             for (var row : rows) {
+                tombstoneDeletedActor(row, activeActorUserIds);
                 var type = NotificationType.fromValue(row.type).orElse(null);
                 if (isMutedChannelNotification(row, mutedByChannelId)) {
                     continue;
@@ -73,10 +75,14 @@ public class NotificationService {
     public MarkReadResult markRead(String firebaseUid, long notificationId) {
         var actor = requireProvisionedUser(firebaseUid);
         if (actor.isEmpty()) return MarkReadResult.userNotProvisioned();
+        if (repo.markRead(notificationId, actor.get().id, OffsetDateTime.now())) {
+            return MarkReadResult.ok();
+        }
         var notif = repo.findById(notificationId);
-        if (notif.isEmpty()) return MarkReadResult.notFound();
-        if (notif.get().userId != actor.get().id) return MarkReadResult.forbidden();
-        repo.markRead(notificationId, actor.get().id, OffsetDateTime.now());
+        if (notif.isPresent() && notif.get().userId != actor.get().id) {
+            return MarkReadResult.forbidden();
+        }
+        // Idempotent no-op for missing/stale notification ids.
         return MarkReadResult.ok();
     }
 
@@ -86,7 +92,7 @@ public class NotificationService {
         return user;
     }
 
-    public enum Status { OK, USER_NOT_PROVISIONED, FORBIDDEN, NOT_FOUND }
+    public enum Status { OK, USER_NOT_PROVISIONED, FORBIDDEN }
 
     public record ListResult(Status status, List<NotificationRepository.NotificationRow> notifications, String nextCursor) {
         static ListResult ok(List<NotificationRepository.NotificationRow> notifications, String next) { return new ListResult(Status.OK, notifications, next); }
@@ -97,7 +103,6 @@ public class NotificationService {
         static MarkReadResult ok() { return new MarkReadResult(Status.OK); }
         static MarkReadResult userNotProvisioned() { return new MarkReadResult(Status.USER_NOT_PROVISIONED); }
         static MarkReadResult forbidden() { return new MarkReadResult(Status.FORBIDDEN); }
-        static MarkReadResult notFound() { return new MarkReadResult(Status.NOT_FOUND); }
     }
 
     private java.util.Map<Long, Boolean> mutedChannelsForUser(long userId, List<NotificationRepository.NotificationRow> rows) {
@@ -126,5 +131,53 @@ public class NotificationService {
         if (val == null) val = row.payload.get("channelId");
         if (val instanceof Number n) return n.longValue();
         return null;
+    }
+
+    private java.util.Set<Long> activeActorUserIds(List<NotificationRepository.NotificationRow> rows) {
+        if (rows == null || rows.isEmpty()) return java.util.Set.of();
+        java.util.Set<Long> actorUserIds = new java.util.HashSet<>();
+        for (var row : rows) {
+            Long actorUserId = actorUserIdFromPayload(row);
+            if (actorUserId != null && actorUserId > 0) actorUserIds.add(actorUserId);
+        }
+        if (actorUserIds.isEmpty()) return java.util.Set.of();
+        return users.listActiveUserIdsByIds(actorUserIds);
+    }
+
+    private Long actorUserIdFromPayload(NotificationRepository.NotificationRow row) {
+        if (row == null || row.payload == null) return null;
+        Object actor = row.payload.get("actor_user_id");
+        if (actor instanceof Number n) return n.longValue();
+        if (actor instanceof String s) {
+            try {
+                return Long.parseLong(s);
+            } catch (NumberFormatException ignored) {
+                return null;
+            }
+        }
+        return null;
+    }
+
+    private void tombstoneDeletedActor(NotificationRepository.NotificationRow row, java.util.Set<Long> activeActorUserIds) {
+        Long actorUserId = actorUserIdFromPayload(row);
+        if (actorUserId == null || actorUserId <= 0) return;
+        if (activeActorUserIds.contains(actorUserId)) return;
+        java.util.Map<String, Object> payload = row.payload == null ? new java.util.HashMap<>() : new java.util.HashMap<>(row.payload);
+        payload.put("actor_deleted", true);
+        payload.put("actor_display_name", "Deleted user");
+        payload.remove("actor_user_id");
+        payload.remove("actor_profile_image_url");
+        rewriteDeadActorDeeplink(payload, "deeplink");
+        rewriteDeadActorDeeplink(payload, "action_deeplink");
+        row.payload = payload;
+    }
+
+    private void rewriteDeadActorDeeplink(java.util.Map<String, Object> payload, String key) {
+        if (payload == null || key == null) return;
+        Object raw = payload.get(key);
+        if (!(raw instanceof String deeplink)) return;
+        if (deeplink.startsWith("looped://user/")) {
+            payload.put(key, "looped://notifications");
+        }
     }
 }

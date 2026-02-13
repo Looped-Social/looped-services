@@ -49,9 +49,6 @@ public class NotificationsController {
         if (res.status() == NotificationService.Status.FORBIDDEN) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "forbidden"));
         }
-        if (res.status() == NotificationService.Status.NOT_FOUND) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "not_found"));
-        }
         return ResponseEntity.ok(Map.of("read", true));
     }
 

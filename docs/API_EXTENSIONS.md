@@ -148,10 +148,11 @@
   - Anonymous profiles are blocked with `403 { "error": "anonymous_not_allowed" }`.
 - **Notifications**
   - `GET /v1/notifications?cursor=&limit=` → `{ items: [{ id, type, created_at, unread, payload }], next_cursor }`
-  - `POST /v1/notifications/{id}/read` → `{ "read": true }`
+  - `POST /v1/notifications/{id}/read` → `{ "read": true }` (idempotent/no-op safe for stale or already-removed IDs)
   - `GET /v1/notifications/preferences` → `{ notifications: { channels: { in_app|push|email: { enabled, types: { follow, like, comment, reply, mention, post_from_followed, repost, message_request, dm_message, channel_message, announcement, system } } } } }`
   - `PUT /v1/notifications/preferences` → same response; body updates any `enabled` or per-type flags.
   - Payload fields (by type): `actor_principal_id`, `actor_user_id`, `actor_anon_profile_id`, `actor_is_anonymous`, `actor_display_name`, `actor_profile_image_url`, `post_id`, `comment_id`, `context`, `conversation_id`, `message_id`, `deeplink`, `action_deeplink`.
+  - If a referenced actor user was deleted, payload is tombstoned for safety: `actor_deleted=true`, `actor_display_name="Deleted user"`, actor profile fields are removed, and user deeplinks are rewritten to `looped://notifications`.
   - `action_deeplink` is always present when a `deeplink` can be derived (or if the notification already includes one).
   - Deeplinks (preferred):
     - `looped://post/{post_id}` (like/mention/post_from_followed/repost)

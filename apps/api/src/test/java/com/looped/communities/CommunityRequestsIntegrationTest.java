@@ -86,4 +86,36 @@ class CommunityRequestsIntegrationTest extends PostgresTestBase {
                 .andExpect(jsonPath("$.items[0].description", equalTo("For designers")))
                 .andExpect(jsonPath("$.items[0].status", equalTo("pending")));
     }
+
+    @Test
+    void create_accepts_workplace_alias_as_company() throws Exception {
+        long companyId = jdbc.queryForObject(
+                "INSERT INTO companies(name, domain) VALUES ('Acme Two', 'acmetwo.com') RETURNING id",
+                Long.class);
+        jdbc.update("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?)",
+                "uid-workplace-alias", "casey", companyId);
+
+        String auth = "Bearer " + token("uid-workplace-alias");
+        String body = """
+                {
+                  "type": "workplace",
+                  "name": "Product",
+                  "about": "Product folks"
+                }
+                """;
+
+        mockMvc.perform(post("/v1/community-requests")
+                        .header("Authorization", auth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.status", equalTo("pending")));
+
+        mockMvc.perform(get("/v1/community-requests")
+                        .header("Authorization", auth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items", hasSize(1)))
+                .andExpect(jsonPath("$.items[0].kind", equalTo("company")))
+                .andExpect(jsonPath("$.items[0].name", equalTo("Product")));
+    }
 }

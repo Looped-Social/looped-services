@@ -477,6 +477,20 @@ public class UserRepository {
         );
     }
 
+    public java.util.Set<Long> listActiveUserIdsByIds(java.util.Set<Long> userIds) {
+        if (userIds == null || userIds.isEmpty()) return java.util.Set.of();
+        var ids = userIds.stream().filter(id -> id != null && id > 0).distinct().toList();
+        if (ids.isEmpty()) return java.util.Set.of();
+        String placeholders = String.join(",", java.util.Collections.nCopies(ids.size(), "?"));
+        Object[] params = ids.toArray();
+        var rows = jdbcTemplate.query(
+                "SELECT id FROM users WHERE deleted_at IS NULL AND id IN (" + placeholders + ")",
+                (rs, rowNum) -> rs.getLong("id"),
+                params
+        );
+        return new java.util.HashSet<>(rows);
+    }
+
     public boolean softDelete(long userId, Long deletedBy) {
         int rows = jdbcTemplate.update(
                 "UPDATE users SET deleted_at = now(), deleted_by = ? WHERE id = ? AND deleted_at IS NULL",
