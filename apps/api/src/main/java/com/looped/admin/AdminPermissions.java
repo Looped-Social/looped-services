@@ -17,6 +17,7 @@ public final class AdminPermissions {
     public static final String DELETE_MEDIA = "delete_media";
     public static final String VIEW_FEEDBACK = "view_feedback";
     public static final String SEND_ANNOUNCEMENTS = "send_announcements";
+    public static final String SEND_GLOBAL_ANNOUNCEMENTS = "send_global_announcements";
     public static final String VIEW_MODERATION_QUEUE = "view_moderation_queue";
     public static final String RESOLVE_MODERATION_QUEUE = "resolve_moderation_queue";
     public static final String MANAGE_MODERATION_BLOCKLIST = "manage_moderation_blocklist";
@@ -33,6 +34,7 @@ public final class AdminPermissions {
             DELETE_MEDIA,
             VIEW_FEEDBACK,
             SEND_ANNOUNCEMENTS,
+            SEND_GLOBAL_ANNOUNCEMENTS,
             VIEW_MODERATION_QUEUE,
             RESOLVE_MODERATION_QUEUE,
             MANAGE_MODERATION_BLOCKLIST
@@ -74,6 +76,7 @@ public final class AdminPermissions {
                     DELETE_MEDIA,
                     VIEW_FEEDBACK,
                     SEND_ANNOUNCEMENTS,
+                    SEND_GLOBAL_ANNOUNCEMENTS,
                     VIEW_MODERATION_QUEUE,
                     RESOLVE_MODERATION_QUEUE,
                     MANAGE_MODERATION_BLOCKLIST

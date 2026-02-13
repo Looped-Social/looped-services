@@ -144,19 +144,58 @@ Errors
 - 404 if admin not found
 - 422 for invalid role/status/permissions
 
+### POST /v1/admin/announcements
+Send an announcement to active users in one company. Requires `send_announcements`.
+
+Request
+```json
+{
+  "companyId": 42,
+  "title": "Maintenance window",
+  "body": "We are deploying at 10pm ET.",
+  "deeplink": "looped://announcement/maintenance"
+}
+```
+
+Response (201)
+```json
+{
+  "sent": 128
+}
+```
+
+### POST /v1/admin/announcements/global
+Send an app-wide announcement to all active users. Requires `send_global_announcements`.
+
+Request
+```json
+{
+  "title": "Platform update",
+  "body": "We shipped stability improvements.",
+  "deeplink": "looped://updates"
+}
+```
+
+Response (201)
+```json
+{
+  "sent": 9451
+}
+```
+
 ## Roles and default permissions
 
 Roles: `owner`, `admin`, `moderator`
 
 Default permissions when `permissions` is omitted on invite:
 - owner: all permissions
-- admin: all except `manage_admins`
+- admin: all except `manage_admins` and `send_global_announcements`
 - moderator: `ban_user`, `remove_post`, `create_community`, `view_reports`, `resolve_reports`, `view_feedback`
 
 Available permissions:
 - `manage_admins`, `ban_user`, `remove_post`, `create_community`
 - `view_reports`, `resolve_reports`, `verify_users`, `delete_media`, `view_feedback`
-- `send_announcements`
+- `send_announcements`, `send_global_announcements`
 
 ## Settings
 

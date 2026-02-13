@@ -45,20 +45,44 @@ public class AdminAnnouncementsController {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "forbidden"));
         }
         var userIds = users.listActiveUserIdsByCompany(body.companyId());
-        Map<String, Object> payload = new HashMap<>();
-        payload.put("title", body.title());
-        payload.put("body", body.body());
-        if (body.deeplink() != null && !body.deeplink().isBlank()) {
-            payload.put("deeplink", body.deeplink());
-        }
-        payload.put("company_id", body.companyId());
+        Map<String, Object> payload = buildPayload(body.title(), body.body(), body.deeplink(), body.companyId());
         notifications.notifyAnnouncement(userIds, payload);
         audit.log(authRes.admin().id, "announcement.send", "company", body.companyId(), null);
         return ResponseEntity.status(HttpStatus.CREATED).body(Map.of("sent", userIds.size()));
     }
 
+    @PostMapping("/global")
+    public ResponseEntity<?> createGlobal(@AuthenticationPrincipal Jwt jwt,
+                                          @Validated @RequestBody GlobalCreateRequest body) {
+        String email = jwt.getClaimAsString("email");
+        var authRes = auth.requirePermission(jwt.getSubject(), email, AdminPermissions.SEND_GLOBAL_ANNOUNCEMENTS);
+        if (authRes.status() != AdminAuthService.Status.OK) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "forbidden"));
+        }
+        var userIds = users.listActiveUserIds();
+        Map<String, Object> payload = buildPayload(body.title(), body.body(), body.deeplink(), null);
+        notifications.notifyAnnouncement(userIds, payload);
+        audit.log(authRes.admin().id, "announcement.send_global", "global", null, null);
+        return ResponseEntity.status(HttpStatus.CREATED).body(Map.of("sent", userIds.size()));
+    }
+
+    private Map<String, Object> buildPayload(String title, String body, String deeplink, Long companyId) {
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("title", title);
+        payload.put("body", body);
+        if (deeplink != null && !deeplink.isBlank()) payload.put("deeplink", deeplink);
+        if (companyId != null) payload.put("company_id", companyId);
+        return payload;
+    }
+
     public record CreateRequest(
             @NotNull Long companyId,
+            @NotBlank @Size(max = 140) String title,
+            @NotBlank @Size(max = 1000) String body,
+            @Size(max = 300) String deeplink
+    ) {}
+
+    public record GlobalCreateRequest(
             @NotBlank @Size(max = 140) String title,
             @NotBlank @Size(max = 1000) String body,
             @Size(max = 300) String deeplink

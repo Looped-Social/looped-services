@@ -110,6 +110,15 @@ public class UserRepository {
         return list.isEmpty() ? Optional.empty() : Optional.of(list.get(0));
     }
 
+    public Optional<UserRow> findByHandleIncludingDeleted(String handle) {
+        if (handle == null || handle.isBlank()) return Optional.empty();
+        var list = jdbcTemplate.query(
+                "SELECT " + BASE_COLUMNS + " FROM users WHERE LOWER(handle) = LOWER(?)",
+                MAPPER, handle
+        );
+        return list.isEmpty() ? Optional.empty() : Optional.of(list.get(0));
+    }
+
     public java.util.List<UserRow> findByHandlesInCompany(long companyId, java.util.Set<String> handles) {
         if (handles == null || handles.isEmpty()) return java.util.List.of();
         var normalized = handles.stream()
@@ -474,6 +483,13 @@ public class UserRepository {
                 "SELECT id FROM users WHERE company_id = ? AND deleted_at IS NULL",
                 (rs, rowNum) -> rs.getLong("id"),
                 companyId
+        );
+    }
+
+    public java.util.List<Long> listActiveUserIds() {
+        return jdbcTemplate.query(
+                "SELECT id FROM users WHERE deleted_at IS NULL",
+                (rs, rowNum) -> rs.getLong("id")
         );
     }
 
