@@ -52,7 +52,7 @@ public class AdminOpsAlertsJob {
         OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
         String subject = "[Looped Admin] Daily moderation backlog digest";
         String text = buildDailyText(now, snapshot);
-        String html = toSimpleHtml(text);
+        String html = buildDailyHtml(now, snapshot);
 
         for (String to : recipients) {
             emails.sendAdminOpsEmail(to, subject, text, html);
@@ -85,7 +85,7 @@ public class AdminOpsAlertsJob {
         OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
         String subject = "[Looped Admin] Hourly backlog alert";
         String text = buildHourlyText(now, snapshot, previous, reasons);
-        String html = toSimpleHtml(text);
+        String html = buildHourlyHtml(now, snapshot, previous, reasons);
         for (String to : recipients) {
             emails.sendAdminOpsEmail(to, subject, text, html);
         }
@@ -214,6 +214,152 @@ public class AdminOpsAlertsJob {
         return out.toString();
     }
 
+    private String buildDailyHtml(OffsetDateTime now, AdminOpsAlertsRepository.BacklogSnapshot s) {
+        StringBuilder out = new StringBuilder();
+        out.append("<div style=\"font-size:12px;color:#6b7280;padding-bottom:16px;\">Generated UTC: ")
+                .append(escape(fmt(now)))
+                .append("</div>");
+
+        out.append("<div style=\"font-size:14px;font-weight:700;color:#1f2937;padding-bottom:10px;\">Queue status</div>");
+        out.append("<table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" width=\"100%\">");
+        appendDailyQueueCard(out,
+                "Pending verifications",
+                s.verificationsPending,
+                s.verificationsSubmitted24h,
+                s.verificationsReviewed24h,
+                ageLabel(s.verificationsOldestPendingAt, now));
+        appendDailyQueueCard(out,
+                "Open reports",
+                s.reportsOpen,
+                s.reportsCreated24h,
+                s.reportsReviewed24h,
+                ageLabel(s.reportsOldestOpenAt, now));
+        appendDailyQueueCard(out,
+                "Open moderation queue",
+                s.moderationQueueOpen,
+                s.moderationQueueCreated24h,
+                s.moderationQueueReviewed24h,
+                ageLabel(s.moderationQueueOldestOpenAt, now));
+        out.append("</table>");
+
+        out.append("<div style=\"font-size:14px;font-weight:700;color:#1f2937;padding:14px 0 8px;\">Alert thresholds</div>");
+        out.append("<table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" width=\"100%\" style=\"font-size:13px;color:#374151;line-height:1.55;\">");
+        appendBulletRow(out, "Pending verifications >= " + props.getVerificationPendingThreshold());
+        appendBulletRow(out, "Open reports >= " + props.getReportsOpenThreshold());
+        appendBulletRow(out, "Open moderation queue >= " + props.getModerationQueueOpenThreshold());
+        appendBulletRow(out, "Hourly spike >= " + percent(Math.max(0.0d, props.getSpikeFractionThreshold()))
+                + " and +" + Math.max(1, props.getSpikeAbsoluteThreshold()) + " items");
+        out.append("</table>");
+
+        appendLinksHtml(out);
+        return out.toString();
+    }
+
+    private String buildHourlyHtml(OffsetDateTime now,
+                                   AdminOpsAlertsRepository.BacklogSnapshot s,
+                                   HourlySnapshot prev,
+                                   List<String> reasons) {
+        StringBuilder out = new StringBuilder();
+        out.append("<div style=\"font-size:12px;color:#6b7280;padding-bottom:16px;\">Generated UTC: ")
+                .append(escape(fmt(now)))
+                .append("</div>");
+
+        out.append("<div style=\"font-size:14px;font-weight:700;color:#1f2937;padding-bottom:8px;\">Why this alert fired</div>");
+        out.append("<table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" width=\"100%\" style=\"font-size:13px;color:#374151;line-height:1.55;\">");
+        for (String reason : reasons) {
+            appendBulletRow(out, reason);
+        }
+        out.append("</table>");
+
+        out.append("<div style=\"font-size:14px;font-weight:700;color:#1f2937;padding:14px 0 8px;\">Current queue status</div>");
+        out.append("<table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" width=\"100%\">");
+        appendSimpleMetricCard(out, "Pending verifications", s.verificationsPending);
+        appendSimpleMetricCard(out, "Open reports", s.reportsOpen);
+        appendSimpleMetricCard(out, "Open moderation queue", s.moderationQueueOpen);
+        out.append("</table>");
+
+        if (prev != null) {
+            out.append("<div style=\"font-size:14px;font-weight:700;color:#1f2937;padding:14px 0 8px;\">Previous hourly snapshot</div>");
+            out.append("<table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" width=\"100%\">");
+            appendSimpleMetricCard(out, "Pending verifications", prev.verificationsPending);
+            appendSimpleMetricCard(out, "Open reports", prev.reportsOpen);
+            appendSimpleMetricCard(out, "Open moderation queue", prev.moderationQueueOpen);
+            out.append("</table>");
+        }
+
+        appendLinksHtml(out);
+        return out.toString();
+    }
+
+    private void appendDailyQueueCard(StringBuilder out,
+                                      String label,
+                                      long openCount,
+                                      long created24h,
+                                      long reviewed24h,
+                                      String oldestAge) {
+        out.append("<tr><td style=\"padding:0 0 10px 0;\">");
+        out.append("<table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" width=\"100%\" style=\"border:1px solid #f3f4f6;border-radius:10px;background-color:#fafafa;\">");
+        out.append("<tr><td style=\"padding:12px 14px 0 14px;font-size:13px;font-weight:600;color:#111827;\">")
+                .append(escape(label))
+                .append("</td></tr>");
+        out.append("<tr><td style=\"padding:2px 14px 0 14px;font-size:22px;font-weight:700;color:#1f2937;\">")
+                .append(openCount)
+                .append("</td></tr>");
+        out.append("<tr><td style=\"padding:6px 14px 12px 14px;font-size:12px;color:#6b7280;line-height:1.5;\">");
+        out.append("Last 24h: ").append(created24h).append(" created, ").append(reviewed24h).append(" reviewed");
+        out.append(" | Oldest pending: ").append(escape(oldestAge));
+        out.append("</td></tr>");
+        out.append("</table></td></tr>");
+    }
+
+    private void appendSimpleMetricCard(StringBuilder out, String label, long value) {
+        out.append("<tr><td style=\"padding:0 0 8px 0;\">");
+        out.append("<table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" width=\"100%\" style=\"border:1px solid #f3f4f6;border-radius:10px;background-color:#fafafa;\">");
+        out.append("<tr>");
+        out.append("<td style=\"padding:11px 14px;font-size:13px;font-weight:600;color:#111827;\">")
+                .append(escape(label))
+                .append("</td>");
+        out.append("<td align=\"right\" style=\"padding:11px 14px;font-size:18px;font-weight:700;color:#1f2937;\">")
+                .append(value)
+                .append("</td>");
+        out.append("</tr>");
+        out.append("</table></td></tr>");
+    }
+
+    private void appendBulletRow(StringBuilder out, String line) {
+        out.append("<tr><td style=\"padding:0 0 6px 0;\">")
+                .append("&#8226; ")
+                .append(escape(line))
+                .append("</td></tr>");
+    }
+
+    private void appendLinksHtml(StringBuilder out) {
+        String base = normalizeBaseUrl(props.getAdminBaseUrl());
+        if (base == null) return;
+
+        out.append("<div style=\"font-size:14px;font-weight:700;color:#1f2937;padding:14px 0 10px;\">Admin links</div>");
+        out.append("<table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" width=\"100%\">");
+        appendLinkCard(out, "Verifications", joinUrl(base, "/verifications"));
+        appendLinkCard(out, "Reports", joinUrl(base, "/reports"));
+        appendLinkCard(out, "Moderation queue", joinUrl(base, "/moderation/queue"));
+        out.append("</table>");
+    }
+
+    private void appendLinkCard(StringBuilder out, String label, String url) {
+        if (url == null || url.isBlank()) return;
+        out.append("<tr><td style=\"padding:0 0 8px 0;\">");
+        out.append("<table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" width=\"100%\" style=\"border:1px solid #f3f4f6;border-radius:10px;background-color:#ffffff;\">");
+        out.append("<tr>");
+        out.append("<td style=\"padding:11px 14px;font-size:13px;font-weight:600;color:#111827;\">")
+                .append(escape(label))
+                .append("</td>");
+        out.append("<td align=\"right\" style=\"padding:11px 14px;font-size:13px;\">");
+        out.append("<a href=\"").append(escape(url)).append("\" style=\"color:#ea404a;text-decoration:none;font-weight:600;\">Open</a>");
+        out.append("</td>");
+        out.append("</tr>");
+        out.append("</table></td></tr>");
+    }
+
     private void appendLinks(StringBuilder out) {
         String base = normalizeBaseUrl(props.getAdminBaseUrl());
         if (base == null) return;
@@ -272,12 +418,6 @@ public class AdminOpsAlertsJob {
         } catch (RuntimeException e) {
             return 0L;
         }
-    }
-
-    private String toSimpleHtml(String text) {
-        return "<html><body style=\"margin:0;padding:16px;background:#ffffff;color:#111827;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Helvetica,Arial,sans-serif;\"><pre style=\"white-space:pre-wrap;font-family:inherit;line-height:1.45;\">"
-                + escape(text)
-                + "</pre></body></html>";
     }
 
     private String fmt(OffsetDateTime dt) {

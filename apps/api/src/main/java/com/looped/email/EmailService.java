@@ -13,6 +13,7 @@ import software.amazon.awssdk.services.ses.model.SendEmailResponse;
 
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.util.Locale;
 
 @Service
 public class EmailService {
@@ -128,10 +129,46 @@ public class EmailService {
         if (to == null || to.isBlank()) return;
         String resolvedSubject = (subject == null || subject.isBlank()) ? "Looped admin alert" : subject.trim();
         String resolvedText = textBody == null ? "" : textBody;
-        String resolvedHtml = (htmlBody == null || htmlBody.isBlank())
-                ? "<html><body><pre>" + escape(resolvedText) + "</pre></body></html>"
-                : htmlBody;
+        String resolvedHtml;
+        if (htmlBody == null || htmlBody.isBlank()) {
+            resolvedHtml = buildAdminMessageHtml(resolvedSubject, resolvedText);
+        } else if (looksLikeHtmlDocument(htmlBody)) {
+            resolvedHtml = htmlBody;
+        } else {
+            resolvedHtml = wrapAdminShell(resolvedSubject, htmlBody);
+        }
         sendEmail(to, resolvedSubject, resolvedText, resolvedHtml);
+    }
+
+    private String buildAdminMessageHtml(String subject, String textBody) {
+        String body = escape(textBody).replace("\n", "<br/>");
+        String inner = "<div style=\"font-size:14px;line-height:1.65;color:#374151;\">" + body + "</div>";
+        return wrapAdminShell(subject, inner);
+    }
+
+    private String wrapAdminShell(String title, String innerHtml) {
+        String safeTitle = escape(title == null ? "Looped update" : title);
+        String safeInner = innerHtml == null ? "" : innerHtml;
+
+        StringBuilder out = new StringBuilder();
+        out.append("<html><body style=\"margin:0;padding:0;background-color:#ffffff;color:#1f2937;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Helvetica,Arial,sans-serif;\">");
+        out.append("<table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" width=\"100%\" style=\"background-color:#ffffff;\">");
+        out.append("<tr><td align=\"center\" style=\"padding:32px 16px;\">");
+        out.append("<table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" width=\"560\" style=\"width:560px;max-width:560px;background-color:#ffffff;border:1px solid #f3f4f6;border-radius:12px;\">");
+        out.append("<tr><td style=\"padding:24px 24px 10px 24px;font-size:11px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:#ea404a;\">Looped</td></tr>");
+        out.append("<tr><td style=\"padding:0 24px 16px 24px;font-size:22px;font-weight:700;color:#1f2937;\">").append(safeTitle).append("</td></tr>");
+        out.append("<tr><td style=\"padding:0 24px 24px 24px;\">").append(safeInner).append("</td></tr>");
+        out.append("</table></td></tr></table>");
+        out.append("</body></html>");
+        return out.toString();
+    }
+
+    private boolean looksLikeHtmlDocument(String html) {
+        if (html == null) return false;
+        String normalized = html.trim().toLowerCase(Locale.ROOT);
+        return normalized.startsWith("<!doctype html")
+                || normalized.startsWith("<html")
+                || normalized.contains("<body");
     }
 
     private String buildVerifyLink(Long communityId, String code) {
