@@ -329,9 +329,18 @@ public class CommentsRepository {
 
     public boolean removeByAdmin(long commentId, long adminId, String reason) {
         int rows = jdbc.update(
-                "UPDATE comments SET removed_at = now(), removed_by = ?, removed_reason = ?, content = '' " +
-                        "WHERE id = ? AND removed_at IS NULL",
+                "UPDATE comments SET removed_at = now(), removed_by = ?, removed_reason = ? " +
+                        "WHERE id = ? AND deleted_at IS NULL AND removed_at IS NULL",
                 adminId, reason, commentId
+        );
+        return rows > 0;
+    }
+
+    public boolean restoreByAdmin(long commentId) {
+        int rows = jdbc.update(
+                "UPDATE comments SET removed_at = NULL, removed_by = NULL, removed_reason = NULL " +
+                        "WHERE id = ? AND deleted_at IS NULL AND removed_at IS NOT NULL",
+                commentId
         );
         return rows > 0;
     }

@@ -88,4 +88,26 @@ class ModerationIntegrationTest extends PostgresTestBase {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items[0].status", equalTo("resolved")));
     }
+
+    @Test
+    void report_create_accepts_comment_target_type() throws Exception {
+        long companyId = jdbc.queryForObject("INSERT INTO companies(name, domain) VALUES ('CommentCo','comment.co') RETURNING id", Long.class);
+        jdbc.update("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?)", "uid-mod-comment", "maria", companyId);
+
+        String auth = "Bearer " + token("uid-mod-comment");
+
+        mockMvc.perform(post("/v1/reports")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", auth)
+                        .content("{\"targetType\":\"comment\",\"targetId\":456,\"reason\":\"abuse\"}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.id", notNullValue()));
+
+        mockMvc.perform(get("/v1/reports")
+                        .header("Authorization", auth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items", hasSize(1)))
+                .andExpect(jsonPath("$.items[0].target_type", equalTo("comment")))
+                .andExpect(jsonPath("$.items[0].target_id", equalTo(456)));
+    }
 }

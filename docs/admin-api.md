@@ -919,6 +919,50 @@ Errors
 - `403 { "error": "forbidden" }`
 - `404 { "error": "not_found" }`
 
+### POST /v1/admin/comments/{id}/remove
+Remove a comment. Requires `remove_post`.
+
+Request
+```json
+{
+  "reason": "policy_violation"
+}
+```
+
+Notes
+- If omitted/blank, `reason` defaults to `admin_removed`.
+- This removes the comment from feed counts when the comment is currently public.
+
+Response (200)
+```json
+{
+  "status": "removed"
+}
+```
+
+Errors
+- `403 { "error": "forbidden" }`
+- `404 { "error": "not_found" }`
+- `409 { "error": "comment_deleted" }`
+
+### POST /v1/admin/comments/{id}/restore
+Restore a removed comment. Requires `remove_post`.
+
+Response (200)
+```json
+{
+  "status": "active"
+}
+```
+
+Notes
+- Restoring re-adds the comment to feed counts when the comment visibility is public.
+
+Errors
+- `403 { "error": "forbidden" }`
+- `404 { "error": "not_found" }`
+- `409 { "error": "comment_deleted" }`
+
 ### GET /v1/admin/reports
 List reports. Requires `view_reports`.
 

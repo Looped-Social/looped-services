@@ -1,7 +1,9 @@
 package com.looped.admin;
 
+import com.looped.comments.CommentsRepository;
 import com.looped.media.MediaRepository;
 import com.looped.media.MediaService;
+import com.looped.posts.PostRepository;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -9,6 +11,8 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -22,19 +26,28 @@ import java.util.Map;
 public class AdminCommentsController {
     private final AdminAuthService auth;
     private final AdminCommentsRepository comments;
+    private final CommentsRepository commentWrites;
+    private final PostRepository posts;
     private final MediaRepository media;
     private final MediaService mediaService;
+    private final AdminAuditRepository audit;
     private final String cloudfrontDomain;
 
     public AdminCommentsController(AdminAuthService auth,
                                    AdminCommentsRepository comments,
+                                   CommentsRepository commentWrites,
+                                   PostRepository posts,
                                    MediaRepository media,
                                    MediaService mediaService,
+                                   AdminAuditRepository audit,
                                    @Value("${cloudfront.domain:}") String cloudfrontDomain) {
         this.auth = auth;
         this.comments = comments;
+        this.commentWrites = commentWrites;
+        this.posts = posts;
         this.media = media;
         this.mediaService = mediaService;
+        this.audit = audit;
         this.cloudfrontDomain = cloudfrontDomain;
     }
 
@@ -102,11 +115,86 @@ public class AdminCommentsController {
         return ResponseEntity.ok(body);
     }
 
+    @PostMapping("/comments/{id}/remove")
+    public ResponseEntity<?> remove(
+            @AuthenticationPrincipal Jwt jwt,
+            @PathVariable("id") long id,
+            @RequestBody(required = false) RemoveRequest body
+    ) {
+        String email = jwt.getClaimAsString("email");
+        var authRes = auth.requirePermission(jwt.getSubject(), email, AdminPermissions.REMOVE_POST);
+        if (authRes.status() != AdminAuthService.Status.OK) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "forbidden"));
+        }
+
+        var commentOpt = comments.findById(id);
+        if (commentOpt.isEmpty()) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "not_found"));
+        }
+        var comment = commentOpt.get();
+        if (comment.deletedAt != null) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "comment_deleted"));
+        }
+
+        if (comment.removedAt == null) {
+            String reason = body == null ? null : body.reason();
+            if (reason == null || reason.isBlank()) reason = "admin_removed";
+            boolean removed = commentWrites.removeByAdmin(id, authRes.admin().id, reason);
+            if (removed) {
+                boolean wasPublic = comment.visibility == null || comment.visibility.equalsIgnoreCase("public");
+                if (wasPublic) {
+                    posts.decrementCommentsCount(comment.postId);
+                    if (comment.parentId != null) {
+                        commentWrites.decrementReplyCount(comment.parentId);
+                    }
+                }
+                audit.log(authRes.admin().id, "comment.remove", "comment", id, null);
+            }
+        }
+
+        return ResponseEntity.ok(Map.of("status", "removed"));
+    }
+
+    @PostMapping("/comments/{id}/restore")
+    public ResponseEntity<?> restore(@AuthenticationPrincipal Jwt jwt, @PathVariable("id") long id) {
+        String email = jwt.getClaimAsString("email");
+        var authRes = auth.requirePermission(jwt.getSubject(), email, AdminPermissions.REMOVE_POST);
+        if (authRes.status() != AdminAuthService.Status.OK) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "forbidden"));
+        }
+
+        var commentOpt = comments.findById(id);
+        if (commentOpt.isEmpty()) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "not_found"));
+        }
+        var comment = commentOpt.get();
+        if (comment.deletedAt != null) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "comment_deleted"));
+        }
+
+        if (comment.removedAt != null) {
+            boolean restored = commentWrites.restoreByAdmin(id);
+            if (restored) {
+                boolean wasPublic = comment.visibility == null || comment.visibility.equalsIgnoreCase("public");
+                if (wasPublic) {
+                    posts.incrementCommentsCount(comment.postId);
+                    if (comment.parentId != null) {
+                        commentWrites.incrementReplyCount(comment.parentId);
+                    }
+                }
+                audit.log(authRes.admin().id, "comment.restore", "comment", id, null);
+            }
+        }
+
+        return ResponseEntity.ok(Map.of("status", "active"));
+    }
+
     private String resolveUrl(String key) {
         if (cloudfrontDomain != null && !cloudfrontDomain.isBlank()) {
             return "https://" + cloudfrontDomain + "/" + key;
         }
         return mediaService.presignedGetUrl(key, java.time.Duration.ofMinutes(5));
     }
-}
 
+    public record RemoveRequest(String reason) {}
+}

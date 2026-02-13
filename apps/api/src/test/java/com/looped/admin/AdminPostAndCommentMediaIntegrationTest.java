@@ -18,9 +18,11 @@ import org.springframework.test.web.servlet.MockMvc;
 import java.time.Instant;
 import java.util.List;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.hasSize;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -135,5 +137,51 @@ class AdminPostAndCommentMediaIntegrationTest extends PostgresTestBase {
                 .andExpect(jsonPath("$.media[0].content_type", equalTo("image/jpeg")))
                 .andExpect(jsonPath("$.media[0].cdn_url").value("https://test-cdn.looped/media/original/img-1"));
     }
-}
 
+    @Test
+    void admin_can_remove_and_restore_comment() throws Exception {
+        long adminId = admins.insert(null, "admin-mod@looped.com", "admin", "active",
+                List.of(AdminPermissions.REMOVE_POST));
+        String auth = "Bearer " + token("admin-mod", "admin-mod@looped.com");
+
+        long companyId = jdbc.queryForObject(
+                "INSERT INTO companies(name, domain) VALUES ('ModerationCo','moderation.co') RETURNING id",
+                Long.class
+        );
+        long userId = jdbc.queryForObject(
+                "INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?) RETURNING id",
+                Long.class, "uid-mod-user", "moduser", companyId
+        );
+        long principalId = jdbc.queryForObject(
+                "INSERT INTO principals(kind, user_id) VALUES ('user', ?) RETURNING id",
+                Long.class, userId
+        );
+        long postId = jdbc.queryForObject(
+                "INSERT INTO posts(author_id, author_principal_id, company_id, content, comments_count) VALUES (?,?,?,?,1) RETURNING id",
+                Long.class, userId, principalId, companyId, "post"
+        );
+        long commentId = jdbc.queryForObject(
+                "INSERT INTO comments(post_id, user_id, author_principal_id, company_id, content) VALUES (?,?,?,?,?) RETURNING id",
+                Long.class, postId, userId, principalId, companyId, "comment"
+        );
+
+        mockMvc.perform(post("/v1/admin/comments/" + commentId + "/remove")
+                        .header("Authorization", auth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"reason\":\"policy_violation\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status", equalTo("removed")));
+
+        assertEquals(0, jdbc.queryForObject("SELECT comments_count FROM posts WHERE id = ?", Integer.class, postId));
+        assertEquals("policy_violation", jdbc.queryForObject("SELECT removed_reason FROM comments WHERE id = ?", String.class, commentId));
+        assertEquals(adminId, jdbc.queryForObject("SELECT removed_by FROM comments WHERE id = ?", Long.class, commentId));
+
+        mockMvc.perform(post("/v1/admin/comments/" + commentId + "/restore")
+                        .header("Authorization", auth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status", equalTo("active")));
+
+        assertEquals(1, jdbc.queryForObject("SELECT comments_count FROM posts WHERE id = ?", Integer.class, postId));
+        assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM comments WHERE id = ? AND removed_at IS NULL AND removed_by IS NULL AND removed_reason IS NULL", Integer.class, commentId));
+    }
+}
