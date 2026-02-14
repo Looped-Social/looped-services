@@ -671,10 +671,15 @@ public class UserRepository {
     public Optional<UserAccessStatusRow> accessStatusByFirebaseUid(String firebaseUid) {
         if (firebaseUid == null || firebaseUid.isBlank()) return Optional.empty();
         var list = jdbcTemplate.query(
-                "SELECT id, disabled_at, deleted_at, deleted_source FROM users WHERE firebase_uid = ? LIMIT 1",
+                "SELECT id, company_id, onboarding_step, onboarding_completed_at, disabled_at, deleted_at, deleted_source " +
+                        "FROM users WHERE firebase_uid = ? LIMIT 1",
                 (rs, rowNum) -> {
                     UserAccessStatusRow row = new UserAccessStatusRow();
                     row.id = rs.getLong("id");
+                    long companyId = rs.getLong("company_id");
+                    row.companyId = rs.wasNull() ? null : companyId;
+                    row.onboardingStep = rs.getString("onboarding_step");
+                    row.onboardingCompletedAt = rs.getObject("onboarding_completed_at", OffsetDateTime.class);
                     row.disabledAt = rs.getObject("disabled_at", OffsetDateTime.class);
                     row.deletedAt = rs.getObject("deleted_at", OffsetDateTime.class);
                     row.deletedSource = rs.getString("deleted_source");
@@ -1021,6 +1026,9 @@ public class UserRepository {
 
     public static class UserAccessStatusRow {
         public long id;
+        public Long companyId;
+        public String onboardingStep;
+        public OffsetDateTime onboardingCompletedAt;
         public OffsetDateTime disabledAt;
         public OffsetDateTime deletedAt;
         public String deletedSource;

@@ -89,6 +89,30 @@ variable "email_verify_base_url" {
   default     = ""
 }
 
+variable "universal_links_apple_team_id" {
+  type        = string
+  description = "Apple Developer Team ID for AASA appID."
+  default     = ""
+}
+
+variable "universal_links_ios_bundle_id" {
+  type        = string
+  description = "iOS bundle ID for AASA appID."
+  default     = ""
+}
+
+variable "universal_links_cache_max_age_seconds" {
+  type        = number
+  description = "AASA Cache-Control max-age."
+  default     = 300
+}
+
+variable "universal_links_aasa_version" {
+  type        = string
+  description = "AASA version token used for ETag."
+  default     = "v1"
+}
+
 variable "firebase_admin_secret_arn" {
   type        = string
   description = "Secrets Manager ARN containing FIREBASE_ADMIN_CREDENTIALS_JSON (string)."

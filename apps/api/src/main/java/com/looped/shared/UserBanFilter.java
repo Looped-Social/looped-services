@@ -7,6 +7,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
+import org.springframework.security.authentication.AnonymousAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
@@ -31,12 +32,8 @@ public class UserBanFilter extends OncePerRequestFilter {
             filterChain.doFilter(request, response);
             return;
         }
-        if (AnonRequestDetector.isAnonRequest(request)) {
-            filterChain.doFilter(request, response);
-            return;
-        }
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-        if (auth == null || !auth.isAuthenticated()) {
+        if (!isAuthenticatedPrincipal(auth)) {
             filterChain.doFilter(request, response);
             return;
         }
@@ -47,5 +44,14 @@ public class UserBanFilter extends OncePerRequestFilter {
             return;
         }
         filterChain.doFilter(request, response);
+    }
+
+    private boolean isAuthenticatedPrincipal(Authentication auth) {
+        return auth != null
+                && auth.isAuthenticated()
+                && !(auth instanceof AnonymousAuthenticationToken)
+                && auth.getName() != null
+                && !auth.getName().isBlank()
+                && !"anonymousUser".equalsIgnoreCase(auth.getName());
     }
 }

@@ -3,6 +3,8 @@ package com.looped.auth;
 import com.looped.settings.AppConfigService;
 import com.looped.users.UsersService;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.oauth2.jwt.Jwt;
 
 import java.time.Instant;
@@ -37,7 +39,11 @@ class MeControllerClaimsTest {
                 .claim("firebase", Map.of("sign_in_provider", "apple.com"))
                 .build();
 
-        Map<String, Object> resp = controller.me(jwt);
+        ResponseEntity<?> response = controller.me(jwt);
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> resp = (Map<String, Object>) response.getBody();
+        assertThat(resp).isNotNull();
         assertThat(resp.get("sign_in_provider")).isEqualTo("apple.com");
     }
 
@@ -58,7 +64,11 @@ class MeControllerClaimsTest {
                 .expiresAt(Instant.now().plusSeconds(3600))
                 .build();
 
-        Map<String, Object> resp = controller.me(jwt);
+        ResponseEntity<?> response = controller.me(jwt);
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> resp = (Map<String, Object>) response.getBody();
+        assertThat(resp).isNotNull();
         assertThat(resp.get("sign_in_provider")).isNull();
     }
 }

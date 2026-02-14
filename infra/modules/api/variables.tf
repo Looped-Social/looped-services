@@ -123,6 +123,30 @@ variable "email_verify_base_url" {
   default     = ""
 }
 
+variable "universal_links_apple_team_id" {
+  type        = string
+  description = "Apple Developer Team ID used in AASA appID (<TEAM_ID>.<BUNDLE_ID>)."
+  default     = ""
+}
+
+variable "universal_links_ios_bundle_id" {
+  type        = string
+  description = "iOS bundle identifier used in AASA appID (<TEAM_ID>.<BUNDLE_ID>)."
+  default     = ""
+}
+
+variable "universal_links_cache_max_age_seconds" {
+  type        = number
+  description = "Cache-Control max-age for apple-app-site-association responses."
+  default     = 300
+}
+
+variable "universal_links_aasa_version" {
+  type        = string
+  description = "AASA version token used as ETag. Bump when AASA paths/appID change."
+  default     = "v1"
+}
+
 variable "ssm_auth_audience_arn" {
   type = string
 }

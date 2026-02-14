@@ -62,7 +62,8 @@ class MeIntegrationTest extends PostgresTestBase {
     void me_authenticated_unprovisioned() throws Exception {
         String t = token("uid-unprovisioned");
         mockMvc.perform(get("/v1/me").header("Authorization", "Bearer " + t))
-                .andExpect(status().isOk())
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error").value("user_not_provisioned"))
                 .andExpect(jsonPath("$.provisioned").value(false))
                 .andExpect(jsonPath("$.onboarding_complete").value(false))
                 .andExpect(jsonPath("$.onboarding_step").value("profile_setup"))
@@ -70,7 +71,7 @@ class MeIntegrationTest extends PostgresTestBase {
     }
 
     @Test
-    void me_authenticated_provisioned() throws Exception {
+    void me_authenticated_provisioned_but_onboarding_incomplete() throws Exception {
         // Arrange: create company and user matching firebase_uid
         long companyId = jdbc.queryForObject(
                 "INSERT INTO companies(name, domain) VALUES ('Acme', 'acme.com') RETURNING id",
@@ -80,11 +81,29 @@ class MeIntegrationTest extends PostgresTestBase {
 
         String t = token("uid-provisioned");
         mockMvc.perform(get("/v1/me").header("Authorization", "Bearer " + t))
-                .andExpect(status().isOk())
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error").value("onboarding_incomplete"))
                 .andExpect(jsonPath("$.provisioned").value(true))
                 .andExpect(jsonPath("$.onboarding_complete").value(false))
                 .andExpect(jsonPath("$.onboarding_step").value("verification"))
                 .andExpect(jsonPath("$.user.handle").value("alice"));
+    }
+
+    @Test
+    void me_authenticated_provisioned_and_onboarding_complete() throws Exception {
+        long companyId = jdbc.queryForObject(
+                "INSERT INTO companies(name, domain) VALUES ('AcmeDone', 'acmedone.com') RETURNING id",
+                Long.class);
+        jdbc.update("INSERT INTO users(firebase_uid, handle, company_id, onboarding_completed_at) VALUES (?,?,?,now())",
+                "uid-provisioned-complete", "alice_done", companyId);
+
+        String t = token("uid-provisioned-complete");
+        mockMvc.perform(get("/v1/me").header("Authorization", "Bearer " + t))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.provisioned").value(true))
+                .andExpect(jsonPath("$.onboarding_complete").value(true))
+                .andExpect(jsonPath("$.onboarding_step").value("verification_notifications"))
+                .andExpect(jsonPath("$.user.handle").value("alice_done"));
     }
 
     @Test
@@ -93,8 +112,8 @@ class MeIntegrationTest extends PostgresTestBase {
                 "INSERT INTO companies(name, domain) VALUES ('ClaimCo', 'claimco.com') RETURNING id",
                 Long.class);
         long userId = jdbc.queryForObject(
-                "INSERT INTO users(firebase_uid, handle, email, company_id) VALUES (?,?,?,?) RETURNING id",
-                Long.class, "uid-old", "owner@claimco.com", companyId);
+                "INSERT INTO users(firebase_uid, handle, email, company_id, onboarding_completed_at) VALUES (?,?,?,?,now()) RETURNING id",
+                Long.class, "uid-old", "owner", "owner@claimco.com", companyId);
 
         String t = token("uid-new", "owner@claimco.com", true);
         mockMvc.perform(get("/v1/me").header("Authorization", "Bearer " + t))
@@ -114,7 +133,7 @@ class MeIntegrationTest extends PostgresTestBase {
         long companyId = jdbc.queryForObject(
                 "INSERT INTO companies(name, domain) VALUES ('AcmeV', 'acmev.com') RETURNING id",
                 Long.class);
-        jdbc.update("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?)",
+        jdbc.update("INSERT INTO users(firebase_uid, handle, company_id, onboarding_completed_at) VALUES (?,?,?,now())",
                 "uid-verify-me", "anna", companyId);
         // mark verified via direct insert to verifications
         jdbc.update("INSERT INTO verifications(user_id, method, verified, verified_at) SELECT id, 'email', true, now() FROM users WHERE firebase_uid=?",
@@ -134,7 +153,7 @@ class MeIntegrationTest extends PostgresTestBase {
                 "INSERT INTO companies(name, domain) VALUES ('Reacme', 'reacme.com') RETURNING id",
                 Long.class);
         long userId = jdbc.queryForObject(
-                "INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?) RETURNING id",
+                "INSERT INTO users(firebase_uid, handle, company_id, onboarding_completed_at) VALUES (?,?,?,now()) RETURNING id",
                 Long.class, "uid-reactivate", "reactor", companyId);
         OffsetDateTime deletedAt = OffsetDateTime.now().minusDays(10);
         jdbc.update("UPDATE users SET deleted_at = ?, deleted_by = ? WHERE id = ?", deletedAt, userId, userId);
@@ -165,7 +184,8 @@ class MeIntegrationTest extends PostgresTestBase {
 
         String t = token("uid-purged");
         mockMvc.perform(get("/v1/me").header("Authorization", "Bearer " + t))
-                .andExpect(status().isOk())
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error").value("account_deleted"))
                 .andExpect(jsonPath("$.provisioned").value(false))
                 .andExpect(jsonPath("$.account_deleted").value(true));
 
@@ -179,5 +199,41 @@ class MeIntegrationTest extends PostgresTestBase {
         );
         org.junit.jupiter.api.Assertions.assertEquals(0, remaining.intValue());
         org.junit.jupiter.api.Assertions.assertEquals(1, tombstones.intValue());
+    }
+
+    @Test
+    void feed_rejects_non_provisioned_user() throws Exception {
+        String t = token("uid-feed-missing");
+        mockMvc.perform(get("/v1/feed").header("Authorization", "Bearer " + t))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error").value("user_not_provisioned"));
+    }
+
+    @Test
+    void feed_rejects_onboarding_incomplete_user() throws Exception {
+        long companyId = jdbc.queryForObject(
+                "INSERT INTO companies(name, domain) VALUES ('FeedInc', 'feedinc.com') RETURNING id",
+                Long.class);
+        jdbc.update("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?)",
+                "uid-feed-incomplete", "feeduser", companyId);
+
+        String t = token("uid-feed-incomplete");
+        mockMvc.perform(get("/v1/feed").header("Authorization", "Bearer " + t))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error").value("onboarding_incomplete"));
+    }
+
+    @Test
+    void feed_allows_onboarded_user() throws Exception {
+        long companyId = jdbc.queryForObject(
+                "INSERT INTO companies(name, domain) VALUES ('FeedDone', 'feeddone.com') RETURNING id",
+                Long.class);
+        jdbc.update("INSERT INTO users(firebase_uid, handle, company_id, onboarding_completed_at) VALUES (?,?,?,now())",
+                "uid-feed-complete", "feedready", companyId);
+
+        String t = token("uid-feed-complete");
+        mockMvc.perform(get("/v1/feed").header("Authorization", "Bearer " + t))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items").isArray());
     }
 }

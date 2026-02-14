@@ -138,6 +138,20 @@ onboarding:
 share:
   base-url: ${SHARE_BASE_URL:https://mylooped.app}
 
+universal-links:
+  apple-team-id: ${UL_APPLE_TEAM_ID:REPLACE_TEAM_ID}
+  ios-bundle-id: ${UL_IOS_BUNDLE_ID:REPLACE_BUNDLE_ID}
+  cache-max-age-seconds: ${UL_CACHE_MAX_AGE_SECONDS:300}
+  aasa-version: ${UL_AASA_VERSION:v1}
+  ios-paths:
+    - /p/*
+    - /u/*
+    - /app/*
+    - /login*
+    - /
+  android-package-name: ${UL_ANDROID_PACKAGE_NAME:}
+  android-sha256-cert-fingerprint: ${UL_ANDROID_SHA256_CERT_FINGERPRINT:}
+
 retention:
   deactivated-days: ${RETENTION_DEACTIVATED_DAYS:90}
   username-tombstone-days: ${RETENTION_USERNAME_TOMBSTONE_DAYS:14}

@@ -99,10 +99,14 @@ module "api" {
 
   redis_primary_endpoint = module.redis.primary_endpoint_address
 
-  email_from              = var.email_from
-  email_reply_to          = var.email_reply_to
-  email_configuration_set = var.email_configuration_set
-  email_verify_base_url   = var.email_verify_base_url
+  email_from                            = var.email_from
+  email_reply_to                        = var.email_reply_to
+  email_configuration_set               = var.email_configuration_set
+  email_verify_base_url                 = var.email_verify_base_url
+  universal_links_apple_team_id         = var.universal_links_apple_team_id
+  universal_links_ios_bundle_id         = var.universal_links_ios_bundle_id
+  universal_links_cache_max_age_seconds = var.universal_links_cache_max_age_seconds
+  universal_links_aasa_version          = var.universal_links_aasa_version
 
   ssm_auth_audience_arn = module.ssm.auth_audience_parameter_arn
   ssm_auth_issuer_arn   = module.ssm.auth_issuer_parameter_arn

@@ -24,6 +24,13 @@ email_reply_to          = "support@mylooped.app"
 email_configuration_set = "looped-email-events"
 email_verify_base_url   = ""
 
+# Universal Links (AASA)
+# appID will be "<universal_links_apple_team_id>.<universal_links_ios_bundle_id>"
+universal_links_apple_team_id         = "YOUR_APPLE_TEAM_ID"
+universal_links_ios_bundle_id         = "com.yourcompany.looped"
+universal_links_cache_max_age_seconds = 300
+universal_links_aasa_version          = "v1"
+
 firebase_admin_secret_arn    = "arn:aws:secretsmanager:us-east-1:179388324981:secret:looped/prod/firebase-admin-XXXXXX"
 openai_moderation_secret_arn = "arn:aws:secretsmanager:us-east-1:179388324981:secret:looped/openai/moderation-XXXXXX"
 db_credentials_secret_arn    = "arn:aws:secretsmanager:us-east-1:179388324981:secret:looped/prod/db/credentials-XXXXXX"
