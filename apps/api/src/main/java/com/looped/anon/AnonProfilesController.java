@@ -385,7 +385,14 @@ public class AnonProfilesController {
         return switch (res.status()) {
             case USER_NOT_PROVISIONED -> ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "user_not_provisioned"));
             case NOT_FOUND -> ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "not_found"));
-            case FORBIDDEN -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "forbidden"));
+            case ACTOR_NOT_SCOPED -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
+                    "error", "actor_not_scoped",
+                    "message", "Anonymous actor certificate is not scoped to the target company"
+            ));
+            case CROSS_COMPANY_FORBIDDEN -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
+                    "error", "cross_company_follow_forbidden",
+                    "message", "Actor and target anonymous profile must belong to the same company"
+            ));
             case INVALID_TARGET -> ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of(
                     "error", "invalid_target",
                     "message", "Cannot follow this anonymous profile"
@@ -438,7 +445,14 @@ public class AnonProfilesController {
         return switch (res.status()) {
             case USER_NOT_PROVISIONED -> ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "user_not_provisioned"));
             case NOT_FOUND -> ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "not_found"));
-            case FORBIDDEN -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "forbidden"));
+            case ACTOR_NOT_SCOPED -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
+                    "error", "actor_not_scoped",
+                    "message", "Anonymous actor certificate is not scoped to the target company"
+            ));
+            case CROSS_COMPANY_FORBIDDEN -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
+                    "error", "cross_company_follow_forbidden",
+                    "message", "Actor and target anonymous profile must belong to the same company"
+            ));
             case INVALID_TARGET -> ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of(
                     "error", "invalid_target",
                     "message", "Cannot unfollow this anonymous profile"

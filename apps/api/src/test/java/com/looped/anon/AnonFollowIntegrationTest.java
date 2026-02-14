@@ -87,7 +87,7 @@ class AnonFollowIntegrationTest extends PostgresTestBase {
         mockMvc.perform(post("/v1/anon/" + targetAnonProfileId + "/follow")
                         .header("Authorization", auth)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"as_anon\":false}"))
+                        .content("{}"))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.anon_profile_id").value((int) targetAnonProfileId))
                 .andExpect(jsonPath("$.following").value(true));
@@ -95,10 +95,59 @@ class AnonFollowIntegrationTest extends PostgresTestBase {
         mockMvc.perform(delete("/v1/anon/" + targetAnonProfileId + "/follow")
                         .header("Authorization", auth)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"as_anon\":false}"))
+                        .content("{}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.anon_profile_id").value((int) targetAnonProfileId))
                 .andExpect(jsonPath("$.following").value(false));
+    }
+
+    @Test
+    void user_can_follow_unscoped_anon_profile() throws Exception {
+        long companyId = jdbc.queryForObject(
+                "INSERT INTO companies(name, domain) VALUES ('AnonFollowGlobalCo','anonfollowglobal.co') RETURNING id",
+                Long.class
+        );
+        jdbc.update("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?)",
+                "uid-actor-global", "actor_global", companyId);
+        long targetAnonProfileId = jdbc.queryForObject(
+                "INSERT INTO anonymous_profiles(company_id, public_key, handle) VALUES (?,?,?) RETURNING id",
+                Long.class, null, new byte[]{7, 7, 7, 7}, "anon_target_global"
+        );
+
+        String auth = "Bearer " + token("uid-actor-global");
+        mockMvc.perform(post("/v1/anon/" + targetAnonProfileId + "/follow")
+                        .header("Authorization", auth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.anon_profile_id").value((int) targetAnonProfileId))
+                .andExpect(jsonPath("$.following").value(true));
+    }
+
+    @Test
+    void user_follow_cross_company_anon_profile_returns_specific_error() throws Exception {
+        long actorCompanyId = jdbc.queryForObject(
+                "INSERT INTO companies(name, domain) VALUES ('AnonFollowActorCo','anonfollowactor.co') RETURNING id",
+                Long.class
+        );
+        long targetCompanyId = jdbc.queryForObject(
+                "INSERT INTO companies(name, domain) VALUES ('AnonFollowTargetCo','anonfollowtarget.co') RETURNING id",
+                Long.class
+        );
+        jdbc.update("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?)",
+                "uid-actor-cross", "actor_cross", actorCompanyId);
+        long targetAnonProfileId = jdbc.queryForObject(
+                "INSERT INTO anonymous_profiles(company_id, public_key, handle) VALUES (?,?,?) RETURNING id",
+                Long.class, targetCompanyId, new byte[]{6, 6, 6, 6}, "anon_target_cross"
+        );
+
+        String auth = "Bearer " + token("uid-actor-cross");
+        mockMvc.perform(post("/v1/anon/" + targetAnonProfileId + "/follow")
+                        .header("Authorization", auth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error").value("cross_company_follow_forbidden"));
     }
 
     @Test
@@ -174,4 +223,3 @@ class AnonFollowIntegrationTest extends PostgresTestBase {
                 .andExpect(jsonPath("$.following").value(false));
     }
 }
-

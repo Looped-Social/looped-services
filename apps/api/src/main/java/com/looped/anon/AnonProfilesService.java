@@ -545,21 +545,25 @@ public class AnonProfilesService {
     public FollowToggleResult followAnonProfile(String firebaseUid, long targetAnonProfileId, AnonProofService.AnonActionProof anonProof) {
         var targetProfile = profiles.findById(targetAnonProfileId);
         if (targetProfile.isEmpty()) return FollowToggleResult.notFound();
-        if (targetProfile.get().companyId == null) return FollowToggleResult.forbidden();
         var targetPrincipal = principals.createForAnon(targetAnonProfileId);
 
         long actorPrincipalId;
         if (anonProof != null && anonProof.anonProfileId() != null) {
             var verified = proofs.verifyActionAnyTarget(anonProof, "follow_anon", targetAnonProfileId, targetPrincipal.id);
             if (verified.status() != AnonProofService.Status.OK) return FollowToggleResult.invalidSignature();
-            if (verified.actor().companyId() == null || !verified.actor().companyId().equals(targetProfile.get().companyId)) {
-                return FollowToggleResult.forbidden();
+            if (verified.actor().companyId() == null && targetProfile.get().companyId != null) {
+                return FollowToggleResult.actorNotScoped();
+            }
+            if (targetProfile.get().companyId != null && !targetProfile.get().companyId.equals(verified.actor().companyId())) {
+                return FollowToggleResult.crossCompanyForbidden();
             }
             actorPrincipalId = verified.actor().principalId();
         } else {
             var actor = users.findByFirebaseUid(firebaseUid);
             if (actor.isEmpty() || actor.get().companyId == null) return FollowToggleResult.userNotProvisioned();
-            if (!actor.get().companyId.equals(targetProfile.get().companyId)) return FollowToggleResult.forbidden();
+            if (targetProfile.get().companyId != null && !actor.get().companyId.equals(targetProfile.get().companyId)) {
+                return FollowToggleResult.crossCompanyForbidden();
+            }
             actorPrincipalId = principals.createForUser(actor.get().id).id;
         }
 
@@ -571,21 +575,25 @@ public class AnonProfilesService {
     public FollowToggleResult unfollowAnonProfile(String firebaseUid, long targetAnonProfileId, AnonProofService.AnonActionProof anonProof) {
         var targetProfile = profiles.findById(targetAnonProfileId);
         if (targetProfile.isEmpty()) return FollowToggleResult.notFound();
-        if (targetProfile.get().companyId == null) return FollowToggleResult.forbidden();
         var targetPrincipal = principals.createForAnon(targetAnonProfileId);
 
         long actorPrincipalId;
         if (anonProof != null && anonProof.anonProfileId() != null) {
             var verified = proofs.verifyActionAnyTarget(anonProof, "unfollow_anon", targetAnonProfileId, targetPrincipal.id);
             if (verified.status() != AnonProofService.Status.OK) return FollowToggleResult.invalidSignature();
-            if (verified.actor().companyId() == null || !verified.actor().companyId().equals(targetProfile.get().companyId)) {
-                return FollowToggleResult.forbidden();
+            if (verified.actor().companyId() == null && targetProfile.get().companyId != null) {
+                return FollowToggleResult.actorNotScoped();
+            }
+            if (targetProfile.get().companyId != null && !targetProfile.get().companyId.equals(verified.actor().companyId())) {
+                return FollowToggleResult.crossCompanyForbidden();
             }
             actorPrincipalId = verified.actor().principalId();
         } else {
             var actor = users.findByFirebaseUid(firebaseUid);
             if (actor.isEmpty() || actor.get().companyId == null) return FollowToggleResult.userNotProvisioned();
-            if (!actor.get().companyId.equals(targetProfile.get().companyId)) return FollowToggleResult.forbidden();
+            if (targetProfile.get().companyId != null && !actor.get().companyId.equals(targetProfile.get().companyId)) {
+                return FollowToggleResult.crossCompanyForbidden();
+            }
             actorPrincipalId = principals.createForUser(actor.get().id).id;
         }
 
@@ -725,13 +733,22 @@ public class AnonProfilesService {
         static FollowsResult forbidden() { return new FollowsResult(Status.FORBIDDEN, List.of(), null); }
     }
 
-    public enum FollowStatus { OK, USER_NOT_PROVISIONED, NOT_FOUND, FORBIDDEN, INVALID_TARGET, INVALID_SIGNATURE }
+    public enum FollowStatus {
+        OK,
+        USER_NOT_PROVISIONED,
+        NOT_FOUND,
+        ACTOR_NOT_SCOPED,
+        CROSS_COMPANY_FORBIDDEN,
+        INVALID_TARGET,
+        INVALID_SIGNATURE
+    }
 
     public record FollowToggleResult(FollowStatus status, boolean following, boolean changed) {
         static FollowToggleResult ok(boolean following, boolean changed) { return new FollowToggleResult(FollowStatus.OK, following, changed); }
         static FollowToggleResult userNotProvisioned() { return new FollowToggleResult(FollowStatus.USER_NOT_PROVISIONED, false, false); }
         static FollowToggleResult notFound() { return new FollowToggleResult(FollowStatus.NOT_FOUND, false, false); }
-        static FollowToggleResult forbidden() { return new FollowToggleResult(FollowStatus.FORBIDDEN, false, false); }
+        static FollowToggleResult actorNotScoped() { return new FollowToggleResult(FollowStatus.ACTOR_NOT_SCOPED, false, false); }
+        static FollowToggleResult crossCompanyForbidden() { return new FollowToggleResult(FollowStatus.CROSS_COMPANY_FORBIDDEN, false, false); }
         static FollowToggleResult invalidTarget() { return new FollowToggleResult(FollowStatus.INVALID_TARGET, false, false); }
         static FollowToggleResult invalidSignature() { return new FollowToggleResult(FollowStatus.INVALID_SIGNATURE, false, false); }
     }
