@@ -53,6 +53,25 @@ class CommunityRecommendedIntegrationTest extends PostgresTestBase {
     }
 
     @Test
+    void recommended_allows_onboarding_incomplete_user() throws Exception {
+        long companyId = jdbc.queryForObject(
+                "INSERT INTO companies(name, domain) VALUES ('RecOnboard', 'reconboard.com') RETURNING id",
+                Long.class);
+        jdbc.update("INSERT INTO users(firebase_uid, handle, company_id, onboarding_step, onboarding_completed_at) VALUES (?,?,?,?,NULL)",
+                "uid-rec-onboarding", "recuser", companyId, "verification");
+        jdbc.update("INSERT INTO communities(kind, name, member_count) VALUES ('company','Onboarding Rec Co', 42)");
+
+        String auth = "Bearer " + token("uid-rec-onboarding");
+        mockMvc.perform(get("/v1/communities/recommended")
+                        .param("kind", "company")
+                        .param("limit", "1")
+                        .header("Authorization", auth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items", hasSize(1)))
+                .andExpect(jsonPath("$.items[0].name", equalTo("Onboarding Rec Co")));
+    }
+
+    @Test
     void recommended_filters_by_major_kind() throws Exception {
         long companyId = jdbc.queryForObject(
                 "INSERT INTO companies(name, domain) VALUES ('RecCo', 'rec.com') RETURNING id",

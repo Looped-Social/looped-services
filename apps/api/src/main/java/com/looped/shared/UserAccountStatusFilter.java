@@ -104,6 +104,8 @@ public class UserAccountStatusFilter extends OncePerRequestFilter {
         return (HttpMethod.POST.matches(method) && "/v1/users/onboard".equals(path))
                 || (HttpMethod.GET.matches(method) && "/v1/users/username/availability".equals(path))
                 || (HttpMethod.PUT.matches(method) && "/v1/users/me/onboarding".equals(path))
+                || (HttpMethod.GET.matches(method) && "/v1/communities/search".equals(path))
+                || (HttpMethod.GET.matches(method) && "/v1/communities/recommended".equals(path))
                 || (HttpMethod.POST.matches(method) && "/v1/verification/start".equals(path))
                 || (HttpMethod.POST.matches(method) && "/v1/verification/finish".equals(path));
     }

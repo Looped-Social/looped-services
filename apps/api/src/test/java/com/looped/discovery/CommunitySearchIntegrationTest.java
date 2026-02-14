@@ -52,6 +52,26 @@ class CommunitySearchIntegrationTest extends PostgresTestBase {
     }
 
     @Test
+    void search_allows_onboarding_incomplete_user() throws Exception {
+        long companyId = jdbc.queryForObject(
+                "INSERT INTO companies(name, domain) VALUES ('SearchOnboard', 'searchonboard.com') RETURNING id",
+                Long.class);
+        jdbc.update("INSERT INTO users(firebase_uid, handle, company_id, onboarding_step, onboarding_completed_at) VALUES (?,?,?,?,NULL)",
+                "uid-search-onboarding", "onboarduser", companyId, "verification");
+        jdbc.queryForObject(
+                "INSERT INTO communities(kind, name) VALUES ('company','Onboarding Company') RETURNING id",
+                Long.class);
+
+        String auth = "Bearer " + token("uid-search-onboarding");
+        mockMvc.perform(get("/v1/communities/search")
+                        .param("query", "onboarding")
+                        .header("Authorization", auth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items", hasSize(1)))
+                .andExpect(jsonPath("$.items[0].name", equalTo("Onboarding Company")));
+    }
+
+    @Test
     void search_filters_by_major() throws Exception {
         long companyId = jdbc.queryForObject(
                 "INSERT INTO companies(name, domain) VALUES ('SearchCo', 'search.com') RETURNING id",
