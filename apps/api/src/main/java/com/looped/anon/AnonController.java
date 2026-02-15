@@ -1,5 +1,6 @@
 package com.looped.anon;
 
+import com.fasterxml.jackson.annotation.JsonAlias;
 import com.looped.communities.CommunitiesRepository;
 import com.looped.communities.CommunityVerificationsRepository;
 import com.looped.communities.SpecializationJoinsRepository;
@@ -218,6 +219,14 @@ public class AnonController {
                     "message", "Anonymous certificate scope invalid"
             ));
         }
+        if (body.communityId() != null && !body.communityId().equals(cert.issuer().scopeId)) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
+                    "error", "anon_scope_mismatch",
+                    "message", "Anonymous certificate is not scoped to requested community",
+                    "requested_community_id", body.communityId(),
+                    "cert_community_id", cert.issuer().scopeId
+            ));
+        }
         if (cert.issuer().companyId == null) {
             return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
                     "error", "issuer_not_ready",
@@ -228,24 +237,12 @@ public class AnonController {
         var existing = profiles.findByPublicKey(pubkey);
         if (existing.isPresent()) {
             principals.createForAnon(existing.get().id);
-            return ResponseEntity.ok(Map.of(
-                    "anon_profile_id", existing.get().id,
-                    "handle", existing.get().handle,
-                    "community_id", cert.issuer().scopeId,
-                    "anon_cert_kid", body.anonCertKid(),
-                    "expires_at", cert.issuer().expiresAt
-            ));
+            return ResponseEntity.ok(registerResponse(existing.get().id, existing.get().handle, cert.issuer().scopeId, body.anonCertKid(), cert.issuer().expiresAt));
         }
 
         var profile = profiles.create(null, pubkey);
         principals.createForAnon(profile.id);
-        return new ResponseEntity<>(Map.of(
-                "anon_profile_id", profile.id,
-                "handle", profile.handle,
-                "community_id", cert.issuer().scopeId,
-                "anon_cert_kid", body.anonCertKid(),
-                "expires_at", cert.issuer().expiresAt
-        ), HttpStatus.CREATED);
+        return new ResponseEntity<>(registerResponse(profile.id, profile.handle, cert.issuer().scopeId, body.anonCertKid(), cert.issuer().expiresAt), HttpStatus.CREATED);
     }
 
     @GetMapping("/backup/{blobId}")
@@ -309,7 +306,8 @@ public class AnonController {
     public record RegisterRequest(
             @NotBlank String personaPubkey,
             @NotBlank String anonCert,
-            @NotBlank String anonCertKid
+            @NotBlank String anonCertKid,
+            @JsonAlias("community_id") Long communityId
     ) {}
 
     public record BackupRequest(
@@ -325,4 +323,20 @@ public class AnonController {
             @NotBlank String anonCertKid,
             @NotBlank String anonSig
     ) {}
+
+    private Map<String, Object> registerResponse(long anonProfileId,
+                                                 String handle,
+                                                 long communityId,
+                                                 String anonCertKid,
+                                                 OffsetDateTime expiresAt) {
+        return Map.of(
+                "anon_profile_id", anonProfileId,
+                "handle", handle,
+                "community_id", communityId,
+                "communityId", communityId,
+                "anon_cert_kid", anonCertKid,
+                "expires_at", expiresAt,
+                "expiresAt", expiresAt
+        );
+    }
 }
