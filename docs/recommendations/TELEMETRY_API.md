@@ -218,8 +218,8 @@ Telemetry should not duplicate these writes. Telemetry is primarily for impressi
   - fire when a cell has been visible for >= 500ms
   - include `visible_ms` (total visible time for that cell before it disappears)
   - include `can_interact` + `lock_reason` from the post payload’s `viewerCapabilities`
+  - set `feed.request_id` to the `feed_request_id` returned by `GET /v1/feed` for that page
 - `post_open`: fire when the user opens a post detail view from the feed.
 - `comments_open`: fire when the user opens the comments screen for a post.
 - `video_watch`: fire periodically (or on stop) with `watch_ms`, `duration_ms`, and `completed` when known.
 - `interaction_blocked`: fire when the user taps `like/comment/vote` but `viewerCapabilities.canInteract == false`.
-

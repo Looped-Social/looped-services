@@ -1,6 +1,8 @@
 package com.looped.posts;
 
 import com.looped.communities.CommunitiesRepository;
+import com.looped.communities.CommunityVerificationsRepository;
+import com.looped.communities.SpecializationJoinsRepository;
 import com.looped.principals.PrincipalRepository;
 import com.looped.shared.Pagination;
 import com.looped.shared.RankPagination;
@@ -9,7 +11,12 @@ import com.looped.users.UserRepository;
 import org.springframework.stereotype.Service;
 
 import java.time.OffsetDateTime;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 @Service
 public class FeedService {
@@ -17,20 +24,31 @@ public class FeedService {
     private final UserRepository users;
     private final PrincipalRepository principals;
     private final CommunitiesRepository communities;
+    private final CommunityVerificationsRepository communityVerifications;
+    private final SpecializationJoinsRepository specializationJoins;
     private final PostStateService postState;
     private final RepostsRepository reposts;
     private final UserCommunityBanRepository communityBans;
+    private final FypProperties fyp;
 
     public FeedService(PostRepository posts, UserRepository users, PrincipalRepository principals,
-                       CommunitiesRepository communities, PostStateService postState, RepostsRepository reposts,
-                       UserCommunityBanRepository communityBans) {
+                       CommunitiesRepository communities,
+                       CommunityVerificationsRepository communityVerifications,
+                       SpecializationJoinsRepository specializationJoins,
+                       PostStateService postState,
+                       RepostsRepository reposts,
+                       UserCommunityBanRepository communityBans,
+                       FypProperties fyp) {
         this.posts = posts;
         this.users = users;
         this.principals = principals;
         this.communities = communities;
+        this.communityVerifications = communityVerifications;
+        this.specializationJoins = specializationJoins;
         this.postState = postState;
         this.reposts = reposts;
         this.communityBans = communityBans;
+        this.fyp = fyp;
     }
 
     public FeedResult feed(String firebaseUid, String cursor, int limit, Long communityId, String mode) {
@@ -119,29 +137,136 @@ public class FeedService {
     }
 
     private FeedResult feedForYou(String cursor, int limit, Long communityId, long viewerUserId, long viewerPrincipalId, boolean hideAnonymousPosts) {
-        RankPagination.Cursor rankedCursor = null;
-        if (cursor != null && !cursor.isBlank()) {
+        if (communityId != null) {
+            RankPagination.Cursor rankedCursor = null;
+            if (cursor != null && !cursor.isBlank()) {
+                try {
+                    rankedCursor = RankPagination.decode(cursor);
+                } catch (IllegalArgumentException ignored) {
+                    // treat as no cursor
+                }
+            }
+            OffsetDateTime asOf = rankedCursor == null ? OffsetDateTime.now() : rankedCursor.asOf();
+            OffsetDateTime since = asOf.minusDays(Math.max(1, Math.min(365, fyp.getEligibleWindowDays())));
+            Long score = rankedCursor == null ? null : rankedCursor.score();
+            OffsetDateTime cTs = rankedCursor == null ? null : rankedCursor.timestamp();
+            Long cId = rankedCursor == null ? null : rankedCursor.id();
+
+            var rows = posts.findFypPopularInCommunities(
+                    List.of(communityId),
+                    asOf,
+                    since,
+                    score,
+                    cTs,
+                    cId,
+                    limit,
+                    viewerUserId,
+                    viewerPrincipalId,
+                    hideAnonymousPosts,
+                    fyp.getEligibleHalfLifeHours(),
+                    fyp.getEligibleBaselineEngagement()
+            );
+
+            List<PostRepository.PostRow> items = new ArrayList<>();
+            for (int i = 0; i < rows.size(); i++) {
+                var r = rows.get(i);
+                r.fypSourcePool = "community";
+                r.fypRank = i;
+                items.add(r);
+            }
+
+            String next = null;
+            if (rows.size() == limit) {
+                var last = rows.get(rows.size() - 1);
+                next = RankPagination.encode(asOf, last.score, last.createdAt, last.id);
+            }
+            return FeedResult.ok(items, next);
+        }
+
+        FypCursor.Cursor fypCursor = FypCursor.decodeOrNull(cursor);
+        OffsetDateTime asOf = fypCursor == null ? OffsetDateTime.now() : fypCursor.asOf();
+        int patternOffset = fypCursor == null ? 0 : fypCursor.patternOffset();
+
+        RankPagination.Cursor eligibleCursor = null;
+        if (fypCursor != null && fypCursor.eligibleCursor() != null) {
             try {
-                rankedCursor = RankPagination.decode(cursor);
+                eligibleCursor = RankPagination.decode(fypCursor.eligibleCursor());
             } catch (IllegalArgumentException ignored) {
-                // treat as no cursor
+                eligibleCursor = null;
             }
         }
-        OffsetDateTime asOf = rankedCursor == null ? OffsetDateTime.now() : rankedCursor.asOf();
-        OffsetDateTime since = asOf.minusDays(30);
-        Long score = rankedCursor == null ? null : rankedCursor.score();
-        OffsetDateTime cTs = rankedCursor == null ? null : rankedCursor.timestamp();
-        Long cId = rankedCursor == null ? null : rankedCursor.id();
-        var list = communityId == null
-                ? posts.findPopular(asOf, since, score, cTs, cId, limit, viewerUserId, viewerPrincipalId, hideAnonymousPosts)
-                : posts.findPopularByCommunity(communityId, asOf, since, score, cTs, cId, limit, viewerUserId, viewerPrincipalId, hideAnonymousPosts);
-        String next = null;
-        if (list.size() == limit) {
-            var last = list.get(list.size() - 1);
-            long lastScore = popularityScore(last, asOf);
-            next = RankPagination.encode(asOf, lastScore, last.createdAt, last.id);
+        RankPagination.Cursor discoveryCursor = null;
+        if (fypCursor != null && fypCursor.discoveryCursor() != null) {
+            try {
+                discoveryCursor = RankPagination.decode(fypCursor.discoveryCursor());
+            } catch (IllegalArgumentException ignored) {
+                discoveryCursor = null;
+            }
         }
-        return FeedResult.ok(list, next);
+
+        Set<Long> eligibleCommunityIds = eligibleCommunityIdsForUserId(viewerUserId);
+
+        int multiplier = Math.max(2, Math.min(50, fyp.getCandidatesMultiplier()));
+        int fetch = Math.max(limit, limit * multiplier);
+        fetch = Math.min(Math.max(50, fyp.getMaxCandidatesPerPool()), fetch);
+
+        OffsetDateTime eligibleSince = asOf.minusDays(Math.max(1, Math.min(365, fyp.getEligibleWindowDays())));
+        OffsetDateTime discoverySince = asOf.minusDays(Math.max(1, Math.min(90, fyp.getDiscoveryWindowDays())));
+
+        var eligible = eligibleCommunityIds.isEmpty()
+                ? List.<PostRepository.ScoredPostRow>of()
+                : posts.findFypPopularInCommunities(
+                eligibleCommunityIds,
+                asOf,
+                eligibleSince,
+                eligibleCursor == null ? null : eligibleCursor.score(),
+                eligibleCursor == null ? null : eligibleCursor.timestamp(),
+                eligibleCursor == null ? null : eligibleCursor.id(),
+                fetch,
+                viewerUserId,
+                viewerPrincipalId,
+                hideAnonymousPosts,
+                fyp.getEligibleHalfLifeHours(),
+                fyp.getEligibleBaselineEngagement()
+        );
+
+        var discovery = posts.findFypPopularExcludingCommunities(
+                eligibleCommunityIds,
+                asOf,
+                discoverySince,
+                discoveryCursor == null ? null : discoveryCursor.score(),
+                discoveryCursor == null ? null : discoveryCursor.timestamp(),
+                discoveryCursor == null ? null : discoveryCursor.id(),
+                fetch,
+                viewerUserId,
+                viewerPrincipalId,
+                hideAnonymousPosts,
+                fyp.getDiscoveryHalfLifeHours(),
+                fyp.getDiscoveryBaselineEngagement()
+        );
+
+        FypMix mix = mixFypTwoPools(
+                eligible,
+                discovery,
+                limit,
+                patternOffset,
+                eligibleCommunityIds.size()
+        );
+
+        String next = null;
+        if (mix.items.size() == limit && (mix.lastEligible != null || mix.lastDiscovery != null)) {
+            String nextEligibleCursor = mix.lastEligible == null
+                    ? (fypCursor == null ? null : fypCursor.eligibleCursor())
+                    : RankPagination.encode(asOf, mix.lastEligible.score, mix.lastEligible.createdAt, mix.lastEligible.id);
+            String nextDiscoveryCursor = mix.lastDiscovery == null
+                    ? (fypCursor == null ? null : fypCursor.discoveryCursor())
+                    : RankPagination.encode(asOf, mix.lastDiscovery.score, mix.lastDiscovery.createdAt, mix.lastDiscovery.id);
+
+            int patternLen = Math.max(1, mix.patternLength);
+            int nextOffset = Math.floorMod(patternOffset + mix.items.size(), patternLen);
+            next = FypCursor.encode(new FypCursor.Cursor(asOf, nextOffset, nextEligibleCursor, nextDiscoveryCursor));
+        }
+        return FeedResult.ok(mix.items, next);
     }
 
     private FeedResult feedFollowing(String cursor, int limit, Long communityId, long viewerUserId, long viewerPrincipalId, boolean hideAnonymousPosts) {
@@ -209,11 +334,225 @@ public class FeedService {
         }
     }
 
-    private long popularityScore(PostRepository.PostRow row, OffsetDateTime asOf) {
-        long base = (row.likesCount * 2L + row.commentsCount + row.shareCount) * 1000L;
-        long ageHours = java.time.Duration.between(row.createdAt, asOf).toHours();
-        return base - ageHours;
+    private Set<Long> eligibleCommunityIdsForUserId(long userId) {
+        Set<Long> verified = communityVerifications.activeVerifiedCommunityIdsForUser(userId);
+        Set<Long> joined = specializationJoins.joinedIdsForUser(userId);
+        if (verified.isEmpty()) return joined;
+        if (joined.isEmpty()) return verified;
+        Set<Long> out = new HashSet<>(verified);
+        out.addAll(joined);
+        return out;
     }
+
+    private FypMix mixFypTwoPools(List<PostRepository.ScoredPostRow> eligible,
+                                  List<PostRepository.ScoredPostRow> discovery,
+                                  int limit,
+                                  int patternOffset,
+                                  int eligibleCommunityCount) {
+        int eCount = Math.max(0, fyp.getPatternEligible());
+        int dCount = Math.max(0, fyp.getPatternDiscovery());
+        if (eCount == 0 && dCount == 0) eCount = 1;
+        if (eCount == 0) eCount = 1;
+        if (dCount == 0) dCount = 1;
+        int patternLen = eCount + dCount;
+
+        double minEligibleFraction = Math.max(0.0, Math.min(1.0, fyp.getMinEligibleFraction()));
+        int requiredEligible = (int) Math.ceil(limit * minEligibleFraction);
+        int minEligibleTarget = eligible.size() >= requiredEligible ? requiredEligible : 0;
+        int maxDiscoveryAllowed = Math.max(0, limit - minEligibleTarget);
+
+        int strictMaxPerAuthor = Math.max(1, Math.min(50, fyp.getMaxPerAuthor()));
+        int strictMaxPerCommunity = eligibleCommunityCount <= 1
+                ? Integer.MAX_VALUE
+                : Math.max(1, Math.min(50, fyp.getMaxPerCommunity()));
+
+        List<PostRepository.PostRow> out = new ArrayList<>(limit);
+        Map<Long, Integer> authorCounts = new HashMap<>();
+        Map<Long, Integer> communityCounts = new HashMap<>();
+
+        PoolCursor eligibleCur = new PoolCursor(eligible);
+        PoolCursor discoveryCur = new PoolCursor(discovery);
+
+        PostRepository.ScoredPostRow lastEligible = null;
+        PostRepository.ScoredPostRow lastDiscovery = null;
+        int eligiblePicked = 0;
+        int discoveryPicked = 0;
+
+        int step = Math.floorMod(patternOffset, patternLen);
+        while (out.size() < limit) {
+            boolean wantDiscovery = step >= eCount;
+            PostRepository.ScoredPostRow picked = null;
+            String pool = null;
+
+            if (wantDiscovery && discoveryPicked < maxDiscoveryAllowed) {
+                picked = discoveryCur.pickNext(authorCounts, communityCounts, strictMaxPerAuthor, strictMaxPerCommunity);
+                if (picked != null) pool = "discovery";
+            }
+            if (picked == null) {
+                picked = eligibleCur.pickNext(authorCounts, communityCounts, strictMaxPerAuthor, strictMaxPerCommunity);
+                if (picked != null) pool = "eligible";
+            }
+            if (picked == null && !wantDiscovery && discoveryPicked < maxDiscoveryAllowed) {
+                picked = discoveryCur.pickNext(authorCounts, communityCounts, strictMaxPerAuthor, strictMaxPerCommunity);
+                if (picked != null) pool = "discovery";
+            }
+
+            if (picked == null) break;
+
+            if ("eligible".equals(pool)) {
+                eligiblePicked += 1;
+                lastEligible = picked;
+            } else {
+                discoveryPicked += 1;
+                lastDiscovery = picked;
+            }
+
+            picked.fypSourcePool = pool;
+            picked.fypRank = out.size();
+            out.add(picked);
+
+            increment(authorCounts, picked.authorPrincipalId);
+            if (picked.communityId != null) increment(communityCounts, picked.communityId);
+
+            step = (step + 1) % patternLen;
+        }
+
+        // If we're under-filled (common in early stage), relax caps and backfill from leftovers.
+        if (out.size() < limit) {
+            int relaxedMaxPerAuthor = Math.max(strictMaxPerAuthor, strictMaxPerAuthor * 3);
+            int relaxedMaxPerCommunity = strictMaxPerCommunity == Integer.MAX_VALUE
+                    ? Integer.MAX_VALUE
+                    : Math.max(strictMaxPerCommunity, strictMaxPerCommunity * 3);
+
+            List<PostRepository.ScoredPostRow> eLeft = eligibleCur.leftovers();
+            List<PostRepository.ScoredPostRow> dLeft = discoveryCur.leftovers();
+            int ePtr = 0;
+            int dPtr = 0;
+
+            // 1) Try to satisfy eligible minimum (if any) with relaxed caps.
+            while (out.size() < limit && minEligibleTarget > 0 && eligiblePicked < minEligibleTarget && ePtr < eLeft.size()) {
+                PostRepository.ScoredPostRow r = eLeft.get(ePtr++);
+                if (out.size() >= limit) break;
+                if (minEligibleTarget > 0 && eligiblePicked >= minEligibleTarget) break;
+                if (!passesCaps(r, authorCounts, communityCounts, relaxedMaxPerAuthor, relaxedMaxPerCommunity)) continue;
+                r.fypSourcePool = "eligible";
+                r.fypRank = out.size();
+                out.add(r);
+                eligiblePicked += 1;
+                lastEligible = r;
+                increment(authorCounts, r.authorPrincipalId);
+                if (r.communityId != null) increment(communityCounts, r.communityId);
+            }
+            // 2) Fill the remainder, preferring eligible then discovery.
+            while (out.size() < limit && ePtr < eLeft.size()) {
+                PostRepository.ScoredPostRow r = eLeft.get(ePtr++);
+                if (!passesCaps(r, authorCounts, communityCounts, relaxedMaxPerAuthor, relaxedMaxPerCommunity)) continue;
+                r.fypSourcePool = "eligible";
+                r.fypRank = out.size();
+                out.add(r);
+                eligiblePicked += 1;
+                lastEligible = r;
+                increment(authorCounts, r.authorPrincipalId);
+                if (r.communityId != null) increment(communityCounts, r.communityId);
+            }
+            while (out.size() < limit && dPtr < dLeft.size()) {
+                PostRepository.ScoredPostRow r = dLeft.get(dPtr++);
+                if (out.size() >= limit) break;
+                if (minEligibleTarget > 0 && discoveryPicked >= maxDiscoveryAllowed) break;
+                if (!passesCaps(r, authorCounts, communityCounts, relaxedMaxPerAuthor, relaxedMaxPerCommunity)) continue;
+                r.fypSourcePool = "discovery";
+                r.fypRank = out.size();
+                out.add(r);
+                discoveryPicked += 1;
+                lastDiscovery = r;
+                increment(authorCounts, r.authorPrincipalId);
+                if (r.communityId != null) increment(communityCounts, r.communityId);
+            }
+
+            // 3) Last resort: ignore caps to avoid empty feeds in tiny communities.
+            if (out.size() < limit) {
+                while (out.size() < limit && ePtr < eLeft.size()) {
+                    PostRepository.ScoredPostRow r = eLeft.get(ePtr++);
+                    r.fypSourcePool = "eligible";
+                    r.fypRank = out.size();
+                    out.add(r);
+                    eligiblePicked += 1;
+                    lastEligible = r;
+                }
+                while (out.size() < limit && dPtr < dLeft.size()) {
+                    PostRepository.ScoredPostRow r = dLeft.get(dPtr++);
+                    r.fypSourcePool = "discovery";
+                    r.fypRank = out.size();
+                    out.add(r);
+                    discoveryPicked += 1;
+                    lastDiscovery = r;
+                }
+            }
+        }
+
+        // Ensure ranks are 0-based and contiguous (backfill paths may not have set correctly).
+        for (int i = 0; i < out.size(); i++) {
+            out.get(i).fypRank = i;
+        }
+        return new FypMix(out, lastEligible, lastDiscovery, patternLen);
+    }
+
+    private static final class PoolCursor {
+        private final List<PostRepository.ScoredPostRow> rows;
+        private int idx = 0;
+        private final List<PostRepository.ScoredPostRow> skipped = new ArrayList<>();
+
+        PoolCursor(List<PostRepository.ScoredPostRow> rows) {
+            this.rows = rows == null ? List.of() : rows;
+        }
+
+        PostRepository.ScoredPostRow pickNext(Map<Long, Integer> authorCounts,
+                                             Map<Long, Integer> communityCounts,
+                                             int maxPerAuthor,
+                                             int maxPerCommunity) {
+            while (idx < rows.size()) {
+                PostRepository.ScoredPostRow row = rows.get(idx++);
+                if (passesCaps(row, authorCounts, communityCounts, maxPerAuthor, maxPerCommunity)) {
+                    return row;
+                }
+                skipped.add(row);
+            }
+            return null;
+        }
+
+        List<PostRepository.ScoredPostRow> leftovers() {
+            if (rows.isEmpty() && skipped.isEmpty()) return List.of();
+            int remaining = Math.max(0, rows.size() - idx);
+            List<PostRepository.ScoredPostRow> out = new ArrayList<>(skipped.size() + remaining);
+            out.addAll(skipped);
+            if (remaining > 0) out.addAll(rows.subList(idx, rows.size()));
+            return out;
+        }
+    }
+
+    private static void increment(Map<Long, Integer> counts, long key) {
+        counts.put(key, counts.getOrDefault(key, 0) + 1);
+    }
+
+    private static boolean passesCaps(PostRepository.PostRow row,
+                                      Map<Long, Integer> authorCounts,
+                                      Map<Long, Integer> communityCounts,
+                                      int maxPerAuthor,
+                                      int maxPerCommunity) {
+        if (row == null) return false;
+        int a = authorCounts.getOrDefault(row.authorPrincipalId, 0);
+        if (a >= maxPerAuthor) return false;
+        if (row.communityId != null && maxPerCommunity != Integer.MAX_VALUE) {
+            int c = communityCounts.getOrDefault(row.communityId, 0);
+            if (c >= maxPerCommunity) return false;
+        }
+        return true;
+    }
+
+    private record FypMix(List<PostRepository.PostRow> items,
+                          PostRepository.ScoredPostRow lastEligible,
+                          PostRepository.ScoredPostRow lastDiscovery,
+                          int patternLength) {}
 
     public enum Status { OK, USER_NOT_PROVISIONED, COMMUNITY_NOT_FOUND, COMMUNITY_BANNED }
     public enum Mode {

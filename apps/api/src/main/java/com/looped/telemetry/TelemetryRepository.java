@@ -62,6 +62,24 @@ public class TelemetryRepository {
         return inserted;
     }
 
+    public int deleteBatchOlderThan(OffsetDateTime cutoff, int limit) {
+        int lim = Math.max(1, Math.min(limit, 50_000));
+        // Avoid long-running deletes by removing in small batches ordered by time.
+        int rows = jdbc.update(
+                "WITH doomed AS (" +
+                        "  SELECT event_id FROM telemetry_events " +
+                        "  WHERE occurred_at < ? " +
+                        "  ORDER BY occurred_at ASC, event_id ASC " +
+                        "  LIMIT ?" +
+                        ") " +
+                        "DELETE FROM telemetry_events t USING doomed d " +
+                        "WHERE t.event_id = d.event_id",
+                cutoff,
+                lim
+        );
+        return rows;
+    }
+
     private String toJson(Map<String, Object> payload) {
         if (payload == null || payload.isEmpty()) return "{}";
         try {
@@ -86,4 +104,3 @@ public class TelemetryRepository {
             Map<String, Object> payload
     ) {}
 }
-

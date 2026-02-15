@@ -77,6 +77,12 @@ public final class PostPayloads {
         out.put("is_saved", row.isSaved);
         out.put("viewer_has_reposted", row.viewerHasReposted);
         out.put("viewerHasReposted", row.viewerHasReposted);
+        if (row.fypSourcePool != null) {
+            out.put("fyp_source_pool", row.fypSourcePool);
+        }
+        if (row.fypRank != null) {
+            out.put("fyp_rank", row.fypRank);
+        }
         if (row.repostedByFollowedUsersCount != null) {
             java.util.List<java.util.Map<String, Object>> users = row.repostedByFollowedUsers == null
                     ? java.util.List.of()

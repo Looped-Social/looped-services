@@ -319,7 +319,140 @@ public class PostRepository {
         args.add(cursorTs);
         args.add(cursorId);
         args.add(limit);
-        return jdbc.query(base + paging, MAPPER, args.toArray());
+	        return jdbc.query(base + paging, MAPPER, args.toArray());
+	    }
+
+    /**
+     * FYP v2: scored "popular" retrieval with time decay and saturated engagement (log1p).
+     *
+     * Returns rows with an additional computed {@code score} column, ordered by {@code (score, created_at, id)}.
+     */
+    public java.util.List<ScoredPostRow> findFypPopularInCommunities(java.util.Collection<Long> communityIds,
+                                                                     java.time.OffsetDateTime asOf,
+                                                                     java.time.OffsetDateTime since,
+                                                                     Long cursorScore,
+                                                                     java.time.OffsetDateTime cursorTs,
+                                                                     Long cursorId,
+                                                                     int limit,
+                                                                     long viewerUserId,
+                                                                     long viewerPrincipalId,
+                                                                     boolean hideAnonymousPosts,
+                                                                     double halfLifeHours,
+                                                                     double baselineEngagement) {
+        if (communityIds == null || communityIds.isEmpty()) return java.util.List.of();
+        String placeholders = String.join(",", java.util.Collections.nCopies(communityIds.size(), "?"));
+        String base = BASE_SELECT +
+                "WHERE p.created_at >= ? AND p.removed_at IS NULL " +
+                "AND (p.visibility = 'public' OR p.author_id = ?) " +
+                "AND (p.author_id IS NULL OR u.id IS NOT NULL) " +
+                "AND p.community_id IN (" + placeholders + ") ";
+        java.util.List<Object> args = new java.util.ArrayList<>();
+        args.add(since);
+        args.add(viewerUserId);
+        args.addAll(communityIds);
+        if (hideAnonymousPosts) {
+            base += hideAnonymousFilter(true);
+            args.add(viewerUserId);
+        }
+        base += blocksFilter();
+        args.add(viewerPrincipalId);
+        args.add(viewerPrincipalId);
+        base += communityBansFilter();
+        args.add(viewerUserId);
+        return queryFypScored(base, args, asOf, halfLifeHours, baselineEngagement, cursorScore, cursorTs, cursorId, limit);
+    }
+
+    /**
+     * FYP v2: scored "popular" retrieval excluding a set of community ids (used for discovery sprinkle).
+     */
+    public java.util.List<ScoredPostRow> findFypPopularExcludingCommunities(java.util.Collection<Long> excludedCommunityIds,
+                                                                           java.time.OffsetDateTime asOf,
+                                                                           java.time.OffsetDateTime since,
+                                                                           Long cursorScore,
+                                                                           java.time.OffsetDateTime cursorTs,
+                                                                           Long cursorId,
+                                                                           int limit,
+                                                                           long viewerUserId,
+                                                                           long viewerPrincipalId,
+                                                                           boolean hideAnonymousPosts,
+                                                                           double halfLifeHours,
+                                                                           double baselineEngagement) {
+        String base = BASE_SELECT +
+                "WHERE p.created_at >= ? AND p.removed_at IS NULL " +
+                "AND (p.visibility = 'public' OR p.author_id = ?) " +
+                "AND (p.author_id IS NULL OR u.id IS NOT NULL) ";
+        java.util.List<Object> args = new java.util.ArrayList<>();
+        args.add(since);
+        args.add(viewerUserId);
+        if (excludedCommunityIds != null && !excludedCommunityIds.isEmpty()) {
+            String placeholders = String.join(",", java.util.Collections.nCopies(excludedCommunityIds.size(), "?"));
+            // Include global posts (NULL community_id) while excluding the provided communities.
+            base += "AND (p.community_id IS NULL OR p.community_id NOT IN (" + placeholders + ")) ";
+            args.addAll(excludedCommunityIds);
+        }
+        if (hideAnonymousPosts) {
+            base += hideAnonymousFilter(true);
+            args.add(viewerUserId);
+        }
+        base += blocksFilter();
+        args.add(viewerPrincipalId);
+        args.add(viewerPrincipalId);
+        base += communityBansFilter();
+        args.add(viewerUserId);
+        return queryFypScored(base, args, asOf, halfLifeHours, baselineEngagement, cursorScore, cursorTs, cursorId, limit);
+    }
+
+    private java.util.List<ScoredPostRow> queryFypScored(String baseSql,
+                                                        java.util.List<Object> baseArgs,
+                                                        java.time.OffsetDateTime asOf,
+                                                        double halfLifeHours,
+                                                        double baselineEngagement,
+                                                        Long cursorScore,
+                                                        java.time.OffsetDateTime cursorTs,
+                                                        Long cursorId,
+                                                        int limit) {
+        double halfLife = Math.max(1.0, Math.min(24 * 30, halfLifeHours)); // 1h..30d
+        double baseline = Math.max(0.0, Math.min(10.0, baselineEngagement));
+        String engagementExpr =
+                "(" +
+                        "2.0 * LN(1 + b.likes_count::double precision) + " +
+                        "1.5 * LN(1 + b.comments_count::double precision) + " +
+                        "0.25 * LN(1 + b.repost_count::double precision) + " +
+                        "0.05 * LN(1 + b.share_count::double precision) + " +
+                        "? " +
+                        ")";
+        String ageHoursExpr = "(EXTRACT(EPOCH FROM (?::timestamptz - b.created_at)) / 3600.0)";
+        String scoreExpr = "CAST(FLOOR((" + engagementExpr + ") * EXP(-(" + ageHoursExpr + " / ?)) * 1000000) AS BIGINT)";
+
+        String sql = "WITH b AS (" + baseSql + "), scored AS (" +
+                "SELECT b.*, " + scoreExpr + " AS score FROM b" +
+                ") SELECT * FROM scored ";
+
+        java.util.List<Object> args = new java.util.ArrayList<>(baseArgs);
+        args.add(baseline);
+        args.add(asOf);
+        args.add(halfLife);
+
+        if (cursorScore == null || cursorTs == null || cursorId == null) {
+            args.add(limit);
+            return jdbc.query(
+                    sql + "ORDER BY score DESC, created_at DESC, id DESC LIMIT ?",
+                    SCORED_MAPPER,
+                    args.toArray()
+            );
+        }
+        args.add(cursorScore);
+        args.add(cursorScore);
+        args.add(cursorTs);
+        args.add(cursorTs);
+        args.add(cursorId);
+        args.add(limit);
+        return jdbc.query(
+                sql + "WHERE (score < ? OR (score = ? AND (created_at < ? OR (created_at = ? AND id < ?)))) " +
+                        "ORDER BY score DESC, created_at DESC, id DESC LIMIT ?",
+                SCORED_MAPPER,
+                args.toArray()
+        );
     }
 
     public java.util.List<PostRow> findPopular(java.time.OffsetDateTime asOf, java.time.OffsetDateTime since, Long cursorScore,
@@ -746,9 +879,9 @@ public class PostRepository {
     }
 
 	    public static class PostRow {
-        public long id;
-        public Long authorId;
-        public long authorPrincipalId;
+	        public long id;
+	        public Long authorId;
+	        public long authorPrincipalId;
         public boolean isAnon;
         public Long anonProfileId;
         public Long anonCompanyId;
@@ -789,10 +922,14 @@ public class PostRepository {
         public boolean authorIsAnonymous;
         public boolean userLiked;
         public boolean isSaved;
-        public boolean viewerHasReposted;
-        public java.util.List<RepostBannerUser> repostedByFollowedUsers;
-        public Integer repostedByFollowedUsersCount;
-    }
+	        public boolean viewerHasReposted;
+	        public java.util.List<RepostBannerUser> repostedByFollowedUsers;
+	        public Integer repostedByFollowedUsersCount;
+
+            // Feed/debug metadata (computed at read time, not stored).
+            public String fypSourcePool; // eligible | discovery
+            public Integer fypRank;      // 0-based position in returned page
+	    }
 
     public record RepostBannerUser(long userId, String username) {}
 
@@ -833,14 +970,17 @@ public class PostRepository {
             p.shareCount = rs.getInt("share_count");
             p.repostCount = rs.getInt("repost_count");
             p.createdAt = rs.getObject("created_at", OffsetDateTime.class);
-            p.removedAt = rs.getObject("removed_at", OffsetDateTime.class);
-            long removedBy = rs.getLong("removed_by");
-            p.removedBy = rs.wasNull() ? null : removedBy;
-            p.removedReason = rs.getString("removed_reason");
-            p.authorHandle = rs.getString("author_handle");
-            p.authorDisplayName = rs.getString("author_display_name");
-            p.authorFirstName = rs.getString("author_first_name");
-            p.authorLastName = rs.getString("author_last_name");
+	            p.removedAt = rs.getObject("removed_at", OffsetDateTime.class);
+	            long removedBy = rs.getLong("removed_by");
+	            p.removedBy = rs.wasNull() ? null : removedBy;
+	            p.removedReason = rs.getString("removed_reason");
+                p.visibility = rs.getString("visibility");
+                p.quarantinedAt = rs.getObject("quarantined_at", OffsetDateTime.class);
+                p.quarantineReason = rs.getString("quarantine_reason");
+	            p.authorHandle = rs.getString("author_handle");
+	            p.authorDisplayName = rs.getString("author_display_name");
+	            p.authorFirstName = rs.getString("author_first_name");
+	            p.authorLastName = rs.getString("author_last_name");
             p.authorProfileImageUrl = rs.getString("author_profile_image_url");
             long displayCommunityId = rs.getLong("author_display_community_id");
             p.authorDisplayCommunityId = rs.wasNull() ? null : displayCommunityId;

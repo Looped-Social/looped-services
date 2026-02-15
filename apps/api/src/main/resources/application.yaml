@@ -162,3 +162,27 @@ anon:
     maxAge: ${ANON_CERT_MAX_AGE:365d}
     kek: ${ANON_ISSUER_KEK:}
     keyBits: ${ANON_ISSUER_KEY_BITS:2048}
+
+feed:
+  fyp:
+    eligible-window-days: ${FEED_FYP_ELIGIBLE_WINDOW_DAYS:90}
+    discovery-window-days: ${FEED_FYP_DISCOVERY_WINDOW_DAYS:7}
+    eligible-half-life-hours: ${FEED_FYP_ELIGIBLE_HALF_LIFE_HOURS:48}
+    discovery-half-life-hours: ${FEED_FYP_DISCOVERY_HALF_LIFE_HOURS:12}
+    eligible-baseline-engagement: ${FEED_FYP_ELIGIBLE_BASELINE_ENGAGEMENT:0.25}
+    discovery-baseline-engagement: ${FEED_FYP_DISCOVERY_BASELINE_ENGAGEMENT:0.10}
+    pattern-eligible: ${FEED_FYP_PATTERN_ELIGIBLE:3}
+    pattern-discovery: ${FEED_FYP_PATTERN_DISCOVERY:1}
+    min-eligible-fraction: ${FEED_FYP_MIN_ELIGIBLE_FRACTION:0.50}
+    candidates-multiplier: ${FEED_FYP_CANDIDATES_MULTIPLIER:10}
+    max-candidates-per-pool: ${FEED_FYP_MAX_CANDIDATES_PER_POOL:250}
+    max-per-author: ${FEED_FYP_MAX_PER_AUTHOR:2}
+    max-per-community: ${FEED_FYP_MAX_PER_COMMUNITY:5}
+
+telemetry:
+  retention:
+    enabled: ${TELEMETRY_RETENTION_ENABLED:true}
+    days: ${TELEMETRY_RETENTION_DAYS:30}
+    batch-size: ${TELEMETRY_RETENTION_BATCH_SIZE:5000}
+    max-batches-per-run: ${TELEMETRY_RETENTION_MAX_BATCHES_PER_RUN:20}
+    cron: "${TELEMETRY_RETENTION_CRON:0 0 4 * * *}"

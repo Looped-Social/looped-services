@@ -14,6 +14,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 @RestController
 @RequestMapping("/v1/feed")
@@ -45,6 +46,7 @@ public class FeedController {
             @RequestParam(value = "loop_id", required = false) Long loopIdLegacyAlt
     ) {
         int lim = Math.max(1, Math.min(limit, 100));
+        UUID feedRequestId = UUID.randomUUID();
         Long resolvedCommunityId = communityId != null ? communityId : communityIdAlt;
         if (resolvedCommunityId == null) {
             resolvedCommunityId = loopIdLegacy != null ? loopIdLegacy : loopIdLegacyAlt;
@@ -81,6 +83,15 @@ public class FeedController {
             return payload;
         }).toList();
         java.util.Map<String, Object> out = new java.util.HashMap<>();
+        out.put("feed_request_id", feedRequestId);
+        FeedService.Mode resolvedMode = FeedService.Mode.from(mode);
+        String algorithm = resolvedMode == FeedService.Mode.FOR_YOU
+                ? (resolvedCommunityId == null ? "fyp_v2" : "fyp_v2_community")
+                : resolvedMode == FeedService.Mode.NEW
+                ? "new_v1"
+                : "following_v1";
+        out.put("algorithm", algorithm);
+        out.put("algorithm_version", "2");
         out.put("items", items);
         if (res.nextCursor() != null) {
             out.put("next_cursor", res.nextCursor());

@@ -123,6 +123,15 @@ public class SpecializationJoinsRepository {
         return Set.copyOf(rows);
     }
 
+    public Set<Long> joinedIdsForUser(long userId) {
+        List<Long> rows = jdbc.query(
+                "SELECT specialization_id FROM specialization_joins WHERE user_id = ?",
+                (rs, rowNum) -> rs.getLong("specialization_id"),
+                userId
+        );
+        return Set.copyOf(rows);
+    }
+
     public int countMembers(long specializationId) {
         Integer count = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM specialization_joins j " +

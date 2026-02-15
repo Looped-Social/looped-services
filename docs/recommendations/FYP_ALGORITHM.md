@@ -31,15 +31,24 @@ sprinkling in discovery/viral content.
 - Real-time online learning.
 - WebSockets-driven realtime feed updates.
 
-## Current State (Baseline)
+## Current State (As Of 2026-02-15)
 
-`GET /v1/feed?mode=for_you` currently returns global "popular" posts using a simple score:
+`GET /v1/feed?mode=for_you` is implemented as **FYP v2**:
 
-- `score ~= (likes*2 + comments + shares) - age_hours`
-- Pagination uses an `(asOf, score, createdAt, id)` cursor (`RankPagination`).
+- Two-pool retrieval:
+  - **eligible**: posts from communities the viewer is verified in (non-specialization) or joined (major/field specializations)
+  - **discovery**: globally popular posts excluding the eligible set (sprinkle)
+- Mixing:
+  - default pattern `3 eligible : 1 discovery` (75% eligible) with a supply-aware minimum eligible fraction (default: 50%).
+- Ranking (Phase 0 heuristic):
+  - saturated engagement (`log1p`) + exponential freshness decay
+  - likes/comments dominate; repost is small; shares are minimal
+- Pagination:
+  - multi-pool cursor `fyp2.*` for the global For You feed
+  - community-filtered For You uses a single-pool rank cursor (`RankPagination`)
 
-This is a good starting point but it does not enforce Looped's "interactable majority" constraint and it over-values
-share counts relative to their trustworthiness.
+This baseline works with near-zero training data and keeps Looped's "interactable majority" constraint in control while
+still supporting viral discovery.
 
 ## Definitions
 
@@ -233,4 +242,3 @@ This is not user-visible but makes the system debuggable.
 
 - TikTok/ByteDance Monolith (online learning architecture): https://arxiv.org/pdf/2209.07663
 - YouTube recommendation system (candidate generation + ranking): https://research.google/pubs/pub45530/
-
