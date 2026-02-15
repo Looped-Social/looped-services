@@ -437,6 +437,7 @@ resource "aws_ecs_task_definition" "api" {
           { name = "APP_ENV", value = var.environment },
           { name = "ADMIN_OPS_ALERTS_ENABLED", value = tostring(var.environment == "prod") },
           { name = "ADMIN_OPS_ALERTS_ADMIN_BASE_URL", value = trimspace(split(",", var.cors_allowed_origins)[0]) },
+          { name = "ADMIN_FYP_ALERTS_ENABLED", value = tostring(var.environment == "prod") },
           { name = "LOGO_DEV_TOKEN", value = var.logo_dev_token },
           { name = "LOGO_DEV_RETINA", value = tostring(var.logo_dev_retina) },
           { name = "EMAIL_FROM", value = var.email_from },
