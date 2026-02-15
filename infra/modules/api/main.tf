@@ -440,6 +440,7 @@ resource "aws_ecs_task_definition" "api" {
           { name = "LOGO_DEV_TOKEN", value = var.logo_dev_token },
           { name = "LOGO_DEV_RETINA", value = tostring(var.logo_dev_retina) },
           { name = "EMAIL_FROM", value = var.email_from },
+          { name = "EMAIL_ADMIN_FROM", value = var.email_admin_from },
           { name = "EMAIL_REPLY_TO", value = var.email_reply_to },
           { name = "EMAIL_CONFIGURATION_SET", value = var.email_configuration_set },
           { name = "EMAIL_VERIFY_BASE_URL", value = var.email_verify_base_url },

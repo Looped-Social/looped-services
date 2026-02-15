@@ -51,6 +51,11 @@ public class EmailService {
     }
 
     private void sendEmail(String to, String subject, String textBody, String htmlBody) {
+        sendEmailFrom(props.getFrom(), to, subject, textBody, htmlBody);
+    }
+
+    private void sendEmailFrom(String from, String to, String subject, String textBody, String htmlBody) {
+        if (from == null || from.isBlank()) return;
         Destination destination = Destination.builder().toAddresses(to).build();
         Message message = Message.builder()
                 .subject(Content.builder().data(subject).charset("UTF-8").build())
@@ -60,7 +65,7 @@ public class EmailService {
                         .build())
                 .build();
         SendEmailRequest.Builder request = SendEmailRequest.builder()
-                .source(props.getFrom())
+                .source(from)
                 .destination(destination)
                 .message(message);
         if (props.getReplyTo() != null && !props.getReplyTo().isBlank()) {
@@ -137,7 +142,15 @@ public class EmailService {
         } else {
             resolvedHtml = wrapAdminShell(resolvedSubject, htmlBody);
         }
-        sendEmail(to, resolvedSubject, resolvedText, resolvedHtml);
+        String from = resolveAdminFrom();
+        sendEmailFrom(from, to, resolvedSubject, resolvedText, resolvedHtml);
+    }
+
+    private String resolveAdminFrom() {
+        if (props.getAdminFrom() != null && !props.getAdminFrom().isBlank()) {
+            return props.getAdminFrom().trim();
+        }
+        return props.getFrom();
     }
 
     private String buildAdminMessageHtml(String subject, String textBody) {

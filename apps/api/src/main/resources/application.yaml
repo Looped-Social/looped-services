@@ -86,6 +86,25 @@ admin:
     spike-absolute-threshold: ${ADMIN_OPS_ALERTS_SPIKE_ABSOLUTE_THRESHOLD:10}
     hourly-cooldown: ${ADMIN_OPS_ALERTS_HOURLY_COOLDOWN:PT2H}
     admin-base-url: ${ADMIN_OPS_ALERTS_ADMIN_BASE_URL:}
+  fyp-alerts:
+    enabled: ${ADMIN_FYP_ALERTS_ENABLED:false}
+    environment: ${APP_ENV:}
+    required-environment: ${ADMIN_FYP_ALERTS_REQUIRED_ENV:prod}
+    time-zone: ${ADMIN_FYP_ALERTS_TIME_ZONE:America/New_York}
+    cron: "${ADMIN_FYP_ALERTS_CRON:0 30 * * * *}"
+    cooldown: ${ADMIN_FYP_ALERTS_COOLDOWN:PT24H}
+    perf-window-minutes: ${ADMIN_FYP_ALERTS_PERF_WINDOW_MINUTES:60}
+    perf-min-sampled-requests: ${ADMIN_FYP_ALERTS_PERF_MIN_SAMPLED_REQUESTS:200}
+    global-fyp-estimated-rps-threshold: ${ADMIN_FYP_ALERTS_GLOBAL_FYP_ESTIMATED_RPS_THRESHOLD:50}
+    global-fyp-p95-upper-bound-ms-threshold: ${ADMIN_FYP_ALERTS_GLOBAL_FYP_P95_UPPER_BOUND_MS_THRESHOLD:750}
+    global-fyp-sampled-5xx-rate-threshold: ${ADMIN_FYP_ALERTS_GLOBAL_FYP_SAMPLED_5XX_RATE_THRESHOLD:0.005}
+    telemetry-events-24h-threshold: ${ADMIN_FYP_ALERTS_TELEMETRY_EVENTS_24H_THRESHOLD:5000000}
+    feed-impressions-24h-threshold: ${ADMIN_FYP_ALERTS_FEED_IMPRESSIONS_24H_THRESHOLD:2500000}
+    telemetry-table-bytes-threshold: ${ADMIN_FYP_ALERTS_TELEMETRY_TABLE_BYTES_THRESHOLD:10737418240} # 10GB
+    posts-created-24h-threshold: ${ADMIN_FYP_ALERTS_POSTS_CREATED_24H_THRESHOLD:50000}
+    min-interactable-impression-share: ${ADMIN_FYP_ALERTS_MIN_INTERACTABLE_IMPRESSION_SHARE:0.50}
+    runbook-url: ${ADMIN_FYP_ALERTS_RUNBOOK_URL:}
+    dashboard-url: ${ADMIN_FYP_ALERTS_DASHBOARD_URL:}
 
 redis:
   url: ${REDIS_URL:redis://localhost:6379}
@@ -128,6 +147,7 @@ specializations:
 email:
   enabled: ${EMAIL_ENABLED:true}
   from: ${EMAIL_FROM:}
+  admin-from: ${EMAIL_ADMIN_FROM:}
   reply-to: ${EMAIL_REPLY_TO:}
   verify-base-url: ${EMAIL_VERIFY_BASE_URL:}
   configuration-set: ${EMAIL_CONFIGURATION_SET:}
@@ -178,6 +198,11 @@ feed:
     max-candidates-per-pool: ${FEED_FYP_MAX_CANDIDATES_PER_POOL:250}
     max-per-author: ${FEED_FYP_MAX_PER_AUTHOR:2}
     max-per-community: ${FEED_FYP_MAX_PER_COMMUNITY:5}
+  metrics:
+    global-fyp:
+      enabled: ${FEED_METRICS_GLOBAL_FYP_ENABLED:true}
+      sample-rate: ${FEED_METRICS_GLOBAL_FYP_SAMPLE_RATE:0.01}
+      retention: ${FEED_METRICS_GLOBAL_FYP_RETENTION:PT72H}
 
 telemetry:
   retention:

@@ -8,6 +8,7 @@ import org.springframework.context.annotation.Configuration;
 public class EmailProperties {
     private boolean enabled = true;
     private String from;
+    private String adminFrom;
     private String replyTo;
     private String verifyBaseUrl;
     private String configurationSet;
@@ -26,6 +27,14 @@ public class EmailProperties {
 
     public void setFrom(String from) {
         this.from = from;
+    }
+
+    public String getAdminFrom() {
+        return adminFrom;
+    }
+
+    public void setAdminFrom(String adminFrom) {
+        this.adminFrom = adminFrom;
     }
 
     public String getReplyTo() {

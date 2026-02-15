@@ -49,6 +49,7 @@ iOS (Swift/SwiftUI)
   - SQS (+ DLQ) for async jobs (push now; feed/mod later).
 - Observability
   - CloudWatch logs/metrics/alarms; structured JSON logging; request tracing.
+  - Admin email alerts (SES): moderation backlog digests and FYP scale/upgrade alerts (metrics-driven, cooldown via Redis).
 - Secrets
   - AWS Secrets Manager/SSM Parameter Store for prod/stage; local .env for dev.
 

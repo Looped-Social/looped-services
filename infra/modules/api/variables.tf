@@ -109,6 +109,12 @@ variable "email_from" {
   type = string
 }
 
+variable "email_admin_from" {
+  type        = string
+  description = "Optional 'from' address used for admin digests/alerts. Defaults to email_from when empty."
+  default     = ""
+}
+
 variable "email_reply_to" {
   type = string
 }

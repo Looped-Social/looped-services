@@ -73,6 +73,12 @@ variable "email_from" {
   default = "verify@mylooped.app"
 }
 
+variable "email_admin_from" {
+  type        = string
+  description = "From address used for admin digests/alerts. Defaults to system@mylooped.app."
+  default     = "system@mylooped.app"
+}
+
 variable "email_reply_to" {
   type    = string
   default = "support@mylooped.app"

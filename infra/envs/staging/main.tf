@@ -100,6 +100,7 @@ module "api" {
   redis_primary_endpoint = module.redis.primary_endpoint_address
 
   email_from                            = var.email_from
+  email_admin_from                      = var.email_admin_from
   email_reply_to                        = var.email_reply_to
   email_configuration_set               = var.email_configuration_set
   email_verify_base_url                 = var.email_verify_base_url

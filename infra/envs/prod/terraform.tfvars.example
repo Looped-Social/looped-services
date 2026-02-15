@@ -20,6 +20,7 @@ multi_az_nat = true
 cors_allowed_origins = "https://admin.mylooped.app"
 
 email_from              = "verify@mylooped.app"
+email_admin_from        = "system@mylooped.app"
 email_reply_to          = "support@mylooped.app"
 email_configuration_set = "looped-email-events"
 email_verify_base_url   = ""
