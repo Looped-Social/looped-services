@@ -211,7 +211,8 @@ iOS (Swift/SwiftUI)
   - Health: `GET http://localhost:8080/health` → `ok`
 - Build & test
   - Build all: `./mvnw -q -T 1C -DskipTests package`
-  - Run tests: `./mvnw -q -T 1C test`
+  - Run tests: `./mvnw -q -T 1C test` (uses Testcontainers; requires Docker)
+  - Agent note: do not run tests automatically unless explicitly asked (prefer CI/GitHub Actions if local Docker is unreliable)
   - Package API: `./mvnw -q -pl apps/api -am package`
   - Run JAR: `java -jar apps/api/target/looped-api-0.0.1-SNAPSHOT.jar`
 - Port & env

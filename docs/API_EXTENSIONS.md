@@ -31,6 +31,13 @@
   - Request: `{ "title": "...", "message": "...", "email": "optional" }`
   - JSON aliases: `subject` → `title`, `description`/`body` → `message`
   - Auth is optional; when provided, feedback is linked to the user.
+- **Telemetry (recommendations + analytics)**
+  - `POST /v1/telemetry/events` → `{ status: "ok", accepted: <int>, dropped: <int> }`
+  - Auth: Firebase JWT required
+  - Purpose: record feed impressions + view funnel events (not stateful actions)
+  - Request:
+    - `{ "session_id": "<uuid>", "sent_at_ms?": <epoch_ms>, "events": [ ... ] }`
+    - See `docs/recommendations/TELEMETRY_API.md` for event types and schemas.
 - **Onboarding**
   - `POST /v1/users/onboard` → creates the user record from Firebase identity + email domain.
   - Body: `{ "username": "string", "firstName": "string", "lastName": "string", "dateOfBirth": "YYYY-MM-DD" }`
