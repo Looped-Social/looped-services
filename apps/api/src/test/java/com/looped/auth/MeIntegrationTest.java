@@ -220,7 +220,9 @@ class MeIntegrationTest extends PostgresTestBase {
         String t = token("uid-feed-incomplete");
         mockMvc.perform(get("/v1/feed").header("Authorization", "Bearer " + t))
                 .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.error").value("onboarding_incomplete"));
+                .andExpect(jsonPath("$.error").value("onboarding_incomplete"))
+                .andExpect(jsonPath("$.onboarding_step").value("verification"))
+                .andExpect(jsonPath("$.onboardingStep").value("verification"));
     }
 
     @Test

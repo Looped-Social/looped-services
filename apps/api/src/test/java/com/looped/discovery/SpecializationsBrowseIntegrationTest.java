@@ -53,6 +53,24 @@ class SpecializationsBrowseIntegrationTest extends PostgresTestBase {
     }
 
     @Test
+    void browse_allows_onboarding_incomplete_user() throws Exception {
+        long companyId = jdbc.queryForObject(
+                "INSERT INTO companies(name, domain) VALUES ('BrowseOnboard', 'browseonboard.co') RETURNING id",
+                Long.class);
+        jdbc.update("INSERT INTO users(firebase_uid, handle, company_id, onboarding_step, onboarding_completed_at) VALUES (?,?,?,?,NULL)",
+                "uid-browse-onboarding", "browseonboard", companyId, "verification");
+        jdbc.update("INSERT INTO communities(kind, specialization_type, name) VALUES ('specialization','field','Biomedical')");
+
+        String auth = "Bearer " + token("uid-browse-onboarding");
+        mockMvc.perform(get("/v1/specializations/browse")
+                        .param("type", "field")
+                        .header("Authorization", auth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items", hasSize(1)))
+                .andExpect(jsonPath("$.items[0].specialization_type", equalTo("field")));
+    }
+
+    @Test
     void browse_majors_is_cursor_paginated_and_ordered() throws Exception {
         long companyId = jdbc.queryForObject(
                 "INSERT INTO companies(name, domain) VALUES ('BrowseCo', 'browse.co') RETURNING id",
@@ -159,4 +177,3 @@ class SpecializationsBrowseIntegrationTest extends PostgresTestBase {
                 .andExpect(jsonPath("$.error", equalTo("invalid_specialization_type")));
     }
 }
-

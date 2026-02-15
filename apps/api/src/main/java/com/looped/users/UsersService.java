@@ -540,6 +540,12 @@ public class UsersService {
     private static final String ONBOARDING_STEP_SELECT_COMPANY = "select_company";
     private static final String ONBOARDING_STEP_VERIFICATION = "verification";
     private static final String ONBOARDING_STEP_VERIFICATION_NOTIFICATIONS = "verification_notifications";
+    private static final List<String> ONBOARDING_STEP_SEQUENCE = List.of(
+            ONBOARDING_STEP_PROFILE_SETUP,
+            ONBOARDING_STEP_SELECT_COMPANY,
+            ONBOARDING_STEP_VERIFICATION,
+            ONBOARDING_STEP_VERIFICATION_NOTIFICATIONS
+    );
 
     public OnboardingState onboardingState(String firebaseUid) {
         var userOpt = users.findByFirebaseUid(firebaseUid);
@@ -566,20 +572,33 @@ public class UsersService {
             return UpdateOnboardingResult.ok(new OnboardingState(true, ONBOARDING_STEP_VERIFICATION_NOTIFICATIONS));
         }
 
-        String normalized = step == null ? null : step.trim().toLowerCase(Locale.ROOT);
-        if (normalized == null || normalized.isBlank()) return UpdateOnboardingResult.invalidStep();
+        String normalized = normalizeOnboardingStep(step);
+        if (normalized == null) {
+            return UpdateOnboardingResult.invalidStep(currentOnboardingStep(actor.get()), ONBOARDING_STEP_SEQUENCE);
+        }
 
-        return switch (normalized) {
-            case ONBOARDING_STEP_VERIFICATION -> {
-                users.updateOnboardingStep(actor.get().id, ONBOARDING_STEP_VERIFICATION);
-                yield UpdateOnboardingResult.ok(new OnboardingState(false, ONBOARDING_STEP_VERIFICATION));
-            }
-            case ONBOARDING_STEP_VERIFICATION_NOTIFICATIONS -> {
-                users.markOnboardingComplete(actor.get().id);
-                yield UpdateOnboardingResult.ok(new OnboardingState(true, ONBOARDING_STEP_VERIFICATION_NOTIFICATIONS));
-            }
-            default -> UpdateOnboardingResult.invalidStep();
-        };
+        if (ONBOARDING_STEP_VERIFICATION_NOTIFICATIONS.equals(normalized)) {
+            users.markOnboardingComplete(actor.get().id);
+            return UpdateOnboardingResult.ok(new OnboardingState(true, ONBOARDING_STEP_VERIFICATION_NOTIFICATIONS));
+        }
+
+        users.updateOnboardingStep(actor.get().id, normalized);
+        return UpdateOnboardingResult.ok(new OnboardingState(false, normalized));
+    }
+
+    private String normalizeOnboardingStep(String step) {
+        if (step == null || step.isBlank()) return null;
+        String normalized = step.trim().toLowerCase(Locale.ROOT);
+        return ONBOARDING_STEP_SEQUENCE.contains(normalized) ? normalized : null;
+    }
+
+    private String currentOnboardingStep(UserRepository.UserRow actor) {
+        String step = actor.onboardingStep;
+        if (step == null || step.isBlank()) {
+            return ONBOARDING_STEP_VERIFICATION;
+        }
+        String normalized = step.trim().toLowerCase(Locale.ROOT);
+        return ONBOARDING_STEP_SEQUENCE.contains(normalized) ? normalized : ONBOARDING_STEP_VERIFICATION;
     }
 
     public void syncEmail(String firebaseUid, String email) {
@@ -817,10 +836,17 @@ public class UsersService {
 
     public enum UpdateOnboardingStatus { OK, USER_NOT_PROVISIONED, INVALID_STEP }
 
-    public record UpdateOnboardingResult(UpdateOnboardingStatus status, OnboardingState state) {
-        static UpdateOnboardingResult ok(OnboardingState state) { return new UpdateOnboardingResult(UpdateOnboardingStatus.OK, state); }
-        static UpdateOnboardingResult userNotProvisioned() { return new UpdateOnboardingResult(UpdateOnboardingStatus.USER_NOT_PROVISIONED, null); }
-        static UpdateOnboardingResult invalidStep() { return new UpdateOnboardingResult(UpdateOnboardingStatus.INVALID_STEP, null); }
+    public record UpdateOnboardingResult(UpdateOnboardingStatus status, OnboardingState state,
+                                         String currentStep, List<String> allowedNextSteps) {
+        static UpdateOnboardingResult ok(OnboardingState state) {
+            return new UpdateOnboardingResult(UpdateOnboardingStatus.OK, state, state.onboardingStep(), ONBOARDING_STEP_SEQUENCE);
+        }
+        static UpdateOnboardingResult userNotProvisioned() {
+            return new UpdateOnboardingResult(UpdateOnboardingStatus.USER_NOT_PROVISIONED, null, null, List.of());
+        }
+        static UpdateOnboardingResult invalidStep(String currentStep, List<String> allowedNextSteps) {
+            return new UpdateOnboardingResult(UpdateOnboardingStatus.INVALID_STEP, null, currentStep, allowedNextSteps);
+        }
     }
 
     public record SearchResult(Status status, List<UserRepository.UserRow> users, String nextCursor) {

@@ -219,7 +219,12 @@ public class UsersController {
                     "error", "user_not_provisioned"
             ));
             case INVALID_STEP -> ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of(
-                    "error", "invalid_onboarding_step"
+                    "error", "invalid_onboarding_step",
+                    "message", "onboarding step must be one of: profile_setup, select_company, verification, verification_notifications",
+                    "current_step", res.currentStep(),
+                    "currentStep", res.currentStep(),
+                    "allowed_next_steps", res.allowedNextSteps(),
+                    "allowedNextSteps", res.allowedNextSteps()
             ));
             case OK -> ResponseEntity.ok(Map.of(
                     "onboarding_complete", res.state().onboardingComplete(),

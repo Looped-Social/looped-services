@@ -52,6 +52,24 @@ class SpecializationsRecommendedIntegrationTest extends PostgresTestBase {
     }
 
     @Test
+    void recommended_specializations_allows_onboarding_incomplete_user() throws Exception {
+        long companyId = jdbc.queryForObject(
+                "INSERT INTO companies(name, domain) VALUES ('SpecOnboard', 'speconboard.com') RETURNING id",
+                Long.class);
+        jdbc.update("INSERT INTO users(firebase_uid, handle, company_id, onboarding_step, onboarding_completed_at) VALUES (?,?,?,?,NULL)",
+                "uid-spec-onboarding", "speconboard", companyId, "verification");
+        jdbc.update("INSERT INTO communities(kind, specialization_type, name, member_count) VALUES ('specialization','major','Design', 8)");
+
+        String auth = "Bearer " + token("uid-spec-onboarding");
+        mockMvc.perform(get("/v1/specializations/recommended")
+                        .param("type", "major")
+                        .header("Authorization", auth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items", hasSize(1)))
+                .andExpect(jsonPath("$.items[0].specialization_type", equalTo("major")));
+    }
+
+    @Test
     void recommended_specializations_returns_both_types() throws Exception {
         long companyId = jdbc.queryForObject(
                 "INSERT INTO companies(name, domain) VALUES ('SpecCo', 'spec.com') RETURNING id",

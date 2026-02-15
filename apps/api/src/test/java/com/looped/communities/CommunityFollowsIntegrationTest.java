@@ -55,6 +55,22 @@ class CommunityFollowsIntegrationTest extends PostgresTestBase {
     }
 
     @Test
+    void follow_community_is_reachable_during_onboarding() throws Exception {
+        long companyId = jdbc.queryForObject(
+                "INSERT INTO companies(name, domain) VALUES ('OnboardFollow', 'onboardfollow.com') RETURNING id",
+                Long.class);
+        jdbc.update("INSERT INTO users(firebase_uid, handle, company_id, onboarding_step, onboarding_completed_at) VALUES (?,?,?,?,NULL)",
+                "uid-follow-onboarding", "followonb", companyId, "verification");
+        long communityId = jdbc.queryForObject("INSERT INTO communities(kind, name) VALUES ('company', 'Onboard Community') RETURNING id", Long.class);
+
+        String auth = "Bearer " + token("uid-follow-onboarding");
+        mockMvc.perform(post("/v1/communities/" + communityId + "/follow")
+                        .header("Authorization", auth))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.following").value(true));
+    }
+
+    @Test
     void list_followed_communities() throws Exception {
         long companyId = jdbc.queryForObject(
                 "INSERT INTO companies(name, domain) VALUES ('Acme', 'acme.com') RETURNING id",

@@ -321,6 +321,66 @@ class UsersIntegrationTest extends PostgresTestBase {
     }
 
     @Test
+    void display_specialization_endpoint_is_reachable_during_onboarding() throws Exception {
+        long companyId = jdbc.queryForObject("INSERT INTO companies(name, domain) VALUES ('OnbDispCo','onbdisp.co') RETURNING id", Long.class);
+        jdbc.update("INSERT INTO users(firebase_uid, handle, company_id, onboarding_step, onboarding_completed_at) VALUES (?,?,?,?,NULL)",
+                "uid-onb-disp", "onbdisp", companyId, "verification");
+
+        String auth = "Bearer " + token("uid-onb-disp");
+        mockMvc.perform(put("/v1/users/me/display-specialization")
+                        .header("Authorization", auth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"specializationId\":999999}"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error", equalTo("specialization_not_found")));
+    }
+
+    @Test
+    void update_onboarding_accepts_intermediate_steps() throws Exception {
+        long companyId = jdbc.queryForObject("INSERT INTO companies(name, domain) VALUES ('OnbMidCo','onbmid.co') RETURNING id", Long.class);
+        long userId = jdbc.queryForObject(
+                "INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?) RETURNING id",
+                Long.class, "uid-onb-mid", "onbmid", companyId
+        );
+
+        String auth = "Bearer " + token("uid-onb-mid");
+        mockMvc.perform(put("/v1/users/me/onboarding")
+                        .header("Authorization", auth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"step\":\"select_company\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.onboarding_complete", equalTo(false)))
+                .andExpect(jsonPath("$.onboarding_step", equalTo("select_company")));
+
+        String storedStep = jdbc.queryForObject(
+                "SELECT onboarding_step FROM users WHERE id = ?",
+                String.class, userId
+        );
+        org.junit.jupiter.api.Assertions.assertEquals("select_company", storedStep);
+    }
+
+    @Test
+    void update_onboarding_invalid_step_returns_actionable_payload() throws Exception {
+        long companyId = jdbc.queryForObject("INSERT INTO companies(name, domain) VALUES ('OnbErrCo','onberr.co') RETURNING id", Long.class);
+        jdbc.update("INSERT INTO users(firebase_uid, handle, company_id, onboarding_step) VALUES (?,?,?,?)",
+                "uid-onb-invalid", "onberr", companyId, "verification");
+
+        String auth = "Bearer " + token("uid-onb-invalid");
+        mockMvc.perform(put("/v1/users/me/onboarding")
+                        .header("Authorization", auth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"step\":\"identity\"}"))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.error", equalTo("invalid_onboarding_step")))
+                .andExpect(jsonPath("$.current_step", equalTo("verification")))
+                .andExpect(jsonPath("$.allowed_next_steps", hasSize(4)))
+                .andExpect(jsonPath("$.allowed_next_steps[0]", equalTo("profile_setup")))
+                .andExpect(jsonPath("$.allowed_next_steps[1]", equalTo("select_company")))
+                .andExpect(jsonPath("$.allowed_next_steps[2]", equalTo("verification")))
+                .andExpect(jsonPath("$.allowed_next_steps[3]", equalTo("verification_notifications")));
+    }
+
+    @Test
     void update_onboarding_marks_complete() throws Exception {
         long companyId = jdbc.queryForObject("INSERT INTO companies(name, domain) VALUES ('OnbCo','onb.co') RETURNING id", Long.class);
         long userId = jdbc.queryForObject(
