@@ -139,17 +139,11 @@ public class NotificationPublisher {
                                                     OffsetDateTime expiresAt) {
         if (targetUserId <= 0 || communityId <= 0 || verificationRequestId <= 0) return;
         String name = (communityName == null || communityName.isBlank()) ? "your community" : communityName.trim();
-        Map<String, Object> payload = new HashMap<>();
-        payload.put("kind", "community_verification");
-        payload.put("status", "approved");
-        payload.put("community_id", communityId);
-        payload.put("community_name", name);
-        if (method != null && !method.isBlank()) payload.put("method", method.trim().toLowerCase(Locale.ROOT));
-        if (expiresAt != null) payload.put("expires_at", expiresAt);
+        Map<String, Object> payload = communityVerificationPayloadBase("approved", communityId, name, method, expiresAt);
         payload.put("title", "Verified");
         payload.put("body", "You're verified for " + name + ". Get to posting.");
         String eventKey = "verification_request:" + verificationRequestId + ":approved";
-        publishToUserIdempotent(targetUserId, NotificationType.SYSTEM, eventKey, payload);
+        publishToUserIdempotent(targetUserId, NotificationType.ANNOUNCEMENT, eventKey, payload);
     }
 
     public void notifyCommunityVerificationRejected(long targetUserId,
@@ -161,37 +155,67 @@ public class NotificationPublisher {
         if (targetUserId <= 0 || communityId <= 0 || verificationRequestId <= 0) return;
         String name = (communityName == null || communityName.isBlank()) ? "your community" : communityName.trim();
         String reason = normalizeReason(rejectReason);
-        Map<String, Object> payload = new HashMap<>();
-        payload.put("kind", "community_verification");
-        payload.put("status", "rejected");
-        payload.put("community_id", communityId);
-        payload.put("community_name", name);
-        if (method != null && !method.isBlank()) payload.put("method", method.trim().toLowerCase(Locale.ROOT));
+        Map<String, Object> payload = communityVerificationPayloadBase("rejected", communityId, name, method, null);
         if (reason != null) payload.put("reject_reason", reason);
         payload.put("title", "Verification rejected");
         payload.put("body", reason == null
                 ? "Your verification for " + name + " was rejected."
                 : "Your verification for " + name + " was rejected. Reason: " + reason);
         String eventKey = "verification_request:" + verificationRequestId + ":rejected";
-        publishToUserIdempotent(targetUserId, NotificationType.SYSTEM, eventKey, payload);
+        publishToUserIdempotent(targetUserId, NotificationType.ANNOUNCEMENT, eventKey, payload);
+    }
+
+    public void notifyCommunityVerificationExpiringSoon(long targetUserId,
+                                                        long communityId,
+                                                        String communityName,
+                                                        String method,
+                                                        OffsetDateTime expiresAt,
+                                                        int daysRemaining) {
+        if (targetUserId <= 0 || communityId <= 0 || expiresAt == null) return;
+        if (daysRemaining <= 0) return;
+        String name = (communityName == null || communityName.isBlank()) ? "your community" : communityName.trim();
+        Map<String, Object> payload = communityVerificationPayloadBase("expiring", communityId, name, method, expiresAt);
+        payload.put("days_remaining", daysRemaining);
+        payload.put("title", "Verification expiring soon");
+        payload.put("body", daysRemaining == 1
+                ? "Your verification for " + name + " expires in 1 day."
+                : "Your verification for " + name + " expires in " + daysRemaining + " days.");
+        String eventKey = "community_verification:" + communityId + ":expires_at:" + expiryMarker(expiresAt) + ":expiring:" + daysRemaining + "d";
+        publishToUserIdempotent(targetUserId, NotificationType.ANNOUNCEMENT, eventKey, payload);
+    }
+
+    public void notifyCommunityVerificationExpired(long targetUserId,
+                                                   long communityId,
+                                                   String communityName,
+                                                   String method,
+                                                   OffsetDateTime expiresAt) {
+        if (targetUserId <= 0 || communityId <= 0 || expiresAt == null) return;
+        String name = (communityName == null || communityName.isBlank()) ? "your community" : communityName.trim();
+        Map<String, Object> payload = communityVerificationPayloadBase("expired", communityId, name, method, expiresAt);
+        payload.put("title", "Verification expired");
+        payload.put("body", "Your verification for " + name + " has expired. Re-verify to keep posting.");
+        String eventKey = "community_verification:" + communityId + ":expires_at:" + expiryMarker(expiresAt) + ":expired";
+        publishToUserIdempotent(targetUserId, NotificationType.ANNOUNCEMENT, eventKey, payload);
     }
 
     public void notifyUserVerificationApproved(long targetUserId, String method, long verificationRequestId) {
         if (targetUserId <= 0 || verificationRequestId <= 0) return;
         Map<String, Object> payload = new HashMap<>();
+        payload.put("category", "verification");
         payload.put("kind", "user_verification");
         payload.put("status", "approved");
         if (method != null && !method.isBlank()) payload.put("method", method.trim().toLowerCase(Locale.ROOT));
         payload.put("title", "Verified");
         payload.put("body", "You're verified. Get to posting.");
         String eventKey = "verification_request:" + verificationRequestId + ":approved";
-        publishToUserIdempotent(targetUserId, NotificationType.SYSTEM, eventKey, payload);
+        publishToUserIdempotent(targetUserId, NotificationType.ANNOUNCEMENT, eventKey, payload);
     }
 
     public void notifyUserVerificationRejected(long targetUserId, String method, long verificationRequestId, String rejectReason) {
         if (targetUserId <= 0 || verificationRequestId <= 0) return;
         String reason = normalizeReason(rejectReason);
         Map<String, Object> payload = new HashMap<>();
+        payload.put("category", "verification");
         payload.put("kind", "user_verification");
         payload.put("status", "rejected");
         if (method != null && !method.isBlank()) payload.put("method", method.trim().toLowerCase(Locale.ROOT));
@@ -201,7 +225,7 @@ public class NotificationPublisher {
                 ? "Your verification was rejected."
                 : "Your verification was rejected. Reason: " + reason);
         String eventKey = "verification_request:" + verificationRequestId + ":rejected";
-        publishToUserIdempotent(targetUserId, NotificationType.SYSTEM, eventKey, payload);
+        publishToUserIdempotent(targetUserId, NotificationType.ANNOUNCEMENT, eventKey, payload);
     }
 
     private void publishToUser(long userId, NotificationType type, Map<String, Object> payload) {
@@ -484,6 +508,26 @@ public class NotificationPublisher {
         int max = 200;
         if (normalized.length() > max) return normalized.substring(0, max - 1).trim() + "…";
         return normalized;
+    }
+
+    private Map<String, Object> communityVerificationPayloadBase(String status,
+                                                                 long communityId,
+                                                                 String communityName,
+                                                                 String method,
+                                                                 OffsetDateTime expiresAt) {
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("category", "verification");
+        payload.put("kind", "community_verification");
+        payload.put("status", status);
+        payload.put("community_id", communityId);
+        payload.put("community_name", communityName);
+        if (method != null && !method.isBlank()) payload.put("method", method.trim().toLowerCase(Locale.ROOT));
+        if (expiresAt != null) payload.put("expires_at", expiresAt);
+        return payload;
+    }
+
+    private String expiryMarker(OffsetDateTime expiresAt) {
+        return Long.toString(expiresAt.toInstant().toEpochMilli());
     }
 
     private String buildCollapseId(NotificationType type, Map<String, Object> payload) {

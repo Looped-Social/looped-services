@@ -129,6 +129,14 @@ rate-limit:
     window-seconds: ${RL_USER_WINDOW_SECONDS:60}
     max-requests: ${RL_USER_MAX_REQUESTS:180}
 
+communities:
+  verification-expiry-cron: "${COMMUNITIES_VERIFICATION_EXPIRY_CRON:0 0 * * * *}"
+  verification-reminders:
+    enabled: ${COMMUNITIES_VERIFICATION_REMINDERS_ENABLED:true}
+    cron: "${COMMUNITIES_VERIFICATION_REMINDERS_CRON:0 10 * * * *}"
+    batch-size: ${COMMUNITIES_VERIFICATION_REMINDERS_BATCH_SIZE:500}
+    expired-lookback-days: ${COMMUNITIES_VERIFICATION_REMINDERS_EXPIRED_LOOKBACK_DAYS:14}
+
 verification:
   echo-code: ${VERIFICATION_ECHO_CODE:false}
   code-ttl-seconds: ${VERIFICATION_CODE_TTL_SECONDS:600}

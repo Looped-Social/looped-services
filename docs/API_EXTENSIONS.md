@@ -159,6 +159,15 @@
   - `GET /v1/notifications/preferences` → `{ notifications: { channels: { in_app|push|email: { enabled, types: { follow, like, comment, reply, mention, post_from_followed, repost, message_request, dm_message, channel_message, announcement, system } } } } }`
   - `PUT /v1/notifications/preferences` → same response; body updates any `enabled` or per-type flags.
   - Payload fields (by type): `actor_principal_id`, `actor_user_id`, `actor_anon_profile_id`, `actor_is_anonymous`, `actor_display_name`, `actor_profile_image_url`, `post_id`, `comment_id`, `context`, `conversation_id`, `message_id`, `deeplink`, `action_deeplink`.
+  - Verification notifications are delivered as `type: "announcement"` with announcement-style payload (`title`, `body`, deeplink keys) plus metadata:
+    - `category: "verification"`
+    - `kind: "community_verification" | "user_verification"`
+    - `status: "approved" | "rejected" | "expiring" | "expired"`
+    - `community_id`, `community_name` (community-scoped only)
+    - `method: "email" | "video" | "thirdparty" | "photo_id"` (when known)
+    - `expires_at` (community-scoped when applicable)
+    - `days_remaining` (`7` or `1` for expiring reminders)
+    - `event_key` (idempotency marker)
   - If a referenced actor user was deleted, payload is tombstoned for safety: `actor_deleted=true`, `actor_display_name="Deleted user"`, actor profile fields are removed, and user deeplinks are rewritten to `looped://notifications`.
   - `action_deeplink` is always present when a `deeplink` can be derived (or if the notification already includes one).
   - Deeplinks (preferred):

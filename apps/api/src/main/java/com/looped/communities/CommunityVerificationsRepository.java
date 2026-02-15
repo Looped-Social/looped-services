@@ -237,7 +237,62 @@ public class CommunityVerificationsRepository {
         );
     }
 
+    public List<VerificationReminderRow> listActiveExpiringInDays(int days, long cursorUserId, long cursorCommunityId, int limit) {
+        int lim = Math.max(1, Math.min(limit, 5_000));
+        return jdbc.query(
+                "SELECT cv.user_id, cv.community_id, c.name AS community_name, cv.method, cv.expires_at " +
+                        "FROM community_verifications cv " +
+                        "JOIN communities c ON c.id = cv.community_id " +
+                        "WHERE cv.verified = true " +
+                        "  AND cv.expires_at IS NOT NULL " +
+                        "  AND cv.expires_at > now() " +
+                        "  AND ((cv.expires_at AT TIME ZONE 'UTC')::date - (now() AT TIME ZONE 'UTC')::date) = ? " +
+                        "  AND (cv.user_id > ? OR (cv.user_id = ? AND cv.community_id > ?)) " +
+                        "ORDER BY cv.user_id ASC, cv.community_id ASC " +
+                        "LIMIT ?",
+                (rs, rowNum) -> new VerificationReminderRow(
+                        rs.getLong("user_id"),
+                        rs.getLong("community_id"),
+                        rs.getString("community_name"),
+                        rs.getString("method"),
+                        rs.getObject("expires_at", OffsetDateTime.class)
+                ),
+                days, cursorUserId, cursorUserId, cursorCommunityId, lim
+        );
+    }
+
+    public List<VerificationReminderRow> listRecentlyExpiredForReminder(int lookbackDays, long cursorUserId, long cursorCommunityId, int limit) {
+        int lim = Math.max(1, Math.min(limit, 5_000));
+        int days = Math.max(1, lookbackDays);
+        return jdbc.query(
+                "SELECT cv.user_id, cv.community_id, c.name AS community_name, cv.method, cv.expires_at " +
+                        "FROM community_verifications cv " +
+                        "JOIN communities c ON c.id = cv.community_id " +
+                        "WHERE cv.verified = true " +
+                        "  AND cv.expires_at IS NOT NULL " +
+                        "  AND cv.expires_at <= now() " +
+                        "  AND cv.expires_at > (now() - (? || ' days')::interval) " +
+                        "  AND (cv.user_id > ? OR (cv.user_id = ? AND cv.community_id > ?)) " +
+                        "ORDER BY cv.user_id ASC, cv.community_id ASC " +
+                        "LIMIT ?",
+                (rs, rowNum) -> new VerificationReminderRow(
+                        rs.getLong("user_id"),
+                        rs.getLong("community_id"),
+                        rs.getString("community_name"),
+                        rs.getString("method"),
+                        rs.getObject("expires_at", OffsetDateTime.class)
+                ),
+                Integer.toString(days), cursorUserId, cursorUserId, cursorCommunityId, lim
+        );
+    }
+
     public record VerificationState(boolean verified, OffsetDateTime expiresAt) {}
+
+    public record VerificationReminderRow(long userId,
+                                          long communityId,
+                                          String communityName,
+                                          String method,
+                                          OffsetDateTime expiresAt) {}
 
     public static class UserVerificationRow {
         public long communityId;
