@@ -103,4 +103,59 @@ class UserContentIntegrationTest extends PostgresTestBase {
                 .andExpect(jsonPath("$.items[0].post.content", equalTo("p1")))
                 .andExpect(jsonPath("$.next_cursor").doesNotExist());
     }
+
+    @Test
+    void content_includes_poll_for_posts_and_reply_post_previews() throws Exception {
+        long companyId = jdbc.queryForObject("INSERT INTO companies(name, domain) VALUES ('AcmePoll','acmepoll.com') RETURNING id", Long.class);
+        long actorId = jdbc.queryForObject("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?) RETURNING id",
+                Long.class, "uid-content-poll-actor", "actorpoll", companyId);
+        long actorPrincipalId = jdbc.queryForObject("INSERT INTO principals(kind, user_id) VALUES ('user', ?) RETURNING id", Long.class, actorId);
+
+        long targetId = jdbc.queryForObject("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?) RETURNING id",
+                Long.class, "uid-content-poll-target", "targetpoll", companyId);
+        long targetPrincipalId = jdbc.queryForObject("INSERT INTO principals(kind, user_id) VALUES ('user', ?) RETURNING id", Long.class, targetId);
+
+        Instant base = Instant.now();
+
+        long targetPollPostId = jdbc.queryForObject(
+                "INSERT INTO posts(author_id, author_principal_id, company_id, content, created_at) VALUES (?,?,?,?,?) RETURNING id",
+                Long.class, targetId, targetPrincipalId, companyId, "target poll post", Timestamp.from(base.minusSeconds(60))
+        );
+        long targetPollId = jdbc.queryForObject(
+                "INSERT INTO polls(post_id, question, max_selections, closes_at) VALUES (?,?,?, now() + interval '7 days') RETURNING id",
+                Long.class, targetPollPostId, "Target poll?", 1
+        );
+        jdbc.update("INSERT INTO poll_options(poll_id, text, sort_order) VALUES (?,?,?)", targetPollId, "T1", 0);
+        jdbc.update("INSERT INTO poll_options(poll_id, text, sort_order) VALUES (?,?,?)", targetPollId, "T2", 1);
+
+        long hostPollPostId = jdbc.queryForObject(
+                "INSERT INTO posts(author_id, author_principal_id, company_id, content, created_at) VALUES (?,?,?,?,?) RETURNING id",
+                Long.class, actorId, actorPrincipalId, companyId, "host poll post", Timestamp.from(base.minusSeconds(120))
+        );
+        long hostPollId = jdbc.queryForObject(
+                "INSERT INTO polls(post_id, question, max_selections, closes_at) VALUES (?,?,?, now() + interval '7 days') RETURNING id",
+                Long.class, hostPollPostId, "Host poll?", 1
+        );
+        jdbc.update("INSERT INTO poll_options(poll_id, text, sort_order) VALUES (?,?,?)", hostPollId, "H1", 0);
+        jdbc.update("INSERT INTO poll_options(poll_id, text, sort_order) VALUES (?,?,?)", hostPollId, "H2", 1);
+
+        jdbc.update("INSERT INTO comments(post_id, user_id, author_principal_id, company_id, content, created_at) VALUES (?,?,?,?,?,?)",
+                hostPollPostId, targetId, targetPrincipalId, companyId, "reply on host poll", Timestamp.from(base.minusSeconds(40)));
+
+        String auth = "Bearer " + token("uid-content-poll-actor");
+
+        mockMvc.perform(get("/v1/users/" + targetId + "/content?limit=10&include_post_preview=true").header("Authorization", auth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items", hasSize(2)))
+                .andExpect(jsonPath("$.items[0].type", equalTo("reply")))
+                .andExpect(jsonPath("$.items[0].post.id", equalTo((int) hostPollPostId)))
+                .andExpect(jsonPath("$.items[0].post.poll.question", equalTo("Host poll?")))
+                .andExpect(jsonPath("$.items[0].post.poll.options", hasSize(2)))
+                .andExpect(jsonPath("$.items[0].post.viewer_capabilities.canVote", equalTo(true)))
+                .andExpect(jsonPath("$.items[1].type", equalTo("post")))
+                .andExpect(jsonPath("$.items[1].post.id", equalTo((int) targetPollPostId)))
+                .andExpect(jsonPath("$.items[1].post.poll.question", equalTo("Target poll?")))
+                .andExpect(jsonPath("$.items[1].post.poll.options", hasSize(2)))
+                .andExpect(jsonPath("$.items[1].post.viewer_capabilities.canVote", equalTo(true)));
+    }
 }
