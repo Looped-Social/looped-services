@@ -195,10 +195,10 @@
     - Response: `{ kid, alg: "RSABSSA", public_key_pem, expires_at }`
   - **Issue blind cert**: `POST /anon/issue` (JWT required)
     - Body: `{ communityId, blindedMessage }`
-    - Response: `{ anon_cert_kid, blinded_signature, expires_at }`
+    - Response: `{ anon_cert_kid, blinded_signature, expires_at, issue_token, issue_token_expires_at }`
   - **Register persona**: `POST /anon/register` (NO JWT)
-    - Body: `{ personaPubkey, anonCert, anonCertKid }`
-    - Response: `{ anon_profile_id, handle, anon_cert_kid, expires_at }`
+    - Body: `{ personaPubkey, communityId, anonCert, anonCertKid, issueToken }`
+    - Response: `{ anon_profile_id, handle, community_id, anon_cert_kid, expires_at }`
   - **Anonymous actions** (NO JWT; reject Authorization with `400 { error: "anon_jwt_not_allowed" }`):
     - `POST /v1/posts` with `{ communityId, isAnon: true, anonProfileId, anonCert, anonCertKid, anonSig, anonTimestamp }`
     - `PUT /v1/posts/{id}` with `{ content, asAnon: true, anonProfileId, anonCert, anonCertKid, anonSig }`

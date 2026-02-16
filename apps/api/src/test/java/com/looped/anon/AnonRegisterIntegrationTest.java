@@ -17,6 +17,7 @@ import java.security.KeyPairGenerator;
 import java.security.PublicKey;
 import java.security.interfaces.RSAPrivateKey;
 import java.security.interfaces.RSAPublicKey;
+import java.time.OffsetDateTime;
 import java.util.Base64;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -43,6 +44,10 @@ class AnonRegisterIntegrationTest extends PostgresTestBase {
                 "INSERT INTO companies(name, domain) VALUES ('AnonRegCo','anonreg.co') RETURNING id",
                 Long.class
         );
+        long userId = jdbc.queryForObject(
+                "INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?) RETURNING id",
+                Long.class, "uid-anon-register-cs", "anonregistercs", companyId
+        );
         jdbc.update("INSERT INTO communities(kind, name) VALUES ('school', 'UNC')");
         long csId = jdbc.queryForObject(
                 "INSERT INTO communities(kind, specialization_type, name) VALUES ('specialization','major','CS') RETURNING id",
@@ -64,12 +69,21 @@ class AnonRegisterIntegrationTest extends PostgresTestBase {
         byte[] personaPubkeyRaw = rawEd25519PublicKey(ed.getPublic());
         String personaPubkeyB64 = Base64.getEncoder().encodeToString(personaPubkeyRaw);
         String anonCertB64 = issueCertB64((RSAPrivateKey) rsa.getPrivate(), (RSAPublicKey) rsa.getPublic(), personaPubkeyRaw);
+        String issueToken = "issue-token-register-cs";
+        jdbc.update(
+                "INSERT INTO anon_issue_tokens(token_hash, user_id, community_id, expires_at) VALUES (?,?,?,?)",
+                AnonIssueTokenCodec.hash(issueToken),
+                userId,
+                csId,
+                OffsetDateTime.now().plusHours(1)
+        );
 
         String body = "{"
                 + "\"personaPubkey\":\"" + personaPubkeyB64 + "\","
                 + "\"anonCert\":\"" + anonCertB64 + "\","
                 + "\"anonCertKid\":\"" + kid + "\","
-                + "\"communityId\":" + csId
+                + "\"communityId\":" + csId + ","
+                + "\"issueToken\":\"" + issueToken + "\""
                 + "}";
 
         mockMvc.perform(post("/anon/register")
@@ -88,6 +102,10 @@ class AnonRegisterIntegrationTest extends PostgresTestBase {
         long companyId = jdbc.queryForObject(
                 "INSERT INTO companies(name, domain) VALUES ('AnonRegMismatchCo','anonregmismatch.co') RETURNING id",
                 Long.class
+        );
+        long userId = jdbc.queryForObject(
+                "INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?) RETURNING id",
+                Long.class, "uid-anon-register-mismatch", "anonregistermismatch", companyId
         );
         long uncId = jdbc.queryForObject(
                 "INSERT INTO communities(kind, name) VALUES ('school', 'UNC') RETURNING id",
@@ -113,12 +131,21 @@ class AnonRegisterIntegrationTest extends PostgresTestBase {
         byte[] personaPubkeyRaw = rawEd25519PublicKey(ed.getPublic());
         String personaPubkeyB64 = Base64.getEncoder().encodeToString(personaPubkeyRaw);
         String anonCertB64 = issueCertB64((RSAPrivateKey) rsa.getPrivate(), (RSAPublicKey) rsa.getPublic(), personaPubkeyRaw);
+        String issueToken = "issue-token-register-mismatch";
+        jdbc.update(
+                "INSERT INTO anon_issue_tokens(token_hash, user_id, community_id, expires_at) VALUES (?,?,?,?)",
+                AnonIssueTokenCodec.hash(issueToken),
+                userId,
+                uncId,
+                OffsetDateTime.now().plusHours(1)
+        );
 
         String body = "{"
                 + "\"personaPubkey\":\"" + personaPubkeyB64 + "\","
                 + "\"anonCert\":\"" + anonCertB64 + "\","
                 + "\"anonCertKid\":\"" + kid + "\","
-                + "\"communityId\":" + csId
+                + "\"communityId\":" + csId + ","
+                + "\"issueToken\":\"" + issueToken + "\""
                 + "}";
 
         mockMvc.perform(post("/anon/register")

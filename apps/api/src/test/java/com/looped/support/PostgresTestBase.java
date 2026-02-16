@@ -37,7 +37,7 @@ public abstract class PostgresTestBase {
                     "principal_follows, principal_blocks, principal_saved_posts, post_likes, post_shares, post_reposts, follows, saved_posts, likes, principal_settings, " +
                     "conversation_participants, conversations, channel_members, channels, posts, devices, reports, media_assets, " +
                     "poll_vote_options, poll_votes, poll_options, polls, " +
-                    "anon_enrollment_sanctions, anon_backup_blobs, anon_revocations, anon_issuers, anon_handle_counters, anonymous_profiles, " +
+                    "anon_enrollment_sanctions, anon_backup_blobs, anon_revocations, anon_cert_entitlements, anon_issue_tokens, anon_issuers, anon_handle_counters, anonymous_profiles, " +
                     "principals, verifications, hashtag_posts, hashtags, community_verifications, community_follows, specialization_joins, user_specialization_limits, " +
                     "community_requests, community_domains, feedback, communities, user_loops, loops, admin_announcements, admin_invites, admin_users, app_settings, " +
                     "user_community_bans, user_share_slugs, user_tombstones, users, companies " +

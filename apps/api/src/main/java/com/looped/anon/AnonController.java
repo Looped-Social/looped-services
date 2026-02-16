@@ -19,8 +19,10 @@ import org.springframework.web.bind.annotation.*;
 
 import java.time.OffsetDateTime;
 import java.util.Base64;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
+import java.security.SecureRandom;
 
 @RestController
 @RequestMapping("/anon")
@@ -34,9 +36,13 @@ public class AnonController {
     private final PrincipalRepository principals;
     private final AnonEnrollmentSanctionsRepository sanctions;
     private final AnonIssuerService issuer;
+    private final AnonIssuerProperties issuerProps;
     private final AnonBackupRepository backups;
     private final AnonProofService proofs;
     private final AnonRevocationsRepository revocations;
+    private final AnonIssueTokenRepository issueTokens;
+    private final AnonCertEntitlementsRepository certEntitlements;
+    private final SecureRandom issueTokenRandom = new SecureRandom();
 
     public AnonController(UserRepository users,
                           CommunitiesRepository communities,
@@ -46,9 +52,12 @@ public class AnonController {
                           PrincipalRepository principals,
                           AnonEnrollmentSanctionsRepository sanctions,
                           AnonIssuerService issuer,
+                          AnonIssuerProperties issuerProps,
                           AnonBackupRepository backups,
                           AnonProofService proofs,
-                          AnonRevocationsRepository revocations) {
+                          AnonRevocationsRepository revocations,
+                          AnonIssueTokenRepository issueTokens,
+                          AnonCertEntitlementsRepository certEntitlements) {
         this.users = users;
         this.communities = communities;
         this.communityVerifications = communityVerifications;
@@ -57,9 +66,12 @@ public class AnonController {
         this.principals = principals;
         this.sanctions = sanctions;
         this.issuer = issuer;
+        this.issuerProps = issuerProps;
         this.backups = backups;
         this.proofs = proofs;
         this.revocations = revocations;
+        this.issueTokens = issueTokens;
+        this.certEntitlements = certEntitlements;
     }
 
     @PostMapping("/issue")
@@ -114,11 +126,21 @@ public class AnonController {
         }
         byte[] blindedSignature = issuer.signBlinded(body.communityId(), user.get().companyId, blindedMessage);
         var info = issuer.issuerInfo(body.communityId(), user.get().companyId);
-        Map<String, Object> out = Map.of(
-                "anon_cert_kid", info.kid(),
-                "blinded_signature", Base64.getEncoder().encodeToString(blindedSignature),
-                "expires_at", info.expiresAt()
+        String issueToken = AnonIssueTokenCodec.generateToken(issueTokenRandom);
+        byte[] issueTokenHash = AnonIssueTokenCodec.hash(issueToken);
+        OffsetDateTime issueTokenExpiresAt = OffsetDateTime.now().plus(
+                issuerProps.getIssueTokenTtl() != null ? issuerProps.getIssueTokenTtl() : java.time.Duration.ofMinutes(10)
         );
+        issueTokens.create(issueTokenHash, user.get().id, body.communityId(), issueTokenExpiresAt);
+
+        Map<String, Object> out = new HashMap<>();
+        out.put("anon_cert_kid", info.kid());
+        out.put("blinded_signature", Base64.getEncoder().encodeToString(blindedSignature));
+        out.put("expires_at", info.expiresAt());
+        out.put("issue_token", issueToken);
+        out.put("issueToken", issueToken);
+        out.put("issue_token_expires_at", issueTokenExpiresAt);
+        out.put("issueTokenExpiresAt", issueTokenExpiresAt);
         return ResponseEntity.ok(out);
     }
 
@@ -227,22 +249,84 @@ public class AnonController {
                     "cert_community_id", cert.issuer().scopeId
             ));
         }
+        if (body.issueToken() == null || body.issueToken().isBlank()) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of(
+                    "error", "issue_token_required",
+                    "message", "issueToken is required"
+            ));
+        }
+        byte[] issueTokenHash = AnonIssueTokenCodec.hash(body.issueToken());
+        var issued = issueTokens.consumeActive(issueTokenHash);
+        if (issued.isEmpty()) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
+                    "error", "issue_token_invalid",
+                    "message", "Issue token is invalid, expired, or already used"
+            ));
+        }
+        long issuedCommunityId = issued.get().communityId();
+        if (body.communityId() != null && !body.communityId().equals(issuedCommunityId)) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
+                    "error", "anon_scope_mismatch",
+                    "message", "Anonymous certificate is not scoped to requested community",
+                    "requested_community_id", body.communityId(),
+                    "cert_community_id", cert.issuer().scopeId
+            ));
+        }
+        if (!Long.valueOf(issuedCommunityId).equals(cert.issuer().scopeId)) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
+                    "error", "anon_scope_mismatch",
+                    "message", "Anonymous certificate is not scoped to requested community",
+                    "requested_community_id", issuedCommunityId,
+                    "cert_community_id", cert.issuer().scopeId
+            ));
+        }
+        var issuedCommunity = communities.findById(issuedCommunityId);
+        if (issuedCommunity.isEmpty()) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of(
+                    "error", "community_not_found",
+                    "message", "Community not found"
+            ));
+        }
+        if (requiresVerification(issuedCommunity.get())
+                && !communityVerifications.isVerified(issued.get().userId(), issuedCommunityId)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
+                    "error", "community_not_verified",
+                    "message", "You must be verified before enrolling"
+            ));
+        }
+        if (requiresSpecializationJoin(issuedCommunity.get())
+                && !specializationJoins.exists(issued.get().userId(), issuedCommunityId)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
+                    "error", "specialization_not_joined",
+                    "message", "You must join this specialization before enrolling"
+            ));
+        }
         if (cert.issuer().companyId == null) {
             return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
                     "error", "issuer_not_ready",
                     "message", "Issuer missing company scope"
             ));
         }
+        byte[] certBytes;
+        try {
+            certBytes = Base64.getDecoder().decode(body.anonCert());
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of(
+                    "error", "invalid_base64"
+            ));
+        }
+        byte[] certFingerprint = AnonCertFingerprint.sha256(body.anonCertKid(), certBytes);
+        certEntitlements.upsert(certFingerprint, body.anonCertKid(), issued.get().userId(), issuedCommunityId, cert.issuer().expiresAt);
 
         var existing = profiles.findByPublicKey(pubkey);
         if (existing.isPresent()) {
             principals.createForAnon(existing.get().id);
-            return ResponseEntity.ok(registerResponse(existing.get().id, existing.get().handle, cert.issuer().scopeId, body.anonCertKid(), cert.issuer().expiresAt));
+            return ResponseEntity.ok(registerResponse(existing.get().id, existing.get().handle, issuedCommunityId, body.anonCertKid(), cert.issuer().expiresAt));
         }
 
         var profile = profiles.create(null, pubkey);
         principals.createForAnon(profile.id);
-        return new ResponseEntity<>(registerResponse(profile.id, profile.handle, cert.issuer().scopeId, body.anonCertKid(), cert.issuer().expiresAt), HttpStatus.CREATED);
+        return new ResponseEntity<>(registerResponse(profile.id, profile.handle, issuedCommunityId, body.anonCertKid(), cert.issuer().expiresAt), HttpStatus.CREATED);
     }
 
     @GetMapping("/backup/{blobId}")
@@ -307,7 +391,8 @@ public class AnonController {
             @NotBlank String personaPubkey,
             @NotBlank String anonCert,
             @NotBlank String anonCertKid,
-            @JsonAlias("community_id") Long communityId
+            @JsonAlias("community_id") Long communityId,
+            @JsonAlias("issue_token") String issueToken
     ) {}
 
     public record BackupRequest(

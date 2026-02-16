@@ -2,6 +2,9 @@ package com.looped.anon;
 
 import com.looped.anon.crypto.AnonCrypto;
 import com.looped.anon.crypto.Ed25519Verifier;
+import com.looped.communities.CommunitiesRepository;
+import com.looped.communities.CommunityVerificationsRepository;
+import com.looped.communities.SpecializationJoinsRepository;
 import com.looped.principals.PrincipalRepository;
 import org.springframework.stereotype.Service;
 
@@ -17,15 +20,27 @@ public class AnonProofService {
     private final PrincipalRepository principals;
     private final AnonIssuerRepository issuers;
     private final AnonRevocationsRepository revocations;
+    private final AnonCertEntitlementsRepository certEntitlements;
+    private final CommunitiesRepository communities;
+    private final CommunityVerificationsRepository communityVerifications;
+    private final SpecializationJoinsRepository specializationJoins;
 
     public AnonProofService(AnonymousProfilesRepository profiles,
                             PrincipalRepository principals,
                             AnonIssuerRepository issuers,
-                            AnonRevocationsRepository revocations) {
+                            AnonRevocationsRepository revocations,
+                            AnonCertEntitlementsRepository certEntitlements,
+                            CommunitiesRepository communities,
+                            CommunityVerificationsRepository communityVerifications,
+                            SpecializationJoinsRepository specializationJoins) {
         this.profiles = profiles;
         this.principals = principals;
         this.issuers = issuers;
         this.revocations = revocations;
+        this.certEntitlements = certEntitlements;
+        this.communities = communities;
+        this.communityVerifications = communityVerifications;
+        this.specializationJoins = specializationJoins;
     }
 
     public VerifyResult verifyPost(AnonPostProof proof, long communityId, String content, long timestampSeconds) {
@@ -37,6 +52,9 @@ public class AnonProofService {
         if (cert.status() == Status.INVALID_SIGNATURE) return VerifyResult.invalidSignature();
         if (cert.issuer() == null || !"community".equals(cert.issuer().scopeKind) || cert.issuer().scopeId == null
                 || cert.issuer().scopeId != communityId) {
+            return VerifyResult.invalidCert();
+        }
+        if (!hasActiveCommunityEntitlement(cert.fingerprint(), communityId)) {
             return VerifyResult.invalidCert();
         }
         byte[] message = AnonCrypto.postMessage(communityId, content, timestampSeconds);
@@ -92,6 +110,9 @@ public class AnonProofService {
                     || !cert.issuer().scopeId.equals(communityId)) {
                 return VerifyResult.invalidCert();
             }
+            if (!hasActiveCommunityEntitlement(cert.fingerprint(), communityId)) {
+                return VerifyResult.invalidCert();
+            }
         }
         byte[] message = AnonCrypto.actionMessage(action, targetId);
         if (!verifyPersonaSignature(profile.get().publicKey, proof.anonSig(), message)) {
@@ -111,6 +132,7 @@ public class AnonProofService {
         } catch (IllegalArgumentException e) {
             return CertResult.invalidCert();
         }
+        byte[] fingerprint = AnonCertFingerprint.sha256(anonCertKid, signature);
         byte[] message = AnonCrypto.certMessage(personaPubkey);
         Optional<AnonIssuerRepository.IssuerRow> issuer = issuers.findByKid(anonCertKid);
         if (issuer.isEmpty()) return CertResult.invalidCert();
@@ -119,7 +141,31 @@ public class AnonProofService {
         }
         RSAPublicKey publicKey = parseRsaPublicKey(issuer.get().publicKey);
         boolean ok = new com.looped.anon.crypto.BlindRsaSigner(null, publicKey).verify(message, signature);
-        return ok ? CertResult.ok(issuer.get()) : CertResult.invalidSignature();
+        return ok ? CertResult.ok(issuer.get(), fingerprint) : CertResult.invalidSignature();
+    }
+
+    private boolean hasActiveCommunityEntitlement(byte[] certFingerprint, long communityId) {
+        if (certFingerprint == null || certFingerprint.length == 0) return false;
+        var entitlement = certEntitlements.find(certFingerprint).orElse(null);
+        if (entitlement == null) return false;
+        if (entitlement.communityId() != communityId) return false;
+        if (entitlement.certExpiresAt() != null && entitlement.certExpiresAt().isBefore(java.time.OffsetDateTime.now())) {
+            return false;
+        }
+
+        var community = communities.findById(communityId).orElse(null);
+        if (community == null || community.kind == null) return false;
+        if ("specialization".equalsIgnoreCase(community.kind)) {
+            if (!requiresSpecializationJoin(community.specializationType)) return true;
+            return specializationJoins.exists(entitlement.userId(), communityId);
+        }
+        return communityVerifications.isVerified(entitlement.userId(), communityId);
+    }
+
+    private boolean requiresSpecializationJoin(String specializationType) {
+        if (specializationType == null) return false;
+        String type = specializationType.trim().toLowerCase(java.util.Locale.ROOT);
+        return "major".equals(type) || "field".equals(type);
     }
 
     private RSAPublicKey parseRsaPublicKey(byte[] encoded) {
@@ -159,10 +205,12 @@ public class AnonProofService {
         static CertVerifyResult invalidSignature() { return new CertVerifyResult(Status.INVALID_SIGNATURE, null); }
     }
 
-    private record CertResult(Status status, AnonIssuerRepository.IssuerRow issuer) {
-        static CertResult ok(AnonIssuerRepository.IssuerRow issuer) { return new CertResult(Status.OK, issuer); }
-        static CertResult invalidCert() { return new CertResult(Status.INVALID_CERT, null); }
-        static CertResult invalidSignature() { return new CertResult(Status.INVALID_SIGNATURE, null); }
+    private record CertResult(Status status, AnonIssuerRepository.IssuerRow issuer, byte[] fingerprint) {
+        static CertResult ok(AnonIssuerRepository.IssuerRow issuer, byte[] fingerprint) {
+            return new CertResult(Status.OK, issuer, fingerprint);
+        }
+        static CertResult invalidCert() { return new CertResult(Status.INVALID_CERT, null, null); }
+        static CertResult invalidSignature() { return new CertResult(Status.INVALID_SIGNATURE, null, null); }
     }
 
     public record AnonPostProof(Long anonProfileId, String anonCert, String anonCertKid, String anonSig) {}

@@ -188,6 +188,7 @@ anon:
   issuer:
     kid: ${ANON_ISSUER_KID:dev-issuer}
     maxAge: ${ANON_CERT_MAX_AGE:365d}
+    issueTokenTtl: ${ANON_ISSUE_TOKEN_TTL:10m}
     kek: ${ANON_ISSUER_KEK:}
     keyBits: ${ANON_ISSUER_KEY_BITS:2048}
 
