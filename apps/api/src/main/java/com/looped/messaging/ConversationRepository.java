@@ -98,6 +98,15 @@ public class ConversationRepository {
                 "WHERE approved.conversation_id = c.id AND approved.status = 'approved'" +
                 ") " +
                 "WHERE cmr.id IS NULL ";
+        base +=
+                "AND NOT EXISTS (" +
+                        "SELECT 1 " +
+                        "FROM principal_blocks pb " +
+                        "JOIN principals p_blocker ON p_blocker.id = pb.blocker_principal_id AND p_blocker.kind = 'user' " +
+                        "JOIN principals p_blocked ON p_blocked.id = pb.blocked_principal_id AND p_blocked.kind = 'user' " +
+                        "WHERE (p_blocker.user_id = cp.user_id AND p_blocked.user_id = cp2.user_id) " +
+                        "   OR (p_blocker.user_id = cp2.user_id AND p_blocked.user_id = cp.user_id)" +
+                        ") ";
         if (cursorTs == null || cursorId == null) {
             base += "ORDER BY activity_at DESC, c.id DESC LIMIT " + limit;
             return jdbc.query(base, (rs, rowNum) -> mapConversationSummary(rs), userId, userId, userId);
@@ -120,7 +129,15 @@ public class ConversationRepository {
                 "JOIN conversation_participants cp ON cp.conversation_id = c.id AND cp.user_id = ? " +
                 "JOIN conversation_participants cp2 ON cp2.conversation_id = c.id AND cp2.user_id <> ? " +
                 "JOIN users uo ON uo.id = cp2.user_id AND uo.deleted_at IS NULL " +
-                "WHERE c.id = ?";
+                "WHERE c.id = ? " +
+                "AND NOT EXISTS (" +
+                "SELECT 1 " +
+                "FROM principal_blocks pb " +
+                "JOIN principals p_blocker ON p_blocker.id = pb.blocker_principal_id AND p_blocker.kind = 'user' " +
+                "JOIN principals p_blocked ON p_blocked.id = pb.blocked_principal_id AND p_blocked.kind = 'user' " +
+                "WHERE (p_blocker.user_id = cp.user_id AND p_blocked.user_id = cp2.user_id) " +
+                "   OR (p_blocker.user_id = cp2.user_id AND p_blocked.user_id = cp.user_id)" +
+                ")";
         List<ConversationSummary> list = jdbc.query(sql, (rs, rowNum) -> mapConversationSummary(rs), userId, userId, conversationId);
         return list.isEmpty() ? Optional.empty() : Optional.of(list.get(0));
     }

@@ -43,6 +43,16 @@ public class BlocksRepository {
         return count != null && count > 0;
     }
 
+    public boolean exists(long blockerPrincipalId, long blockedPrincipalId) {
+        Boolean exists = jdbc.queryForObject(
+                "SELECT EXISTS (SELECT 1 FROM principal_blocks WHERE blocker_principal_id = ? AND blocked_principal_id = ?)",
+                Boolean.class,
+                blockerPrincipalId,
+                blockedPrincipalId
+        );
+        return Boolean.TRUE.equals(exists);
+    }
+
     public Set<Long> otherPrincipalsBlockedEitherDirection(long principalId, List<Long> otherPrincipalIds) {
         if (principalId <= 0 || otherPrincipalIds == null || otherPrincipalIds.isEmpty()) return Set.of();
         var ids = otherPrincipalIds.stream().filter(id -> id != null && id > 0).distinct().toList();

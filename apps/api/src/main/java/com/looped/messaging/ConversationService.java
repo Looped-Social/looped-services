@@ -4,6 +4,7 @@ import com.looped.shared.Pagination;
 import com.looped.notifications.NotificationPublisher;
 import com.looped.principals.PrincipalRepository;
 import com.looped.settings.AppConfigService;
+import com.looped.users.BlocksRepository;
 import com.looped.users.FollowsRepository;
 import com.looped.users.ProfileImageUrls;
 import com.looped.users.UserPayloads;
@@ -32,6 +33,7 @@ public class ConversationService {
     private final PrincipalRepository principals;
     private final MessageRequestRepository messageRequests;
     private final ConversationPreferencesRepository conversationPreferences;
+    private final BlocksRepository blocks;
     private final MessagingPushService push;
     private final NotificationPublisher notifications;
     private final AppConfigService appConfig;
@@ -42,6 +44,7 @@ public class ConversationService {
                                PrincipalRepository principals,
                                MessageRequestRepository messageRequests,
                                ConversationPreferencesRepository conversationPreferences,
+                               BlocksRepository blocks,
                                MessagingPushService push,
                                NotificationPublisher notifications,
                                AppConfigService appConfig) {
@@ -51,6 +54,7 @@ public class ConversationService {
         this.principals = principals;
         this.messageRequests = messageRequests;
         this.conversationPreferences = conversationPreferences;
+        this.blocks = blocks;
         this.push = push;
         this.notifications = notifications;
         this.appConfig = appConfig;
@@ -107,6 +111,7 @@ public class ConversationService {
         if (actor.get().isAnonymous) return PreferencesResult.anonymousNotAllowed();
         if (conversations.conversationCompany(conversationId).isEmpty()) return PreferencesResult.notFound();
         if (!conversations.isParticipant(conversationId, actor.get().id)) return PreferencesResult.forbidden();
+        if (isBlockedConversation(conversationId, actor.get().id)) return PreferencesResult.blockedRelationship();
         conversationPreferences.upsertMuted(conversationId, actor.get().id, muted);
         return PreferencesResult.ok(muted);
     }
@@ -118,6 +123,7 @@ public class ConversationService {
         if (participantUserId == actor.get().id) return StartResult.invalidParticipant();
         var participant = users.findById(participantUserId);
         if (participant.isEmpty()) return StartResult.notFound();
+        if (isBlockedRelationship(actor.get().id, participantUserId)) return StartResult.blockedRelationship();
 
         Long existing = conversations.findExistingDirect(actor.get().id, participantUserId);
         if (existing == null && !canStartConversation(actor.get(), participant.get())) {
@@ -159,6 +165,7 @@ public class ConversationService {
         var company = conversations.conversationCompany(conversationId);
         if (company.isEmpty()) return MessagesResult.notFound();
         if (!conversations.isParticipant(conversationId, actor.get().id)) return MessagesResult.forbidden();
+        if (isBlockedConversation(conversationId, actor.get().id)) return MessagesResult.blockedRelationship();
         String blockingStatus = blockingRequestStatus(conversationId, actor.get().id);
         if (blockingStatus != null) {
             return REQUEST_STATUS_REJECTED.equals(blockingStatus)
@@ -193,6 +200,7 @@ public class ConversationService {
         var company = conversations.conversationCompany(conversationId);
         if (company.isEmpty()) return SendResult.notFound();
         if (!conversations.isParticipant(conversationId, actor.get().id)) return SendResult.forbidden();
+        if (isBlockedConversation(conversationId, actor.get().id)) return SendResult.blockedRelationship();
         if (!attachmentsValid(attachments)) return SendResult.invalidAttachments();
         String blockingStatus = blockingRequestStatus(conversationId, actor.get().id);
         if (blockingStatus != null) {
@@ -223,7 +231,18 @@ public class ConversationService {
         return user;
     }
 
-    public enum Status { OK, USER_NOT_PROVISIONED, NOT_FOUND, FORBIDDEN, ANONYMOUS_NOT_ALLOWED, MESSAGE_REQUEST_PENDING, MESSAGE_REQUEST_REJECTED, INVALID_PARTICIPANT, INVALID_ATTACHMENTS }
+    public enum Status {
+        OK,
+        USER_NOT_PROVISIONED,
+        NOT_FOUND,
+        FORBIDDEN,
+        ANONYMOUS_NOT_ALLOWED,
+        MESSAGE_REQUEST_PENDING,
+        MESSAGE_REQUEST_REJECTED,
+        INVALID_PARTICIPANT,
+        INVALID_ATTACHMENTS,
+        BLOCKED_RELATIONSHIP
+    }
 
     public record ConversationListResult(Status status, List<Map<String, Object>> items, String nextCursor) {
         static ConversationListResult ok(List<Map<String, Object>> items, String next) { return new ConversationListResult(Status.OK, items, next); }
@@ -237,6 +256,7 @@ public class ConversationService {
         static PreferencesResult ok(boolean muted) { return new PreferencesResult(PreferencesStatus.OK, muted); }
         static PreferencesResult userNotProvisioned() { return new PreferencesResult(PreferencesStatus.USER_NOT_PROVISIONED, null); }
         static PreferencesResult forbidden() { return new PreferencesResult(PreferencesStatus.FORBIDDEN, null); }
+        static PreferencesResult blockedRelationship() { return new PreferencesResult(PreferencesStatus.FORBIDDEN, null); }
         static PreferencesResult notFound() { return new PreferencesResult(PreferencesStatus.NOT_FOUND, null); }
         static PreferencesResult anonymousNotAllowed() { return new PreferencesResult(PreferencesStatus.ANONYMOUS_NOT_ALLOWED, null); }
     }
@@ -248,6 +268,7 @@ public class ConversationService {
         static StartResult notFound() { return new StartResult(Status.NOT_FOUND, null); }
         static StartResult anonymousNotAllowed() { return new StartResult(Status.ANONYMOUS_NOT_ALLOWED, null); }
         static StartResult invalidParticipant() { return new StartResult(Status.INVALID_PARTICIPANT, null); }
+        static StartResult blockedRelationship() { return new StartResult(Status.BLOCKED_RELATIONSHIP, null); }
     }
 
     public record MessagesResult(Status status, List<ConversationRepository.MessageRow> messages, String nextCursor) {
@@ -258,6 +279,7 @@ public class ConversationService {
         static MessagesResult messageRequestPending() { return new MessagesResult(Status.MESSAGE_REQUEST_PENDING, List.of(), null); }
         static MessagesResult messageRequestRejected() { return new MessagesResult(Status.MESSAGE_REQUEST_REJECTED, List.of(), null); }
         static MessagesResult anonymousNotAllowed() { return new MessagesResult(Status.ANONYMOUS_NOT_ALLOWED, List.of(), null); }
+        static MessagesResult blockedRelationship() { return new MessagesResult(Status.BLOCKED_RELATIONSHIP, List.of(), null); }
     }
 
     public record SendResult(Status status, ConversationRepository.MessageRow message) {
@@ -269,6 +291,25 @@ public class ConversationService {
         static SendResult messageRequestRejected() { return new SendResult(Status.MESSAGE_REQUEST_REJECTED, null); }
         static SendResult anonymousNotAllowed() { return new SendResult(Status.ANONYMOUS_NOT_ALLOWED, null); }
         static SendResult invalidAttachments() { return new SendResult(Status.INVALID_ATTACHMENTS, null); }
+        static SendResult blockedRelationship() { return new SendResult(Status.BLOCKED_RELATIONSHIP, null); }
+    }
+
+    private boolean isBlockedConversation(long conversationId, long actorUserId) {
+        if (conversationId <= 0 || actorUserId <= 0) return false;
+        var others = conversations.listOtherParticipantIds(conversationId, actorUserId);
+        if (others == null || others.isEmpty()) return false;
+        for (Long otherUserId : others) {
+            if (otherUserId == null || otherUserId <= 0) continue;
+            if (isBlockedRelationship(actorUserId, otherUserId)) return true;
+        }
+        return false;
+    }
+
+    private boolean isBlockedRelationship(long userAId, long userBId) {
+        if (userAId <= 0 || userBId <= 0) return false;
+        long principalA = principals.createForUser(userAId).id;
+        long principalB = principals.createForUser(userBId).id;
+        return blocks.existsEitherDirection(principalA, principalB);
     }
 
     private void maybeCreateMessageRequest(long senderId, long conversationId, long messageId) {

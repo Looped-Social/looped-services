@@ -68,6 +68,7 @@ class UsersServiceDeleteTest {
         VerificationRepository verifications = mock(VerificationRepository.class);
         PostRepository posts = mock(PostRepository.class);
         PrincipalRepository principals = mock(PrincipalRepository.class);
+        BlocksRepository blocks = mock(BlocksRepository.class);
         PostStateService postState = mock(PostStateService.class);
         PostViewerCapabilitiesService viewerCapabilities = mock(PostViewerCapabilitiesService.class);
         PollsService pollsService = mock(PollsService.class);
@@ -85,6 +86,7 @@ class UsersServiceDeleteTest {
                 verifications,
                 posts,
                 principals,
+                blocks,
                 postState,
                 viewerCapabilities,
                 pollsService,

@@ -107,6 +107,14 @@ public class MessagingSearchRepository {
 
         String dmWhere =
                 "WHERE c.company_id = ? AND cmr.id IS NULL " +
+                        "AND NOT EXISTS (" +
+                        "SELECT 1 " +
+                        "FROM principal_blocks pb " +
+                        "JOIN principals p_blocker ON p_blocker.id = pb.blocker_principal_id AND p_blocker.kind = 'user' " +
+                        "JOIN principals p_blocked ON p_blocked.id = pb.blocked_principal_id AND p_blocked.kind = 'user' " +
+                        "WHERE (p_blocker.user_id = cp.user_id AND p_blocked.user_id = u.id) " +
+                        "   OR (p_blocker.user_id = u.id AND p_blocked.user_id = cp.user_id)" +
+                        ") " +
                         "AND (" + nameMatchUser + " OR best_msg.id IS NOT NULL OR LOWER(COALESCE(last_msg.content,'')) LIKE ?)";
 
         String dmSelect =

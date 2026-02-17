@@ -97,6 +97,55 @@ class UsersIntegrationTest extends PostgresTestBase {
     }
 
     @Test
+    void profile_includes_viewer_block_state_flags() throws Exception {
+        long companyId = jdbc.queryForObject("INSERT INTO companies(name, domain) VALUES ('BlockProfile','blockprofile.co') RETURNING id", Long.class);
+        long actorId = jdbc.queryForObject(
+                "INSERT INTO users(firebase_uid, handle, company_id, onboarding_step, onboarding_completed_at) VALUES ('uid-viewer','viewer',?,'verification_notifications', now()) RETURNING id",
+                Long.class,
+                companyId
+        );
+        long targetId = jdbc.queryForObject(
+                "INSERT INTO users(firebase_uid, handle, company_id, onboarding_step, onboarding_completed_at) VALUES ('uid-target-block','targetblock',?,'verification_notifications', now()) RETURNING id",
+                Long.class,
+                companyId
+        );
+        long actorPrincipalId = jdbc.queryForObject("INSERT INTO principals(kind, user_id) VALUES ('user', ?) RETURNING id", Long.class, actorId);
+        long targetPrincipalId = jdbc.queryForObject("INSERT INTO principals(kind, user_id) VALUES ('user', ?) RETURNING id", Long.class, targetId);
+
+        String auth = "Bearer " + token("uid-viewer");
+
+        mockMvc.perform(get("/v1/users/" + targetId)
+                        .header("Authorization", auth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.viewer_has_blocked", equalTo(false)))
+                .andExpect(jsonPath("$.viewer_blocked_by", equalTo(false)));
+
+        jdbc.update(
+                "INSERT INTO principal_blocks(blocker_principal_id, blocked_principal_id) VALUES (?,?)",
+                targetPrincipalId,
+                actorPrincipalId
+        );
+
+        mockMvc.perform(get("/v1/users/" + targetId)
+                        .header("Authorization", auth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.viewer_has_blocked", equalTo(false)))
+                .andExpect(jsonPath("$.viewer_blocked_by", equalTo(true)));
+
+        jdbc.update(
+                "INSERT INTO principal_blocks(blocker_principal_id, blocked_principal_id) VALUES (?,?)",
+                actorPrincipalId,
+                targetPrincipalId
+        );
+
+        mockMvc.perform(get("/v1/users/" + targetId)
+                        .header("Authorization", auth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.viewer_has_blocked", equalTo(true)))
+                .andExpect(jsonPath("$.viewer_blocked_by", equalTo(true)));
+    }
+
+    @Test
     void user_posts_paginate_in_order() throws Exception {
         long acmeId = jdbc.queryForObject("INSERT INTO companies(name, domain) VALUES ('Acme','acme.com') RETURNING id", Long.class);
         long actorId = jdbc.queryForObject("INSERT INTO users(firebase_uid, handle, company_id) VALUES ('uid-actor','alex',?) RETURNING id", Long.class, acmeId);

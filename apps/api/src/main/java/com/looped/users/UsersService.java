@@ -36,6 +36,7 @@ public class UsersService {
     private final VerificationRepository verifications;
     private final PostRepository posts;
     private final PrincipalRepository principals;
+    private final BlocksRepository blocks;
     private final PostStateService postState;
     private final PostViewerCapabilitiesService viewerCapabilities;
     private final PollsService pollsService;
@@ -57,6 +58,7 @@ public class UsersService {
                         VerificationRepository verifications,
                         PostRepository posts,
                         PrincipalRepository principals,
+                        BlocksRepository blocks,
                         PostStateService postState,
                         PostViewerCapabilitiesService viewerCapabilities,
                         PollsService pollsService,
@@ -77,6 +79,7 @@ public class UsersService {
         this.verifications = verifications;
         this.posts = posts;
         this.principals = principals;
+        this.blocks = blocks;
         this.postState = postState;
         this.viewerCapabilities = viewerCapabilities;
         this.pollsService = pollsService;
@@ -105,7 +108,11 @@ public class UsersService {
 
         var verification = verifications.findByUserId(targetUserId).orElse(null);
         boolean includeFollowerCounts = target.get().showFollowerCount || actor.get().id == target.get().id;
-        return ProfileResult.ok(buildProfile(target.get(), verification), includeFollowerCounts);
+        long viewerPrincipalId = principals.createForUser(actor.get().id).id;
+        long targetPrincipalId = principals.createForUser(target.get().id).id;
+        boolean viewerHasBlocked = blocks.exists(viewerPrincipalId, targetPrincipalId);
+        boolean viewerBlockedBy = blocks.exists(targetPrincipalId, viewerPrincipalId);
+        return ProfileResult.ok(buildProfile(target.get(), verification), includeFollowerCounts, viewerHasBlocked, viewerBlockedBy);
     }
 
     public PostsResult posts(String firebaseUid, long targetUserId, String cursor, int limit) {
@@ -498,9 +505,10 @@ public class UsersService {
                     limit
             );
         }
-        var rows = scoredRows.stream().map(r -> r.user).toList();
+        var rawRows = scoredRows.stream().map(r -> r.user).toList();
+        var rows = excludeBlockedUsers(actor.get().id, rawRows);
         String next = null;
-        if (scoredRows.size() == limit) {
+        if (scoredRows.size() == limit && !rawRows.isEmpty()) {
             var last = scoredRows.get(scoredRows.size() - 1);
             next = RankPagination.encode(asOf, last.score, last.user.createdAt, last.user.id);
         }
@@ -518,10 +526,11 @@ public class UsersService {
                 cId = decoded.id();
             } catch (IllegalArgumentException ignored) {}
         }
-        var rows = users.listCompanyUsers(actor.get().companyId, cTs, cId, limit);
+        var rawRows = users.listCompanyUsers(actor.get().companyId, cTs, cId, limit);
+        var rows = excludeBlockedUsers(actor.get().id, rawRows);
         String next = null;
-        if (rows.size() == limit) {
-            var last = rows.get(rows.size() - 1);
+        if (rawRows.size() == limit && !rawRows.isEmpty()) {
+            var last = rawRows.get(rawRows.size() - 1);
             next = Pagination.encode(last.createdAt, last.id);
         }
         return SearchResult.ok(rows, next);
@@ -701,6 +710,21 @@ public class UsersService {
         return user;
     }
 
+    private List<UserRepository.UserRow> excludeBlockedUsers(long actorUserId, List<UserRepository.UserRow> rows) {
+        if (actorUserId <= 0 || rows == null || rows.isEmpty()) return rows == null ? List.of() : rows;
+        long actorPrincipalId = principals.createForUser(actorUserId).id;
+        var userIds = rows.stream().map(r -> r.id).distinct().toList();
+        var principalByUser = principals.principalIdsByUserIds(userIds);
+        if (principalByUser.isEmpty()) return rows;
+        var candidatePrincipalIds = principalByUser.values().stream().distinct().toList();
+        var blockedPrincipalIds = blocks.otherPrincipalsBlockedEitherDirection(actorPrincipalId, candidatePrincipalIds);
+        if (blockedPrincipalIds.isEmpty()) return rows;
+        return rows.stream().filter(r -> {
+            Long principalId = principalByUser.get(r.id);
+            return principalId == null || !blockedPrincipalIds.contains(principalId);
+        }).toList();
+    }
+
     private OffsetDateTime handleReuseCutoff() {
         return OffsetDateTime.now().minusDays(usernameTombstoneDays);
     }
@@ -808,13 +832,14 @@ public class UsersService {
         CDN_NOT_CONFIGURED
     }
 
-    public record ProfileResult(Status status, UserProfile profile, boolean includeFollowerCounts) {
-        static ProfileResult ok(UserProfile profile, boolean includeFollowerCounts) {
-            return new ProfileResult(Status.OK, profile, includeFollowerCounts);
+    public record ProfileResult(Status status, UserProfile profile, boolean includeFollowerCounts,
+                                boolean viewerHasBlocked, boolean viewerBlockedBy) {
+        static ProfileResult ok(UserProfile profile, boolean includeFollowerCounts, boolean viewerHasBlocked, boolean viewerBlockedBy) {
+            return new ProfileResult(Status.OK, profile, includeFollowerCounts, viewerHasBlocked, viewerBlockedBy);
         }
-        static ProfileResult userNotProvisioned() { return new ProfileResult(Status.USER_NOT_PROVISIONED, null, false); }
-        static ProfileResult notFound() { return new ProfileResult(Status.NOT_FOUND, null, false); }
-        static ProfileResult forbidden() { return new ProfileResult(Status.FORBIDDEN, null, false); }
+        static ProfileResult userNotProvisioned() { return new ProfileResult(Status.USER_NOT_PROVISIONED, null, false, false, false); }
+        static ProfileResult notFound() { return new ProfileResult(Status.NOT_FOUND, null, false, false, false); }
+        static ProfileResult forbidden() { return new ProfileResult(Status.FORBIDDEN, null, false, false, false); }
     }
 
     public record UpdateProfileResult(Status status, UserProfile profile) {

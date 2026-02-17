@@ -67,6 +67,9 @@ public class ConversationsController {
         if (res.status() == ConversationService.Status.FORBIDDEN) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "forbidden"));
         }
+        if (res.status() == ConversationService.Status.BLOCKED_RELATIONSHIP) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "blocked_relationship"));
+        }
         return ResponseEntity.status(HttpStatus.CREATED).body(res.conversation());
     }
 
@@ -87,6 +90,9 @@ public class ConversationsController {
         }
         if (res.status() == ConversationService.Status.FORBIDDEN) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "forbidden"));
+        }
+        if (res.status() == ConversationService.Status.BLOCKED_RELATIONSHIP) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "blocked_relationship"));
         }
         if (res.status() == ConversationService.Status.MESSAGE_REQUEST_PENDING) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "message_request_pending"));
@@ -125,6 +131,9 @@ public class ConversationsController {
         }
         if (res.status() == ConversationService.Status.FORBIDDEN) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "forbidden"));
+        }
+        if (res.status() == ConversationService.Status.BLOCKED_RELATIONSHIP) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "blocked_relationship"));
         }
         if (res.status() == ConversationService.Status.INVALID_ATTACHMENTS) {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of("error", "invalid_attachments"));

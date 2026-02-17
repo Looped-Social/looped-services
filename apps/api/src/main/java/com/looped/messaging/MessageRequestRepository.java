@@ -77,6 +77,14 @@ public class MessageRequestRepository {
                 "AND NOT EXISTS (" +
                 "SELECT 1 FROM conversation_message_requests approved " +
                 "WHERE approved.conversation_id = cmr.conversation_id AND approved.status = 'approved'" +
+                ") " +
+                "AND NOT EXISTS (" +
+                "SELECT 1 " +
+                "FROM principal_blocks pb " +
+                "JOIN principals p_blocker ON p_blocker.id = pb.blocker_principal_id AND p_blocker.kind = 'user' " +
+                "JOIN principals p_blocked ON p_blocked.id = pb.blocked_principal_id AND p_blocked.kind = 'user' " +
+                "WHERE (p_blocker.user_id = cmr.recipient_id AND p_blocked.user_id = cmr.requester_id) " +
+                "   OR (p_blocker.user_id = cmr.requester_id AND p_blocked.user_id = cmr.recipient_id)" +
                 ")";
         if (cursorTs == null || cursorId == null) {
             base += " ORDER BY cmr.updated_at DESC, cmr.id DESC LIMIT " + limit;

@@ -114,6 +114,65 @@ class ExtendedEndpointsIntegrationTest extends PostgresTestBase {
     }
 
     @Test
+    void user_search_and_directory_exclude_blocked_relationships_and_restore_on_unblock() throws Exception {
+        long companyId = jdbc.queryForObject("INSERT INTO companies(name, domain) VALUES ('SearchBlockCo','searchblock.co') RETURNING id", Long.class);
+        jdbc.queryForObject(
+                "INSERT INTO users(firebase_uid, handle, company_id, display_name, onboarding_step, onboarding_completed_at) " +
+                        "VALUES (?,?,?,?,'verification_notifications', now()) RETURNING id",
+                Long.class, "uid-search-block-actor", "searchblockactor", companyId, "Search Actor");
+        long blockedUserId = jdbc.queryForObject(
+                "INSERT INTO users(firebase_uid, handle, company_id, display_name, onboarding_step, onboarding_completed_at) " +
+                        "VALUES (?,?,?,?,'verification_notifications', now()) RETURNING id",
+                Long.class, "uid-search-block-target", "searchblocktarget", companyId, "Search Target");
+        jdbc.queryForObject(
+                "INSERT INTO users(firebase_uid, handle, company_id, display_name, onboarding_step, onboarding_completed_at) " +
+                        "VALUES (?,?,?,?,'verification_notifications', now()) RETURNING id",
+                Long.class, "uid-search-block-other", "searchblockother", companyId, "Search Other");
+
+        String auth = "Bearer " + token("uid-search-block-actor");
+
+        mockMvc.perform(get("/v1/users/search?query=searchblocktarget")
+                        .header("Authorization", auth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[*].handle", hasItem("searchblocktarget")));
+
+        mockMvc.perform(get("/v1/users")
+                        .header("Authorization", auth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[*].handle", hasItem("searchblocktarget")));
+
+        mockMvc.perform(post("/v1/users/" + blockedUserId + "/block")
+                        .header("Authorization", auth))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.blocked", equalTo(true)));
+
+        mockMvc.perform(get("/v1/users/search?query=searchblocktarget")
+                        .header("Authorization", auth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[*].handle", not(hasItem("searchblocktarget"))));
+
+        mockMvc.perform(get("/v1/users")
+                        .header("Authorization", auth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[*].handle", not(hasItem("searchblocktarget"))));
+
+        mockMvc.perform(delete("/v1/users/" + blockedUserId + "/block")
+                        .header("Authorization", auth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.blocked", equalTo(false)));
+
+        mockMvc.perform(get("/v1/users/search?query=searchblocktarget")
+                        .header("Authorization", auth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[*].handle", hasItem("searchblocktarget")));
+
+        mockMvc.perform(get("/v1/users")
+                        .header("Authorization", auth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[*].handle", hasItem("searchblocktarget")));
+    }
+
+    @Test
     void conversations_list_filters_out_invalid_conversations_missing_other_participant() throws Exception {
         long companyId = jdbc.queryForObject("INSERT INTO companies(name, domain) VALUES ('MsgCo','msg.co') RETURNING id", Long.class);
         long userId = jdbc.queryForObject("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?) RETURNING id",
@@ -243,6 +302,109 @@ class ExtendedEndpointsIntegrationTest extends PostgresTestBase {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items[0].last_message", equalTo("hello")))
                 .andExpect(jsonPath("$.items[0].other_user_profile.handle", equalTo("bravo")));
+    }
+
+    @Test
+    void blocked_relationship_hides_conversations_and_search_rejects_start_and_send_until_unblocked() throws Exception {
+        long companyId = jdbc.queryForObject("INSERT INTO companies(name, domain) VALUES ('DmBlockCo','dmblock.co') RETURNING id", Long.class);
+        long userA = jdbc.queryForObject(
+                "INSERT INTO users(firebase_uid, handle, company_id, display_name, onboarding_step, onboarding_completed_at) " +
+                        "VALUES (?,?,?,?,'verification_notifications', now()) RETURNING id",
+                Long.class, "uid-dm-block-a", "dmblocka", companyId, "DM Block A");
+        long userB = jdbc.queryForObject(
+                "INSERT INTO users(firebase_uid, handle, company_id, display_name, onboarding_step, onboarding_completed_at) " +
+                        "VALUES (?,?,?,?,'verification_notifications', now()) RETURNING id",
+                Long.class, "uid-dm-block-b", "dmblockb", companyId, "DM Block B");
+        long principalA = jdbc.queryForObject("INSERT INTO principals(kind, user_id) VALUES ('user', ?) RETURNING id", Long.class, userA);
+        long principalB = jdbc.queryForObject("INSERT INTO principals(kind, user_id) VALUES ('user', ?) RETURNING id", Long.class, userB);
+        jdbc.update("INSERT INTO principal_follows(follower_principal_id, followee_principal_id) VALUES (?,?)", principalB, principalA);
+
+        String authA = "Bearer " + token("uid-dm-block-a");
+        String authB = "Bearer " + token("uid-dm-block-b");
+
+        var startResp = mockMvc.perform(post("/v1/conversations")
+                        .header("Authorization", authA)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"participantUserId\":" + userB + "}"))
+                .andExpect(status().isCreated())
+                .andReturn();
+
+        String conversationId = new com.fasterxml.jackson.databind.ObjectMapper()
+                .readTree(startResp.getResponse().getContentAsString())
+                .get("id").asText();
+
+        mockMvc.perform(post("/v1/conversations/" + conversationId + "/messages")
+                        .header("Authorization", authA)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"content\":\"hello block path\",\"attachments\":[]}"))
+                .andExpect(status().isCreated());
+
+        mockMvc.perform(get("/v1/conversations")
+                        .header("Authorization", authB))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items", hasSize(1)));
+
+        mockMvc.perform(get("/v1/messages/search?query=hello%20block")
+                        .header("Authorization", authB))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[?(@.type=='conversation')].other_user_profile.handle", hasItem("dmblocka")));
+
+        mockMvc.perform(post("/v1/users/" + userB + "/block")
+                        .header("Authorization", authA))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.blocked", equalTo(true)));
+
+        mockMvc.perform(post("/v1/conversations")
+                        .header("Authorization", authA)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"participantUserId\":" + userB + "}"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error", equalTo("blocked_relationship")));
+
+        mockMvc.perform(post("/v1/conversations")
+                        .header("Authorization", authB)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"participantUserId\":" + userA + "}"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error", equalTo("blocked_relationship")));
+
+        mockMvc.perform(get("/v1/conversations")
+                        .header("Authorization", authB))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items", hasSize(0)));
+
+        mockMvc.perform(get("/v1/messages/search?query=hello%20block")
+                        .header("Authorization", authB))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[?(@.type=='conversation')]", hasSize(0)));
+
+        mockMvc.perform(post("/v1/conversations/" + conversationId + "/messages")
+                        .header("Authorization", authA)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"content\":\"should fail while blocked\",\"attachments\":[]}"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error", equalTo("blocked_relationship")));
+
+        mockMvc.perform(get("/v1/conversations/" + conversationId + "/messages")
+                        .header("Authorization", authB))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error", equalTo("blocked_relationship")));
+
+        mockMvc.perform(delete("/v1/users/" + userB + "/block")
+                        .header("Authorization", authA))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.blocked", equalTo(false)));
+
+        mockMvc.perform(get("/v1/conversations")
+                        .header("Authorization", authB))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items", hasSize(1)));
+
+        mockMvc.perform(post("/v1/conversations/" + conversationId + "/messages")
+                        .header("Authorization", authA)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"content\":\"works after unblock\",\"attachments\":[]}"))
+                .andExpect(status().isCreated());
     }
 
     @Test
@@ -423,6 +585,64 @@ class ExtendedEndpointsIntegrationTest extends PostgresTestBase {
                 senderId
         );
         assertEquals(0, reversePendingCount);
+    }
+
+    @Test
+    void blocked_relationship_hides_message_requests_until_unblock() throws Exception {
+        long companyId = jdbc.queryForObject("INSERT INTO companies(name, domain) VALUES ('ReqBlockCo','reqblock.co') RETURNING id", Long.class);
+        long senderId = jdbc.queryForObject(
+                "INSERT INTO users(firebase_uid, handle, company_id, onboarding_step, onboarding_completed_at) " +
+                        "VALUES (?, ?, ?, 'verification_notifications', now()) RETURNING id",
+                Long.class, "uid-req-block-sender", "reqblocksender", companyId);
+        long recipientId = jdbc.queryForObject(
+                "INSERT INTO users(firebase_uid, handle, company_id, onboarding_step, onboarding_completed_at) " +
+                        "VALUES (?, ?, ?, 'verification_notifications', now()) RETURNING id",
+                Long.class, "uid-req-block-recipient", "reqblockrecipient", companyId);
+
+        String senderAuth = "Bearer " + token("uid-req-block-sender");
+        String recipientAuth = "Bearer " + token("uid-req-block-recipient");
+
+        var startResp = mockMvc.perform(post("/v1/conversations")
+                        .header("Authorization", senderAuth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"participantUserId\":" + recipientId + "}"))
+                .andExpect(status().isCreated())
+                .andReturn();
+
+        String conversationId = new com.fasterxml.jackson.databind.ObjectMapper()
+                .readTree(startResp.getResponse().getContentAsString())
+                .get("id").asText();
+
+        mockMvc.perform(post("/v1/conversations/" + conversationId + "/messages")
+                        .header("Authorization", senderAuth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"content\":\"pending request\",\"attachments\":[]}"))
+                .andExpect(status().isCreated());
+
+        mockMvc.perform(get("/v1/message-requests")
+                        .header("Authorization", recipientAuth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items", hasSize(1)));
+
+        mockMvc.perform(post("/v1/users/" + recipientId + "/block")
+                        .header("Authorization", senderAuth))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.blocked", equalTo(true)));
+
+        mockMvc.perform(get("/v1/message-requests")
+                        .header("Authorization", recipientAuth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items", hasSize(0)));
+
+        mockMvc.perform(delete("/v1/users/" + recipientId + "/block")
+                        .header("Authorization", senderAuth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.blocked", equalTo(false)));
+
+        mockMvc.perform(get("/v1/message-requests")
+                        .header("Authorization", recipientAuth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items", hasSize(1)));
     }
 
     @Test

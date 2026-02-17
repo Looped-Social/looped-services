@@ -445,7 +445,19 @@ public class UsersController {
                     "error", "forbidden",
                     "message", "Cross-company access denied"
             ));
-            case OK -> ResponseEntity.ok(UserPayloads.fromProfile(res.profile(), res.includeFollowerCounts(), false, appConfig.defaultProfileImageUrl()));
+            case OK -> {
+                Map<String, Object> payload = UserPayloads.fromProfile(
+                        res.profile(),
+                        res.includeFollowerCounts(),
+                        false,
+                        appConfig.defaultProfileImageUrl()
+                );
+                payload.put("viewer_has_blocked", res.viewerHasBlocked());
+                payload.put("viewerHasBlocked", res.viewerHasBlocked());
+                payload.put("viewer_blocked_by", res.viewerBlockedBy());
+                payload.put("viewerBlockedBy", res.viewerBlockedBy());
+                yield ResponseEntity.ok(payload);
+            }
             default -> ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         };
     }
