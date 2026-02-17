@@ -21,6 +21,7 @@ import java.util.List;
 
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.hasSize;
+import static org.hamcrest.Matchers.nullValue;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -361,6 +362,197 @@ class CommentsIntegrationTest extends PostgresTestBase {
         mockMvc.perform(get("/v1/posts/" + postId + "/comments")
                         .header("Authorization", authorAuth))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.items[0].is_deleted").value(true));
+                .andExpect(jsonPath("$.items", hasSize(0)));
+    }
+
+    @Test
+    void deleting_top_level_comment_with_replies_keeps_sanitized_tombstone() throws Exception {
+        long companyId = jdbc.queryForObject("INSERT INTO companies(name, domain) VALUES ('TombstoneCo','tombstone.co') RETURNING id", Long.class);
+        long authorId = jdbc.queryForObject("INSERT INTO users(firebase_uid, handle, company_id, display_name) VALUES (?,?,?,?) RETURNING id",
+                Long.class, "uid-ts-author", "tsauthor", companyId, "Author TS");
+        long commenterId = jdbc.queryForObject("INSERT INTO users(firebase_uid, handle, company_id, display_name) VALUES (?,?,?,?) RETURNING id",
+                Long.class, "uid-ts-commenter", "tscommenter", companyId, "Commenter TS");
+        long authorPrincipal = jdbc.queryForObject("INSERT INTO principals(kind, user_id) VALUES ('user', ?) RETURNING id", Long.class, authorId);
+        long communityId = jdbc.queryForObject("INSERT INTO communities(kind, name) VALUES ('company', 'TombstoneCo') RETURNING id", Long.class);
+        jdbc.update("INSERT INTO community_verifications(user_id, community_id, method, verified, verified_at) VALUES (?,?,?,?, now())",
+                authorId, communityId, "manual", true);
+        jdbc.update("INSERT INTO community_verifications(user_id, community_id, method, verified, verified_at) VALUES (?,?,?,?, now())",
+                commenterId, communityId, "manual", true);
+        long postId = jdbc.queryForObject("INSERT INTO posts(author_id, author_principal_id, company_id, community_id, content) VALUES (?,?,?,?,?) RETURNING id",
+                Long.class, authorId, authorPrincipal, companyId, communityId, "post");
+
+        String authorAuth = "Bearer " + token("uid-ts-author");
+        String commenterAuth = "Bearer " + token("uid-ts-commenter");
+
+        var topResp = mockMvc.perform(post("/v1/posts/" + postId + "/comments")
+                        .header("Authorization", commenterAuth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"content\":\"top\"}"))
+                .andExpect(status().isCreated())
+                .andReturn();
+        long topId = mapper.readTree(topResp.getResponse().getContentAsString()).get("id").asLong();
+
+        var replyResp = mockMvc.perform(post("/v1/posts/" + postId + "/comments")
+                        .header("Authorization", authorAuth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"content\":\"child\",\"parentId\":" + topId + "}"))
+                .andExpect(status().isCreated())
+                .andReturn();
+        long replyId = mapper.readTree(replyResp.getResponse().getContentAsString()).get("id").asLong();
+
+        mockMvc.perform(delete("/v1/comments/" + topId)
+                        .header("Authorization", commenterAuth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.deleted").value(true));
+
+        mockMvc.perform(get("/v1/posts/" + postId + "/comments")
+                        .header("Authorization", authorAuth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items", hasSize(1)))
+                .andExpect(jsonPath("$.items[0].id").value((int) topId))
+                .andExpect(jsonPath("$.items[0].is_deleted").value(true))
+                .andExpect(jsonPath("$.items[0].content").value(""))
+                .andExpect(jsonPath("$.items[0].media_asset_id").value(nullValue()))
+                .andExpect(jsonPath("$.items[0].reply_count").value(1))
+                .andExpect(jsonPath("$.items[0].author_principal_id").value(nullValue()))
+                .andExpect(jsonPath("$.items[0].author.id").value(nullValue()))
+                .andExpect(jsonPath("$.items[0].author.display_name").value(nullValue()))
+                .andExpect(jsonPath("$.items[0].author.username").value(nullValue()))
+                .andExpect(jsonPath("$.items[0].author.handle").value(nullValue()))
+                .andExpect(jsonPath("$.items[0].author.profile_image_url").value(nullValue()));
+
+        mockMvc.perform(get("/v1/comments/" + topId + "/replies")
+                        .header("Authorization", authorAuth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items", hasSize(1)))
+                .andExpect(jsonPath("$.items[0].id").value((int) replyId))
+                .andExpect(jsonPath("$.items[0].parent_id").value((int) topId))
+                .andExpect(jsonPath("$.items[0].is_deleted").value(false));
+    }
+
+    @Test
+    void deleting_reply_without_children_hides_reply_and_decrements_parent_count() throws Exception {
+        long companyId = jdbc.queryForObject("INSERT INTO companies(name, domain) VALUES ('LeafReplyCo','leaf-reply.co') RETURNING id", Long.class);
+        long authorId = jdbc.queryForObject("INSERT INTO users(firebase_uid, handle, company_id, display_name) VALUES (?,?,?,?) RETURNING id",
+                Long.class, "uid-lr-author", "lrauthor", companyId, "Author LR");
+        long commenterId = jdbc.queryForObject("INSERT INTO users(firebase_uid, handle, company_id, display_name) VALUES (?,?,?,?) RETURNING id",
+                Long.class, "uid-lr-commenter", "lrcommenter", companyId, "Commenter LR");
+        long authorPrincipal = jdbc.queryForObject("INSERT INTO principals(kind, user_id) VALUES ('user', ?) RETURNING id", Long.class, authorId);
+        long communityId = jdbc.queryForObject("INSERT INTO communities(kind, name) VALUES ('company', 'LeafReplyCo') RETURNING id", Long.class);
+        jdbc.update("INSERT INTO community_verifications(user_id, community_id, method, verified, verified_at) VALUES (?,?,?,?, now())",
+                authorId, communityId, "manual", true);
+        jdbc.update("INSERT INTO community_verifications(user_id, community_id, method, verified, verified_at) VALUES (?,?,?,?, now())",
+                commenterId, communityId, "manual", true);
+        long postId = jdbc.queryForObject("INSERT INTO posts(author_id, author_principal_id, company_id, community_id, content) VALUES (?,?,?,?,?) RETURNING id",
+                Long.class, authorId, authorPrincipal, companyId, communityId, "post");
+
+        String authorAuth = "Bearer " + token("uid-lr-author");
+        String commenterAuth = "Bearer " + token("uid-lr-commenter");
+
+        var topResp = mockMvc.perform(post("/v1/posts/" + postId + "/comments")
+                        .header("Authorization", commenterAuth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"content\":\"top\"}"))
+                .andExpect(status().isCreated())
+                .andReturn();
+        long topId = mapper.readTree(topResp.getResponse().getContentAsString()).get("id").asLong();
+
+        var replyResp = mockMvc.perform(post("/v1/posts/" + postId + "/comments")
+                        .header("Authorization", authorAuth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"content\":\"child\",\"parentId\":" + topId + "}"))
+                .andExpect(status().isCreated())
+                .andReturn();
+        long replyId = mapper.readTree(replyResp.getResponse().getContentAsString()).get("id").asLong();
+
+        mockMvc.perform(delete("/v1/comments/" + replyId)
+                        .header("Authorization", authorAuth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.deleted").value(true));
+
+        mockMvc.perform(get("/v1/comments/" + topId + "/replies")
+                        .header("Authorization", commenterAuth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items", hasSize(0)));
+
+        assertEquals(0, jdbc.queryForObject("SELECT reply_count FROM comments WHERE id=?", Integer.class, topId));
+    }
+
+    @Test
+    void deleting_reply_with_children_keeps_sanitized_tombstone_until_children_deleted() throws Exception {
+        long companyId = jdbc.queryForObject("INSERT INTO companies(name, domain) VALUES ('NestedReplyCo','nested-reply.co') RETURNING id", Long.class);
+        long authorId = jdbc.queryForObject("INSERT INTO users(firebase_uid, handle, company_id, display_name) VALUES (?,?,?,?) RETURNING id",
+                Long.class, "uid-nr-author", "nrauthor", companyId, "Author NR");
+        long commenterId = jdbc.queryForObject("INSERT INTO users(firebase_uid, handle, company_id, display_name) VALUES (?,?,?,?) RETURNING id",
+                Long.class, "uid-nr-commenter", "nrcommenter", companyId, "Commenter NR");
+        long authorPrincipal = jdbc.queryForObject("INSERT INTO principals(kind, user_id) VALUES ('user', ?) RETURNING id", Long.class, authorId);
+        long communityId = jdbc.queryForObject("INSERT INTO communities(kind, name) VALUES ('company', 'NestedReplyCo') RETURNING id", Long.class);
+        jdbc.update("INSERT INTO community_verifications(user_id, community_id, method, verified, verified_at) VALUES (?,?,?,?, now())",
+                authorId, communityId, "manual", true);
+        jdbc.update("INSERT INTO community_verifications(user_id, community_id, method, verified, verified_at) VALUES (?,?,?,?, now())",
+                commenterId, communityId, "manual", true);
+        long postId = jdbc.queryForObject("INSERT INTO posts(author_id, author_principal_id, company_id, community_id, content) VALUES (?,?,?,?,?) RETURNING id",
+                Long.class, authorId, authorPrincipal, companyId, communityId, "post");
+
+        String authorAuth = "Bearer " + token("uid-nr-author");
+        String commenterAuth = "Bearer " + token("uid-nr-commenter");
+
+        var topResp = mockMvc.perform(post("/v1/posts/" + postId + "/comments")
+                        .header("Authorization", commenterAuth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"content\":\"top\"}"))
+                .andExpect(status().isCreated())
+                .andReturn();
+        long topId = mapper.readTree(topResp.getResponse().getContentAsString()).get("id").asLong();
+
+        var replyResp = mockMvc.perform(post("/v1/posts/" + postId + "/comments")
+                        .header("Authorization", authorAuth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"content\":\"middle\",\"parentId\":" + topId + "}"))
+                .andExpect(status().isCreated())
+                .andReturn();
+        long replyId = mapper.readTree(replyResp.getResponse().getContentAsString()).get("id").asLong();
+
+        var nestedResp = mockMvc.perform(post("/v1/posts/" + postId + "/comments")
+                        .header("Authorization", commenterAuth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"content\":\"leaf\",\"parentId\":" + replyId + "}"))
+                .andExpect(status().isCreated())
+                .andReturn();
+        long nestedId = mapper.readTree(nestedResp.getResponse().getContentAsString()).get("id").asLong();
+
+        mockMvc.perform(delete("/v1/comments/" + replyId)
+                        .header("Authorization", authorAuth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.deleted").value(true));
+
+        mockMvc.perform(get("/v1/comments/" + topId + "/replies")
+                        .header("Authorization", commenterAuth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items", hasSize(1)))
+                .andExpect(jsonPath("$.items[0].id").value((int) replyId))
+                .andExpect(jsonPath("$.items[0].is_deleted").value(true))
+                .andExpect(jsonPath("$.items[0].content").value(""))
+                .andExpect(jsonPath("$.items[0].author_principal_id").value(nullValue()))
+                .andExpect(jsonPath("$.items[0].author.id").value(nullValue()))
+                .andExpect(jsonPath("$.items[0].author.display_name").value(nullValue()))
+                .andExpect(jsonPath("$.items[0].author.username").value(nullValue()))
+                .andExpect(jsonPath("$.items[0].author.handle").value(nullValue()))
+                .andExpect(jsonPath("$.items[0].author.profile_image_url").value(nullValue()))
+                .andExpect(jsonPath("$.items[0].reply_count").value(1));
+
+        assertEquals(1, jdbc.queryForObject("SELECT reply_count FROM comments WHERE id=?", Integer.class, topId));
+
+        mockMvc.perform(delete("/v1/comments/" + nestedId)
+                        .header("Authorization", commenterAuth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.deleted").value(true));
+
+        mockMvc.perform(get("/v1/comments/" + topId + "/replies")
+                        .header("Authorization", commenterAuth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items", hasSize(0)));
+
+        assertEquals(0, jdbc.queryForObject("SELECT reply_count FROM comments WHERE id=?", Integer.class, topId));
     }
 }
