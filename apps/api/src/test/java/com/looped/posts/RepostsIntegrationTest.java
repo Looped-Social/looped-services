@@ -106,7 +106,7 @@ class RepostsIntegrationTest extends PostgresTestBase {
     }
 
     @Test
-    void repost_disallows_self_repost() throws Exception {
+    void repost_allows_self_repost() throws Exception {
         long companyId = jdbc.queryForObject("INSERT INTO companies(name, domain) VALUES ('Acme2','acme2.com') RETURNING id", Long.class);
         long userId = jdbc.queryForObject("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?) RETURNING id",
                 Long.class, "uid-self-repost", "self", companyId);
@@ -117,8 +117,9 @@ class RepostsIntegrationTest extends PostgresTestBase {
         String auth = "Bearer " + token("uid-self-repost");
 
         mockMvc.perform(put("/v1/posts/" + postId + "/repost").header("Authorization", auth))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.error", equalTo("self_repost_not_allowed")));
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.viewer_has_reposted", equalTo(true)));
+        assertEquals(1, jdbc.queryForObject("SELECT repost_count FROM posts WHERE id = ?", Integer.class, postId));
     }
 
     @Test

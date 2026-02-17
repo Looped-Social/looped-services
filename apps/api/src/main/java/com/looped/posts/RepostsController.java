@@ -65,20 +65,9 @@ public class RepostsController {
                     "error", "not_found",
                     "message", "Post not found"
             ));
-            case FORBIDDEN -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
-                    "error", "forbidden"
-            ));
-            case COMMUNITY_BANNED -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
-                    "error", "community_banned",
-                    "message", "You are banned from this community"
-            ));
             case INVALID_SIGNATURE -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
                     "error", "invalid_anon_proof",
                     "message", "Invalid anonymous proof"
-            ));
-            case SELF_REPOST_NOT_ALLOWED -> ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of(
-                    "error", "self_repost_not_allowed",
-                    "message", "You cannot repost your own post"
             ));
             case OK -> new ResponseEntity<>(Map.of(
                     "post_id", postId,
@@ -130,13 +119,6 @@ public class RepostsController {
                     "error", "not_found",
                     "message", "Post not found"
             ));
-            case FORBIDDEN -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
-                    "error", "forbidden"
-            ));
-            case COMMUNITY_BANNED -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
-                    "error", "community_banned",
-                    "message", "You are banned from this community"
-            ));
             case INVALID_SIGNATURE -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
                     "error", "invalid_anon_proof",
                     "message", "Invalid anonymous proof"
@@ -145,10 +127,6 @@ public class RepostsController {
                     "post_id", postId,
                     "viewer_has_reposted", false,
                     "viewerHasReposted", false
-            ));
-            case SELF_REPOST_NOT_ALLOWED -> ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of(
-                    "error", "self_repost_not_allowed",
-                    "message", "You cannot repost your own post"
             ));
         };
     }
