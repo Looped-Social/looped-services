@@ -7,6 +7,8 @@ import com.looped.communities.CommunitiesRepository;
 import com.looped.communities.CommunityVerificationsRepository;
 import com.looped.communities.SpecializationJoinsRepository;
 import com.looped.media.MediaRepository;
+import com.looped.polls.PollPayloads;
+import com.looped.polls.PollsService;
 import com.looped.posts.PostRepository;
 import com.looped.posts.PostStateService;
 import com.looped.posts.PostViewerCapabilitiesService;
@@ -36,6 +38,7 @@ public class UsersService {
     private final PrincipalRepository principals;
     private final PostStateService postState;
     private final PostViewerCapabilitiesService viewerCapabilities;
+    private final PollsService pollsService;
     private final CommentsRepository comments;
     private final UserContentRepository content;
     private final CompanyRepository companies;
@@ -56,6 +59,7 @@ public class UsersService {
                         PrincipalRepository principals,
                         PostStateService postState,
                         PostViewerCapabilitiesService viewerCapabilities,
+                        PollsService pollsService,
                         CommentsRepository comments,
                         UserContentRepository content,
                         CompanyRepository companies,
@@ -75,6 +79,7 @@ public class UsersService {
         this.principals = principals;
         this.postState = postState;
         this.viewerCapabilities = viewerCapabilities;
+        this.pollsService = pollsService;
         this.comments = comments;
         this.content = content;
         this.companies = companies;
@@ -178,10 +183,11 @@ public class UsersService {
                 .map(UserContentRepository.ContentRefRow::entityId)
                 .toList();
 
+        var viewerPrincipal = principals.createForUser(actor.id);
+
         java.util.Map<Long, PostRepository.PostRow> postsById = new java.util.HashMap<>();
         if (!postIds.isEmpty()) {
             var postRows = posts.findByIds(postIds);
-            var viewerPrincipal = principals.createForUser(actor.id);
             postState.applyForPrincipal(viewerPrincipal.id, postRows);
             for (var p : postRows) postsById.put(p.id, p);
         }
@@ -198,7 +204,6 @@ public class UsersService {
             replyPostIds.removeAll(postsById.keySet());
             if (!replyPostIds.isEmpty()) {
                 var rows = posts.findByIds(replyPostIds.stream().toList());
-                var viewerPrincipal = principals.createForUser(actor.id);
                 postState.applyForPrincipal(viewerPrincipal.id, rows);
                 java.util.Map<Long, PostRepository.PostRow> tmp = new java.util.HashMap<>();
                 for (var p : rows) tmp.put(p.id, p);
@@ -206,15 +211,20 @@ public class UsersService {
             }
         }
 
+        java.util.Map<Long, PostRepository.PostRow> allPosts = new java.util.HashMap<>(postsById);
+        allPosts.putAll(replyPostsById);
+        java.util.List<Long> allPostIds = new java.util.ArrayList<>(allPosts.keySet());
+        java.util.Map<Long, PollsService.PollView> pollsByPostId = allPostIds.isEmpty()
+                ? java.util.Map.of()
+                : pollsService.viewsByPostId(viewerPrincipal.id, allPostIds);
+
         java.util.Map<Long, java.util.Map<String, Object>> capabilitiesByPostId = java.util.Map.of();
-        if (!postsById.isEmpty() || !replyPostsById.isEmpty()) {
-            java.util.Map<Long, PostRepository.PostRow> allPosts = new java.util.HashMap<>(postsById);
-            allPosts.putAll(replyPostsById);
+        if (!allPosts.isEmpty()) {
             capabilitiesByPostId = viewerCapabilities.byPostId(
                     actor.id,
                     actor.companyId,
                     new java.util.ArrayList<>(allPosts.values()),
-                    java.util.Map.of()
+                    pollsByPostId
             );
         }
 
@@ -227,7 +237,12 @@ public class UsersService {
                 items.add(java.util.Map.of(
                         "type", "post",
                         "created_at", ref.createdAt(),
-                        "post", withCapabilities(com.looped.posts.PostPayloads.from(p, defaultProfileImageUrl), capabilitiesByPostId.get(p.id))
+                        "post", withPollAndCapabilities(
+                                com.looped.posts.PostPayloads.from(p, defaultProfileImageUrl),
+                                p.id,
+                                pollsByPostId,
+                                capabilitiesByPostId
+                        )
                 ));
             } else if ("reply".equals(ref.type())) {
                 var c = repliesById.get(ref.entityId());
@@ -240,9 +255,11 @@ public class UsersService {
                     var host = postsById.get(c.postId);
                     if (host == null) host = replyPostsById.get(c.postId);
                     if (host != null) {
-                        payload.put("post", withCapabilities(
+                        payload.put("post", withPollAndCapabilities(
                                 com.looped.posts.PostPayloads.from(host, defaultProfileImageUrl),
-                                capabilitiesByPostId.get(host.id)
+                                host.id,
+                                pollsByPostId,
+                                capabilitiesByPostId
                         ));
                     }
                 }
@@ -258,9 +275,15 @@ public class UsersService {
         return ContentResult.ok(items, next);
     }
 
-    private java.util.Map<String, Object> withCapabilities(java.util.Map<String, Object> postPayload,
-                                                           java.util.Map<String, Object> viewerCapabilitiesPayload) {
-        com.looped.posts.PostPayloads.putViewerCapabilities(postPayload, viewerCapabilitiesPayload);
+    private java.util.Map<String, Object> withPollAndCapabilities(
+            java.util.Map<String, Object> postPayload,
+            long postId,
+            java.util.Map<Long, PollsService.PollView> pollsByPostId,
+            java.util.Map<Long, java.util.Map<String, Object>> capabilitiesByPostId
+    ) {
+        var poll = pollsByPostId.get(postId);
+        if (poll != null) postPayload.put("poll", PollPayloads.from(poll));
+        com.looped.posts.PostPayloads.putViewerCapabilities(postPayload, capabilitiesByPostId.get(postId));
         return postPayload;
     }
 

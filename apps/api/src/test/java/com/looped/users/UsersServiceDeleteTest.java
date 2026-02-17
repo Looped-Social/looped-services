@@ -7,6 +7,7 @@ import com.looped.communities.CommunitiesRepository;
 import com.looped.communities.CommunityVerificationsRepository;
 import com.looped.communities.SpecializationJoinsRepository;
 import com.looped.media.MediaRepository;
+import com.looped.polls.PollsService;
 import com.looped.posts.PostRepository;
 import com.looped.posts.PostStateService;
 import com.looped.posts.PostViewerCapabilitiesService;
@@ -69,6 +70,7 @@ class UsersServiceDeleteTest {
         PrincipalRepository principals = mock(PrincipalRepository.class);
         PostStateService postState = mock(PostStateService.class);
         PostViewerCapabilitiesService viewerCapabilities = mock(PostViewerCapabilitiesService.class);
+        PollsService pollsService = mock(PollsService.class);
         CommentsRepository comments = mock(CommentsRepository.class);
         UserContentRepository content = mock(UserContentRepository.class);
         CompanyRepository companies = mock(CompanyRepository.class);
@@ -85,6 +87,7 @@ class UsersServiceDeleteTest {
                 principals,
                 postState,
                 viewerCapabilities,
+                pollsService,
                 comments,
                 content,
                 companies,

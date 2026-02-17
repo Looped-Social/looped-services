@@ -1,5 +1,6 @@
 package com.looped.polls;
 
+import com.looped.anon.AnonProofService;
 import com.looped.communities.CommunitiesRepository;
 import com.looped.communities.CommunityVerificationsRepository;
 import com.looped.communities.SpecializationJoinsRepository;
@@ -29,6 +30,7 @@ public class PollsService {
     private final CommunityVerificationsRepository communityVerifications;
     private final SpecializationJoinsRepository specializationJoins;
     private final UserCommunityBanRepository communityBans;
+    private final AnonProofService anonProofs;
     private final ApplicationEventPublisher events;
 
     public PollsService(PollRepository polls,
@@ -38,6 +40,7 @@ public class PollsService {
                         CommunityVerificationsRepository communityVerifications,
                         SpecializationJoinsRepository specializationJoins,
                         UserCommunityBanRepository communityBans,
+                        AnonProofService anonProofs,
                         ApplicationEventPublisher events) {
         this.polls = polls;
         this.users = users;
@@ -46,6 +49,7 @@ public class PollsService {
         this.communityVerifications = communityVerifications;
         this.specializationJoins = specializationJoins;
         this.communityBans = communityBans;
+        this.anonProofs = anonProofs;
         this.events = events;
     }
 
@@ -150,19 +154,36 @@ public class PollsService {
     }
 
     public VoteResult vote(String firebaseUid, long pollId, List<Long> selectedOptionIds) {
-        if (firebaseUid == null || firebaseUid.isBlank()) return VoteResult.userNotProvisioned();
-        var u = users.findByFirebaseUid(firebaseUid);
-        if (u.isEmpty()) return VoteResult.userNotProvisioned();
-        long userId = u.get().id;
-        Long companyId = u.get().companyId;
-        if (companyId == null) return VoteResult.userNotProvisioned();
-        long principalId = principals.createForUser(userId).id;
+        return vote(firebaseUid, pollId, selectedOptionIds, null);
+    }
 
+    public VoteResult vote(String firebaseUid, long pollId, List<Long> selectedOptionIds, AnonProofService.AnonActionProof anonProof) {
         var pollWithPost = polls.findPollWithPost(pollId);
         if (pollWithPost.isEmpty() || pollWithPost.get().postRemovedAt != null) return VoteResult.notFound();
+
+        long principalId;
+        Long companyId;
+        Long userId = null;
+        if (anonProof != null && anonProof.anonProfileId() != null) {
+            if (pollWithPost.get().communityId == null) return VoteResult.invalidAnonProof();
+            var verified = anonProofs.verifyActionScoped(anonProof, "poll_vote", pollId, pollWithPost.get().communityId);
+            if (verified.status() != AnonProofService.Status.OK) return VoteResult.invalidAnonProof();
+            principalId = verified.actor().principalId();
+            companyId = verified.actor().companyId();
+            if (companyId == null) return VoteResult.invalidAnonProof();
+        } else {
+            if (firebaseUid == null || firebaseUid.isBlank()) return VoteResult.userNotProvisioned();
+            var u = users.findByFirebaseUid(firebaseUid);
+            if (u.isEmpty()) return VoteResult.userNotProvisioned();
+            userId = u.get().id;
+            companyId = u.get().companyId;
+            if (companyId == null) return VoteResult.userNotProvisioned();
+            principalId = principals.createForUser(userId).id;
+        }
+
         if (pollWithPost.get().companyId != companyId) return VoteResult.forbidden();
 
-        if (pollWithPost.get().communityId != null) {
+        if (userId != null && pollWithPost.get().communityId != null) {
             if (communityBans.isBanned(userId, pollWithPost.get().communityId)) {
                 return VoteResult.communityBanned();
             }
@@ -318,6 +339,7 @@ public class PollsService {
         NOT_VERIFIED,
         SPECIALIZATION_NOT_JOINED,
         POLL_CLOSED,
+        INVALID_ANON_PROOF,
         INVALID_SELECTION
     }
 
@@ -330,6 +352,7 @@ public class PollsService {
         static VoteResult notVerified() { return new VoteResult(VoteStatus.NOT_VERIFIED, null); }
         static VoteResult specializationNotJoined() { return new VoteResult(VoteStatus.SPECIALIZATION_NOT_JOINED, null); }
         static VoteResult pollClosed() { return new VoteResult(VoteStatus.POLL_CLOSED, null); }
+        static VoteResult invalidAnonProof() { return new VoteResult(VoteStatus.INVALID_ANON_PROOF, null); }
         static VoteResult invalidSelection() { return new VoteResult(VoteStatus.INVALID_SELECTION, null); }
     }
 

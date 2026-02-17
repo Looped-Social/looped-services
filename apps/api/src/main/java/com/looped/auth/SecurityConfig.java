@@ -77,6 +77,7 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.DELETE, "/v1/posts/*/save").permitAll()
                 .requestMatchers(HttpMethod.POST, "/v1/posts/*/comments").permitAll()
                 .requestMatchers(HttpMethod.GET, "/v1/posts/*/comments").permitAll()
+                .requestMatchers(HttpMethod.PUT, "/v1/polls/*/vote").permitAll()
                 .requestMatchers(HttpMethod.GET, "/v1/comments/*/replies").permitAll()
                 .requestMatchers(HttpMethod.POST, "/v1/comments/*/like").permitAll()
                 .requestMatchers(HttpMethod.DELETE, "/v1/comments/*/like").permitAll()

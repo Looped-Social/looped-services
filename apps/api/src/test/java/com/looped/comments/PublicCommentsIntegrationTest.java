@@ -10,6 +10,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 
 import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -95,9 +96,10 @@ class PublicCommentsIntegrationTest extends PostgresTestBase {
 
         mockMvc.perform(get("/v1/public/posts/" + postId + "/comments"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.items.length()", equalTo(2)))
+                .andExpect(jsonPath("$.items.length()", equalTo(1)))
                 .andExpect(jsonPath("$.items[0].id", equalTo((int) topCommentId)))
                 .andExpect(jsonPath("$.items[0].author.username", equalTo("pubcommenter")))
+                .andExpect(jsonPath("$.items[0].parent_id").doesNotExist())
                 .andExpect(jsonPath("$.items[0].author_principal_id").doesNotExist())
                 .andExpect(jsonPath("$.items[0].user_liked").doesNotExist())
                 .andExpect(jsonPath("$.items[0].author.company_id").doesNotExist())
@@ -169,5 +171,101 @@ class PublicCommentsIntegrationTest extends PostgresTestBase {
         mockMvc.perform(get("/v1/public/comments/999999/replies"))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.error", equalTo("comment_not_found")));
+    }
+
+    @Test
+    void public_comments_hide_deleted_leaf_and_sanitize_visible_tombstones() throws Exception {
+        long companyId = jdbc.queryForObject(
+                "INSERT INTO companies(name, domain) VALUES ('PubDeletedCo', 'pub-deleted.co') RETURNING id",
+                Long.class
+        );
+        long authorId = jdbc.queryForObject(
+                "INSERT INTO users(firebase_uid, handle, company_id, display_name) VALUES (?,?,?,?) RETURNING id",
+                Long.class,
+                "uid-public-deleted-author",
+                "pdauthor",
+                companyId,
+                "Public Deleted Author"
+        );
+        long commenterId = jdbc.queryForObject(
+                "INSERT INTO users(firebase_uid, handle, company_id, display_name) VALUES (?,?,?,?) RETURNING id",
+                Long.class,
+                "uid-public-deleted-commenter",
+                "pdcommenter",
+                companyId,
+                "Public Deleted Commenter"
+        );
+        long authorPrincipalId = jdbc.queryForObject(
+                "INSERT INTO principals(kind, user_id) VALUES ('user', ?) RETURNING id",
+                Long.class,
+                authorId
+        );
+        long commenterPrincipalId = jdbc.queryForObject(
+                "INSERT INTO principals(kind, user_id) VALUES ('user', ?) RETURNING id",
+                Long.class,
+                commenterId
+        );
+        long communityId = jdbc.queryForObject(
+                "INSERT INTO communities(kind, name) VALUES ('company', 'Public Deleted Community') RETURNING id",
+                Long.class
+        );
+        long postId = jdbc.queryForObject(
+                "INSERT INTO posts(author_id, author_principal_id, company_id, community_id, content, visibility) VALUES (?,?,?,?,?,'public') RETURNING id",
+                Long.class,
+                authorId,
+                authorPrincipalId,
+                companyId,
+                communityId,
+                "Public deleted behavior post"
+        );
+        jdbc.queryForObject(
+                "INSERT INTO comments(post_id, user_id, author_principal_id, company_id, content, deleted_at, visibility) " +
+                        "VALUES (?,?,?,?,?, now(),'public') RETURNING id",
+                Long.class,
+                postId,
+                commenterId,
+                commenterPrincipalId,
+                companyId,
+                "Leaf deleted should hide"
+        );
+        long tombstoneId = jdbc.queryForObject(
+                "INSERT INTO comments(post_id, user_id, author_principal_id, company_id, content, reply_count, deleted_at, visibility) " +
+                        "VALUES (?,?,?,?,?,1, now(),'public') RETURNING id",
+                Long.class,
+                postId,
+                commenterId,
+                commenterPrincipalId,
+                companyId,
+                "Deleted parent should sanitize"
+        );
+        long replyId = jdbc.queryForObject(
+                "INSERT INTO comments(post_id, user_id, author_principal_id, company_id, content, parent_id, visibility) VALUES (?,?,?,?,?,?,'public') RETURNING id",
+                Long.class,
+                postId,
+                authorId,
+                authorPrincipalId,
+                companyId,
+                "Visible child reply",
+                tombstoneId
+        );
+
+        mockMvc.perform(get("/v1/public/posts/" + postId + "/comments"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items.length()", equalTo(1)))
+                .andExpect(jsonPath("$.items[0].id", equalTo((int) tombstoneId)))
+                .andExpect(jsonPath("$.items[0].is_deleted", equalTo(true)))
+                .andExpect(jsonPath("$.items[0].content", equalTo("")))
+                .andExpect(jsonPath("$.items[0].media_asset_id").value(nullValue()))
+                .andExpect(jsonPath("$.items[0].author.id").value(nullValue()))
+                .andExpect(jsonPath("$.items[0].author.display_name").value(nullValue()))
+                .andExpect(jsonPath("$.items[0].author.username").value(nullValue()))
+                .andExpect(jsonPath("$.items[0].author.handle").value(nullValue()))
+                .andExpect(jsonPath("$.items[0].author.profile_image_url").value(nullValue()));
+
+        mockMvc.perform(get("/v1/public/comments/" + tombstoneId + "/replies"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items.length()", equalTo(1)))
+                .andExpect(jsonPath("$.items[0].id", equalTo((int) replyId)))
+                .andExpect(jsonPath("$.items[0].parent_id", equalTo((int) tombstoneId)));
     }
 }

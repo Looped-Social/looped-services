@@ -3,7 +3,6 @@ package com.looped.posts;
 import com.looped.anon.AnonProofService;
 import com.looped.notifications.NotificationPublisher;
 import com.looped.principals.PrincipalRepository;
-import com.looped.users.UserCommunityBanRepository;
 import com.looped.users.UserRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -16,22 +15,19 @@ public class RepostsService {
     private final PrincipalRepository principals;
     private final AnonProofService anonProofs;
     private final NotificationPublisher notifications;
-    private final UserCommunityBanRepository communityBans;
 
     public RepostsService(PostRepository posts,
                           RepostsRepository reposts,
                           UserRepository users,
                           PrincipalRepository principals,
                           AnonProofService anonProofs,
-                          NotificationPublisher notifications,
-                          UserCommunityBanRepository communityBans) {
+                          NotificationPublisher notifications) {
         this.posts = posts;
         this.reposts = reposts;
         this.users = users;
         this.principals = principals;
         this.anonProofs = anonProofs;
         this.notifications = notifications;
-        this.communityBans = communityBans;
     }
 
     @Transactional
@@ -50,18 +46,11 @@ public class RepostsService {
         if (anonProof != null && anonProof.anonProfileId() != null) {
             var verified = anonProofs.verifyActionScoped(anonProof, "repost", postId, post.get().communityId);
             if (verified.status() != AnonProofService.Status.OK) return ToggleResult.invalidSignature();
-            if (verified.actor().companyId() != null && verified.actor().companyId() != post.get().companyId) {
-                return ToggleResult.forbidden();
-            }
             actorPrincipalId = verified.actor().principalId();
         } else {
             if (firebaseUid == null) return ToggleResult.userNotProvisioned();
             var user = users.findByFirebaseUid(firebaseUid);
-            if (user.isEmpty() || user.get().companyId == null) return ToggleResult.userNotProvisioned();
-            if (user.get().companyId.longValue() != post.get().companyId) return ToggleResult.forbidden();
-            if (post.get().communityId != null && communityBans.isBanned(user.get().id, post.get().communityId)) {
-                return ToggleResult.communityBanned();
-            }
+            if (user.isEmpty()) return ToggleResult.userNotProvisioned();
             var principal = principals.createForUser(user.get().id);
             actorPrincipalId = principal.id;
         }
@@ -69,7 +58,6 @@ public class RepostsService {
                 && actorPrincipalId != post.get().authorPrincipalId) {
             return ToggleResult.notFound();
         }
-
         if (actorPrincipalId == post.get().authorPrincipalId) return ToggleResult.selfRepostNotAllowed();
 
         boolean created = reposts.insertIfAbsent(actorPrincipalId, postId);
@@ -96,18 +84,11 @@ public class RepostsService {
         if (anonProof != null && anonProof.anonProfileId() != null) {
             var verified = anonProofs.verifyActionScoped(anonProof, "unrepost", postId, post.get().communityId);
             if (verified.status() != AnonProofService.Status.OK) return ToggleResult.invalidSignature();
-            if (verified.actor().companyId() != null && verified.actor().companyId() != post.get().companyId) {
-                return ToggleResult.forbidden();
-            }
             actorPrincipalId = verified.actor().principalId();
         } else {
             if (firebaseUid == null) return ToggleResult.userNotProvisioned();
             var user = users.findByFirebaseUid(firebaseUid);
-            if (user.isEmpty() || user.get().companyId == null) return ToggleResult.userNotProvisioned();
-            if (user.get().companyId.longValue() != post.get().companyId) return ToggleResult.forbidden();
-            if (post.get().communityId != null && communityBans.isBanned(user.get().id, post.get().communityId)) {
-                return ToggleResult.communityBanned();
-            }
+            if (user.isEmpty()) return ToggleResult.userNotProvisioned();
             var principal = principals.createForUser(user.get().id);
             actorPrincipalId = principal.id;
         }
@@ -120,7 +101,7 @@ public class RepostsService {
         int count = deleted ? reposts.decrementPostReposts(postId) : reposts.repostCount(postId);
         return ToggleResult.ok(deleted, false, count);
     }
-    public enum Status { OK, USER_NOT_PROVISIONED, NOT_FOUND, FORBIDDEN, SELF_REPOST_NOT_ALLOWED, COMMUNITY_BANNED, INVALID_SIGNATURE }
+    public enum Status { OK, USER_NOT_PROVISIONED, NOT_FOUND, INVALID_SIGNATURE, SELF_REPOST_NOT_ALLOWED }
 
     public record ToggleResult(Status status, boolean changed, boolean viewerHasReposted, int repostCount) {
         static ToggleResult ok(boolean changed, boolean viewerHasReposted, int repostCount) {
@@ -135,20 +116,12 @@ public class RepostsService {
             return new ToggleResult(Status.NOT_FOUND, false, false, 0);
         }
 
-        static ToggleResult forbidden() {
-            return new ToggleResult(Status.FORBIDDEN, false, false, 0);
+        static ToggleResult invalidSignature() {
+            return new ToggleResult(Status.INVALID_SIGNATURE, false, false, 0);
         }
 
         static ToggleResult selfRepostNotAllowed() {
             return new ToggleResult(Status.SELF_REPOST_NOT_ALLOWED, false, false, 0);
-        }
-
-        static ToggleResult communityBanned() {
-            return new ToggleResult(Status.COMMUNITY_BANNED, false, false, 0);
-        }
-
-        static ToggleResult invalidSignature() {
-            return new ToggleResult(Status.INVALID_SIGNATURE, false, false, 0);
         }
     }
 }

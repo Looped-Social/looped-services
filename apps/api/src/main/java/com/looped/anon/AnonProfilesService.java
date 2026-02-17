@@ -2,6 +2,8 @@ package com.looped.anon;
 
 import com.looped.communities.CommunitiesRepository;
 import com.looped.comments.CommentsRepository;
+import com.looped.polls.PollPayloads;
+import com.looped.polls.PollsService;
 import com.looped.posts.LikesRepository;
 import com.looped.posts.PostPayloads;
 import com.looped.posts.PostRepository;
@@ -37,6 +39,7 @@ public class AnonProfilesService {
     private final RepostsRepository reposts;
     private final PostStateService postState;
     private final PostViewerCapabilitiesService viewerCapabilities;
+    private final PollsService pollsService;
     private final CommentsRepository comments;
     private final AnonContentRepository content;
     private final CommunitiesRepository communities;
@@ -56,6 +59,7 @@ public class AnonProfilesService {
                                RepostsRepository reposts,
                                PostStateService postState,
                                PostViewerCapabilitiesService viewerCapabilities,
+                               PollsService pollsService,
                                CommentsRepository comments,
                                AnonContentRepository content,
                                CommunitiesRepository communities,
@@ -74,6 +78,7 @@ public class AnonProfilesService {
         this.reposts = reposts;
         this.postState = postState;
         this.viewerCapabilities = viewerCapabilities;
+        this.pollsService = pollsService;
         this.comments = comments;
         this.content = content;
         this.communities = communities;
@@ -364,15 +369,20 @@ public class AnonProfilesService {
             }
         }
 
+        java.util.Map<Long, PostRepository.PostRow> allPosts = new java.util.HashMap<>(postsById);
+        allPosts.putAll(replyPostsById);
+        java.util.List<Long> allPostIds = new java.util.ArrayList<>(allPosts.keySet());
+        java.util.Map<Long, PollsService.PollView> pollsByPostId = allPostIds.isEmpty()
+                ? java.util.Map.of()
+                : pollsService.viewsByPostId(viewerPrincipal.id, allPostIds);
+
         java.util.Map<Long, java.util.Map<String, Object>> capabilitiesByPostId = java.util.Map.of();
-        if (!postsById.isEmpty() || !replyPostsById.isEmpty()) {
-            java.util.Map<Long, PostRepository.PostRow> allPosts = new java.util.HashMap<>(postsById);
-            allPosts.putAll(replyPostsById);
+        if (!allPosts.isEmpty()) {
             capabilitiesByPostId = viewerCapabilities.byPostId(
                     actor.get().id,
                     actor.get().companyId,
                     new java.util.ArrayList<>(allPosts.values()),
-                    java.util.Map.of()
+                    pollsByPostId
             );
         }
 
@@ -385,7 +395,12 @@ public class AnonProfilesService {
                 items.add(java.util.Map.of(
                         "type", "post",
                         "created_at", ref.createdAt(),
-                        "post", withCapabilities(PostPayloads.from(p, defaultProfileImageUrl), capabilitiesByPostId.get(p.id))
+                        "post", withPollAndCapabilities(
+                                PostPayloads.from(p, defaultProfileImageUrl),
+                                p.id,
+                                pollsByPostId,
+                                capabilitiesByPostId
+                        )
                 ));
             } else if ("reply".equals(ref.type())) {
                 var c = repliesById.get(ref.entityId());
@@ -398,9 +413,11 @@ public class AnonProfilesService {
                     var host = postsById.get(c.postId);
                     if (host == null) host = replyPostsById.get(c.postId);
                     if (host != null) {
-                        payload.put("post", withCapabilities(
+                        payload.put("post", withPollAndCapabilities(
                                 PostPayloads.from(host, defaultProfileImageUrl),
-                                capabilitiesByPostId.get(host.id)
+                                host.id,
+                                pollsByPostId,
+                                capabilitiesByPostId
                         ));
                     }
                 }
@@ -416,9 +433,15 @@ public class AnonProfilesService {
         return ContentResult.ok(items, next);
     }
 
-    private java.util.Map<String, Object> withCapabilities(java.util.Map<String, Object> postPayload,
-                                                           java.util.Map<String, Object> viewerCapabilitiesPayload) {
-        PostPayloads.putViewerCapabilities(postPayload, viewerCapabilitiesPayload);
+    private java.util.Map<String, Object> withPollAndCapabilities(
+            java.util.Map<String, Object> postPayload,
+            long postId,
+            java.util.Map<Long, PollsService.PollView> pollsByPostId,
+            java.util.Map<Long, java.util.Map<String, Object>> capabilitiesByPostId
+    ) {
+        var poll = pollsByPostId.get(postId);
+        if (poll != null) postPayload.put("poll", PollPayloads.from(poll));
+        PostPayloads.putViewerCapabilities(postPayload, capabilitiesByPostId.get(postId));
         return postPayload;
     }
 

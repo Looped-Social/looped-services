@@ -122,6 +122,27 @@ class RepostsIntegrationTest extends PostgresTestBase {
     }
 
     @Test
+    void repost_allows_cross_company_user() throws Exception {
+        long companyA = jdbc.queryForObject("INSERT INTO companies(name, domain) VALUES ('AcmeA','acmea.com') RETURNING id", Long.class);
+        long companyB = jdbc.queryForObject("INSERT INTO companies(name, domain) VALUES ('AcmeB','acmeb.com') RETURNING id", Long.class);
+        long authorId = jdbc.queryForObject("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?) RETURNING id",
+                Long.class, "uid-cross-author", "authora", companyA);
+        long authorPrincipalId = jdbc.queryForObject("INSERT INTO principals(kind, user_id) VALUES ('user', ?) RETURNING id", Long.class, authorId);
+        long viewerId = jdbc.queryForObject("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?) RETURNING id",
+                Long.class, "uid-cross-viewer", "viewerb", companyB);
+        jdbc.queryForObject("INSERT INTO principals(kind, user_id) VALUES ('user', ?) RETURNING id", Long.class, viewerId);
+        long postId = jdbc.queryForObject("INSERT INTO posts(author_id, author_principal_id, company_id, content) VALUES (?,?,?,?) RETURNING id",
+                Long.class, authorId, authorPrincipalId, companyA, "cross company");
+
+        String auth = "Bearer " + token("uid-cross-viewer");
+
+        mockMvc.perform(put("/v1/posts/" + postId + "/repost").header("Authorization", auth))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.viewer_has_reposted", equalTo(true)));
+        assertEquals(1, jdbc.queryForObject("SELECT repost_count FROM posts WHERE id = ?", Integer.class, postId));
+    }
+
+    @Test
     void feed_includes_repost_banner_for_followed_users() throws Exception {
         long companyId = jdbc.queryForObject("INSERT INTO companies(name, domain) VALUES ('Acme3','acme3.com') RETURNING id", Long.class);
         long viewerId = jdbc.queryForObject("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?) RETURNING id",

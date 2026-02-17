@@ -80,6 +80,29 @@ public class CommentsRepository {
         return list.isEmpty() ? Optional.empty() : Optional.of(list.get(0));
     }
 
+    public Optional<CommentRow> findByIdForUpdate(long id) {
+        var list = jdbc.query(
+                "SELECT id, post_id, user_id, author_principal_id, company_id, content, media_asset_id, parent_id, likes_count, reply_count, created_at, deleted_at, " +
+                        "visibility, quarantined_at, quarantine_reason, removed_at, removed_by, removed_reason " +
+                        "FROM comments WHERE id = ? FOR UPDATE",
+                MAPPER, id
+        );
+        return list.isEmpty() ? Optional.empty() : Optional.of(list.get(0));
+    }
+
+    public boolean hasVisibleReplies(long commentId) {
+        Boolean exists = jdbc.queryForObject(
+                "SELECT EXISTS (" +
+                        "SELECT 1 FROM comments c " +
+                        "WHERE c.parent_id = ? " +
+                        "AND (c.deleted_at IS NULL OR c.reply_count > 0)" +
+                        ")",
+                Boolean.class,
+                commentId
+        );
+        return Boolean.TRUE.equals(exists);
+    }
+
     public List<Long> findCommentIdsByMediaAsset(long mediaAssetId) {
         return jdbc.queryForList(
                 "SELECT id FROM comments WHERE deleted_at IS NULL AND removed_at IS NULL AND media_asset_id = ?",
@@ -127,6 +150,8 @@ public class CommentsRepository {
                 LEFT JOIN comment_likes cv ON cv.comment_id = c.id AND cv.liker_principal_id = ?
                 LEFT JOIN comment_likes cc ON cc.comment_id = c.id AND cc.liker_principal_id = ?
                 WHERE c.post_id = ?
+                AND c.parent_id IS NULL
+                AND (c.deleted_at IS NULL OR c.reply_count > 0)
                 AND (p.kind = 'anon' OR u.id IS NOT NULL)
                 AND (c.visibility = 'public' OR c.author_principal_id = ?)
                 """;
@@ -159,6 +184,7 @@ public class CommentsRepository {
                 LEFT JOIN comment_likes cv ON cv.comment_id = c.id AND cv.liker_principal_id = ?
                 LEFT JOIN comment_likes cc ON cc.comment_id = c.id AND cc.liker_principal_id = ?
                 WHERE c.parent_id = ? AND c.post_id = ?
+                AND (c.deleted_at IS NULL OR c.reply_count > 0)
                 AND (p.kind = 'anon' OR u.id IS NOT NULL)
                 AND (c.visibility = 'public' OR c.author_principal_id = ?)
                 """;
@@ -217,7 +243,9 @@ public class CommentsRepository {
                 JOIN posts p ON p.id = c.post_id AND p.removed_at IS NULL
                 LEFT JOIN comment_likes cv ON cv.comment_id = c.id AND cv.liker_principal_id = ?
                 LEFT JOIN comment_likes cc ON cc.comment_id = c.id AND cc.liker_principal_id = p.author_principal_id
-                WHERE c.user_id = ? AND (pr.kind = 'anon' OR u.id IS NOT NULL)
+                WHERE c.user_id = ?
+                AND (c.deleted_at IS NULL OR c.reply_count > 0)
+                AND (pr.kind = 'anon' OR u.id IS NOT NULL)
                 """;
         Object[] params;
         if (cursorTs == null || cursorId == null) {
@@ -249,7 +277,9 @@ public class CommentsRepository {
                 JOIN posts p ON p.id = c.post_id AND p.removed_at IS NULL
                 LEFT JOIN comment_likes cv ON cv.comment_id = c.id AND cv.liker_principal_id = ?
                 LEFT JOIN comment_likes cc ON cc.comment_id = c.id AND cc.liker_principal_id = p.author_principal_id
-                WHERE c.author_principal_id = ? AND (pr.kind = 'anon' OR u.id IS NOT NULL)
+                WHERE c.author_principal_id = ?
+                AND (c.deleted_at IS NULL OR c.reply_count > 0)
+                AND (pr.kind = 'anon' OR u.id IS NOT NULL)
                 """;
         Object[] params;
         if (cursorTs == null || cursorId == null) {
@@ -304,7 +334,8 @@ public class CommentsRepository {
 
     public boolean softDelete(long commentId) {
         return jdbc.update(
-                "UPDATE comments SET deleted_at = now(), content = '' WHERE id = ? AND deleted_at IS NULL AND removed_at IS NULL",
+                "UPDATE comments SET deleted_at = now(), content = '', media_asset_id = NULL " +
+                        "WHERE id = ? AND deleted_at IS NULL AND removed_at IS NULL",
                 commentId
         ) > 0;
     }

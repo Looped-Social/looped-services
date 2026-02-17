@@ -199,7 +199,7 @@ public class CommentsService {
         var inserted = comments.insert(postId, actorUserId, actorPrincipalId, effectiveCompanyId, content, mediaAssetId, parentId);
         posts.incrementCommentsCount(postId);
         if (parentId != null) {
-            comments.incrementReplyCount(parentId);
+            incrementReplyCountWithVisibilityPropagation(parentId);
         }
         boolean quarantineComment = decision.action() == ContentModerationService.Action.QUARANTINE || mediaUnderReview;
         if (quarantineComment) {
@@ -402,7 +402,7 @@ public class CommentsService {
 
     @Transactional
     public DeleteResult delete(String firebaseUid, long commentId, AnonProofService.AnonActionProof anonProof) {
-        var comment = comments.findById(commentId);
+        var comment = comments.findByIdForUpdate(commentId);
         if (comment.isEmpty()) return DeleteResult.commentNotFound();
         if (comment.get().deletedAt != null) return DeleteResult.ok(false);
         if (comment.get().removedAt != null) return DeleteResult.ok(false);
@@ -431,14 +431,44 @@ public class CommentsService {
 
         if (actorPrincipalId != comment.get().authorPrincipalId) return DeleteResult.forbidden();
 
+        boolean hadVisibleReplies = comments.hasVisibleReplies(commentId);
         boolean deleted = comments.softDelete(commentId);
         if (deleted) {
             posts.decrementCommentsCount(comment.get().postId);
-            if (comment.get().parentId != null) {
-                comments.decrementReplyCount(comment.get().parentId);
+            if (comment.get().parentId != null && !hadVisibleReplies) {
+                decrementReplyCountWithVisibilityPropagation(comment.get().parentId);
             }
         }
         return DeleteResult.ok(deleted);
+    }
+
+    private void incrementReplyCountWithVisibilityPropagation(long parentId) {
+        Long currentId = parentId;
+        while (currentId != null) {
+            var current = comments.findByIdForUpdate(currentId).orElse(null);
+            if (current == null) return;
+            int before = current.replyCount;
+            comments.incrementReplyCount(currentId);
+
+            boolean becameVisible = current.deletedAt != null && before == 0;
+            if (!becameVisible || current.parentId == null) return;
+            currentId = current.parentId;
+        }
+    }
+
+    private void decrementReplyCountWithVisibilityPropagation(long parentId) {
+        Long currentId = parentId;
+        while (currentId != null) {
+            var current = comments.findByIdForUpdate(currentId).orElse(null);
+            if (current == null) return;
+            int before = current.replyCount;
+            comments.decrementReplyCount(currentId);
+            int after = Math.max(before - 1, 0);
+
+            boolean becameHidden = current.deletedAt != null && before > 0 && after == 0;
+            if (!becameHidden || current.parentId == null) return;
+            currentId = current.parentId;
+        }
     }
 
     @Transactional
