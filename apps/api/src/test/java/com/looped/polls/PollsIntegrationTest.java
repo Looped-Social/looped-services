@@ -1,6 +1,9 @@
 package com.looped.polls;
 
 import com.jayway.jsonpath.JsonPath;
+import com.looped.anon.crypto.AnonCrypto;
+import com.looped.anon.crypto.BlindRsaSigner;
+import com.looped.anon.crypto.Ed25519Verifier;
 import com.looped.support.PostgresTestBase;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -12,12 +15,19 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
+import java.security.KeyPair;
+import java.security.KeyPairGenerator;
+import java.security.Signature;
+import java.security.interfaces.RSAPrivateKey;
+import java.security.interfaces.RSAPublicKey;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.Base64;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -36,6 +46,17 @@ class PollsIntegrationTest extends PostgresTestBase {
 
     long userId;
     long communityId;
+
+    private static byte[] rawEd25519PublicKey(java.security.PublicKey publicKey) {
+        return Ed25519Verifier.parseRawPublicKey(publicKey.getEncoded());
+    }
+
+    private static byte[] signEd25519(java.security.PrivateKey privateKey, byte[] message) throws Exception {
+        Signature signature = Signature.getInstance("Ed25519");
+        signature.initSign(privateKey);
+        signature.update(message);
+        return signature.sign();
+    }
 
     @BeforeEach
     void seed() {
@@ -338,5 +359,198 @@ class PollsIntegrationTest extends PostgresTestBase {
                 .andExpect(jsonPath("$.error").value("specialization_not_joined"));
 
         assertThat(viewerId).isPositive();
+    }
+
+    @Test
+    void anon_and_regular_votes_are_actor_isolated_for_same_poll() throws Exception {
+        OffsetDateTime closesAt = OffsetDateTime.now(ZoneOffset.UTC).plusDays(7).withNano(0);
+        String createBody = """
+                {
+                  "content": "Lunch opinions?",
+                  "communityId": %d,
+                  "poll": {
+                    "question": "Where should we go?",
+                    "options": ["Tacos", "Salad"],
+                    "maxSelections": 1,
+                    "closesAt": "%s"
+                  }
+                }
+                """.formatted(communityId, closesAt);
+
+        MvcResult created = mockMvc.perform(
+                        post("/v1/posts")
+                                .with(jwt().jwt(j -> j.subject(FIREBASE_UID)))
+                                .header("Idempotency-Key", "idem-poll-anon-regular")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(createBody)
+                )
+                .andExpect(status().isCreated())
+                .andReturn();
+
+        String postJson = created.getResponse().getContentAsString();
+        long postId = ((Number) JsonPath.read(postJson, "$.id")).longValue();
+        long pollId = ((Number) JsonPath.read(postJson, "$.poll.id")).longValue();
+        long optA = ((Number) JsonPath.read(postJson, "$.poll.options[0].id")).longValue();
+        long optB = ((Number) JsonPath.read(postJson, "$.poll.options[1].id")).longValue();
+        long companyId = jdbc.queryForObject("SELECT company_id FROM users WHERE id = ?", Long.class, userId);
+
+        KeyPairGenerator rsaKpg = KeyPairGenerator.getInstance("RSA");
+        rsaKpg.initialize(2048);
+        KeyPair rsa = rsaKpg.generateKeyPair();
+        String kid = "kid-poll-isolation";
+        jdbc.update(
+                "INSERT INTO anon_issuers(kid, alg, public_key, company_id, scope_kind, scope_id, expires_at) " +
+                        "VALUES (?,?,?,?,?,?, now() + interval '1 day')",
+                kid, "RSABSSA", rsa.getPublic().getEncoded(), companyId, "community", communityId
+        );
+
+        KeyPairGenerator edKpg = KeyPairGenerator.getInstance("Ed25519");
+        KeyPair ed = edKpg.generateKeyPair();
+        byte[] personaPubkeyRaw = rawEd25519PublicKey(ed.getPublic());
+        long anonProfileId = jdbc.queryForObject(
+                "INSERT INTO anonymous_profiles(company_id, public_key, handle) VALUES (?,?,?) RETURNING id",
+                Long.class, companyId, personaPubkeyRaw, "poll-anon-voter"
+        );
+
+        byte[] certMsg = AnonCrypto.certMessage(personaPubkeyRaw);
+        byte[] certSig = new BlindRsaSigner((RSAPrivateKey) rsa.getPrivate(), (RSAPublicKey) rsa.getPublic())
+                .signBlinded(certMsg);
+        String anonCertB64 = Base64.getEncoder().encodeToString(certSig);
+        byte[] voteAction = AnonCrypto.actionMessage("poll_vote", pollId);
+        String anonSigB64 = Base64.getEncoder().encodeToString(signEd25519(ed.getPrivate(), voteAction));
+
+        String anonVoteBody = """
+                {
+                  "selectedOptionIds": [%d],
+                  "asAnon": true,
+                  "anonProfileId": %d,
+                  "anonCert": "%s",
+                  "anonCertKid": "%s",
+                  "anonSig": "%s"
+                }
+                """.formatted(optA, anonProfileId, anonCertB64, kid, anonSigB64);
+
+        mockMvc.perform(
+                        put("/v1/polls/{pollId}/vote", pollId)
+                                .header("X-Actor", "anon")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(anonVoteBody)
+                )
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalVotes").value(1))
+                .andExpect(jsonPath("$.viewer.hasVoted").value(true))
+                .andExpect(jsonPath("$.viewer.selectedOptionIds[0]").value((int) optA));
+
+        mockMvc.perform(
+                        get("/v1/posts/{id}", postId)
+                                .with(jwt().jwt(j -> j.subject(FIREBASE_UID)))
+                )
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.poll.viewer.hasVoted").value(false))
+                .andExpect(jsonPath("$.poll.viewer.selectedOptionIds").isEmpty());
+
+        String regularVoteBody = """
+                { "selectedOptionIds": [%d] }
+                """.formatted(optB);
+        mockMvc.perform(
+                        put("/v1/polls/{pollId}/vote", pollId)
+                                .with(jwt().jwt(j -> j.subject(FIREBASE_UID)))
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(regularVoteBody)
+                )
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalVotes").value(2))
+                .andExpect(jsonPath("$.options[0].voteCount").value(1))
+                .andExpect(jsonPath("$.options[1].voteCount").value(1))
+                .andExpect(jsonPath("$.viewer.hasVoted").value(true))
+                .andExpect(jsonPath("$.viewer.selectedOptionIds[0]").value((int) optB));
+
+        mockMvc.perform(
+                        put("/v1/polls/{pollId}/vote", pollId)
+                                .header("X-Actor", "anon")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(anonVoteBody)
+                )
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalVotes").value(2))
+                .andExpect(jsonPath("$.options[0].voteCount").value(1))
+                .andExpect(jsonPath("$.options[1].voteCount").value(1))
+                .andExpect(jsonPath("$.viewer.hasVoted").value(true))
+                .andExpect(jsonPath("$.viewer.selectedOptionIds[0]").value((int) optA));
+    }
+
+    @Test
+    void anon_vote_rejects_invalid_proof() throws Exception {
+        OffsetDateTime closesAt = OffsetDateTime.now(ZoneOffset.UTC).plusDays(7).withNano(0);
+        String createBody = """
+                {
+                  "content": "Lunch opinions?",
+                  "communityId": %d,
+                  "poll": {
+                    "question": "Where should we go?",
+                    "options": ["Tacos", "Salad"],
+                    "maxSelections": 1,
+                    "closesAt": "%s"
+                  }
+                }
+                """.formatted(communityId, closesAt);
+
+        MvcResult created = mockMvc.perform(
+                        post("/v1/posts")
+                                .with(jwt().jwt(j -> j.subject(FIREBASE_UID)))
+                                .header("Idempotency-Key", "idem-poll-anon-invalid")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(createBody)
+                )
+                .andExpect(status().isCreated())
+                .andReturn();
+
+        String postJson = created.getResponse().getContentAsString();
+        long pollId = ((Number) JsonPath.read(postJson, "$.poll.id")).longValue();
+        long optA = ((Number) JsonPath.read(postJson, "$.poll.options[0].id")).longValue();
+        long companyId = jdbc.queryForObject("SELECT company_id FROM users WHERE id = ?", Long.class, userId);
+
+        KeyPairGenerator rsaKpg = KeyPairGenerator.getInstance("RSA");
+        rsaKpg.initialize(2048);
+        KeyPair rsa = rsaKpg.generateKeyPair();
+        String kid = "kid-poll-invalid";
+        jdbc.update(
+                "INSERT INTO anon_issuers(kid, alg, public_key, company_id, scope_kind, scope_id, expires_at) " +
+                        "VALUES (?,?,?,?,?,?, now() + interval '1 day')",
+                kid, "RSABSSA", rsa.getPublic().getEncoded(), companyId, "community", communityId
+        );
+
+        KeyPairGenerator edKpg = KeyPairGenerator.getInstance("Ed25519");
+        KeyPair ed = edKpg.generateKeyPair();
+        byte[] personaPubkeyRaw = rawEd25519PublicKey(ed.getPublic());
+        long anonProfileId = jdbc.queryForObject(
+                "INSERT INTO anonymous_profiles(company_id, public_key, handle) VALUES (?,?,?) RETURNING id",
+                Long.class, companyId, personaPubkeyRaw, "poll-anon-invalid"
+        );
+
+        byte[] certMsg = AnonCrypto.certMessage(personaPubkeyRaw);
+        byte[] certSig = new BlindRsaSigner((RSAPrivateKey) rsa.getPrivate(), (RSAPublicKey) rsa.getPublic())
+                .signBlinded(certMsg);
+        String anonCertB64 = Base64.getEncoder().encodeToString(certSig);
+
+        String badProofBody = """
+                {
+                  "selectedOptionIds": [%d],
+                  "asAnon": true,
+                  "anonProfileId": %d,
+                  "anonCert": "%s",
+                  "anonCertKid": "%s",
+                  "anonSig": "aW52YWxpZC1zaWc="
+                }
+                """.formatted(optA, anonProfileId, anonCertB64, kid);
+
+        mockMvc.perform(
+                        put("/v1/polls/{pollId}/vote", pollId)
+                                .header("X-Actor", "anon")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(badProofBody)
+                )
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error").value("invalid_anon_proof"));
     }
 }

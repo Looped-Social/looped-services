@@ -8,6 +8,7 @@ import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -25,10 +26,37 @@ public class PollsController {
     @PutMapping("/{pollId}/vote")
     public ResponseEntity<?> vote(
             @AuthenticationPrincipal Jwt jwt,
+            @RequestHeader(value = "X-Actor", required = false) String actor,
             @PathVariable("pollId") long pollId,
             @Validated @RequestBody PollRequests.VoteRequest body
     ) {
-        var res = polls.vote(jwt == null ? null : jwt.getSubject(), pollId, body.selectedOptionIds());
+        boolean asAnon = body.asAnon() != null && body.asAnon();
+        if (asAnon && !body.hasAnonProof()) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
+                    "error", "invalid_anon_proof",
+                    "message", "Invalid anonymous proof"
+            ));
+        }
+        if (asAnon && (actor == null || !actor.equalsIgnoreCase("anon"))) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of(
+                    "error", "invalid_actor",
+                    "message", "X-Actor: anon is required for anonymous votes"
+            ));
+        }
+        if (asAnon && jwt != null) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of(
+                    "error", "anon_jwt_not_allowed",
+                    "message", "Do not send Authorization for anonymous actions"
+            ));
+        }
+        if (!asAnon && jwt == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of(
+                    "error", "unauthorized",
+                    "message", "Authorization is required"
+            ));
+        }
+
+        var res = polls.vote(jwt == null ? null : jwt.getSubject(), pollId, body.selectedOptionIds(), body.toAnonProof());
         return switch (res.status()) {
             case USER_NOT_PROVISIONED -> ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
                     "error", "user_not_provisioned",
@@ -57,6 +85,10 @@ public class PollsController {
             case POLL_CLOSED -> ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
                     "error", "poll_closed",
                     "message", "Poll is closed"
+            ));
+            case INVALID_ANON_PROOF -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
+                    "error", "invalid_anon_proof",
+                    "message", "Invalid anonymous proof"
             ));
             case INVALID_SELECTION -> ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of(
                     "error", "invalid_selection",
