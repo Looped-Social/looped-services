@@ -123,7 +123,9 @@ class CommentsIntegrationTest extends PostgresTestBase {
         mockMvc.perform(get("/v1/posts/" + postId + "/comments")
                         .header("Authorization", commenterAuth))
                 .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items", hasSize(1)))
                 .andExpect(jsonPath("$.items[0].likes_count").value(1))
+                .andExpect(jsonPath("$.items[0].parent_id").doesNotExist())
                 .andExpect(jsonPath("$.items[0].user_liked").value(false))
                 .andExpect(jsonPath("$.items[0].liked_by_creator").value(true));
     }

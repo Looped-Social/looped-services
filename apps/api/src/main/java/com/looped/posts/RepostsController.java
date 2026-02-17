@@ -69,6 +69,10 @@ public class RepostsController {
                     "error", "invalid_anon_proof",
                     "message", "Invalid anonymous proof"
             ));
+            case SELF_REPOST_NOT_ALLOWED -> ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of(
+                    "error", "self_repost_not_allowed",
+                    "message", "You cannot repost your own post"
+            ));
             case OK -> new ResponseEntity<>(Map.of(
                     "post_id", postId,
                     "viewer_has_reposted", true,
@@ -122,6 +126,10 @@ public class RepostsController {
             case INVALID_SIGNATURE -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
                     "error", "invalid_anon_proof",
                     "message", "Invalid anonymous proof"
+            ));
+            case SELF_REPOST_NOT_ALLOWED -> ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of(
+                    "error", "self_repost_not_allowed",
+                    "message", "You cannot repost your own post"
             ));
             case OK -> ResponseEntity.ok(Map.of(
                     "post_id", postId,

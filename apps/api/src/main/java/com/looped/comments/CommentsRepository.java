@@ -127,6 +127,7 @@ public class CommentsRepository {
                 LEFT JOIN comment_likes cv ON cv.comment_id = c.id AND cv.liker_principal_id = ?
                 LEFT JOIN comment_likes cc ON cc.comment_id = c.id AND cc.liker_principal_id = ?
                 WHERE c.post_id = ?
+                AND c.parent_id IS NULL
                 AND (p.kind = 'anon' OR u.id IS NOT NULL)
                 AND (c.visibility = 'public' OR c.author_principal_id = ?)
                 """;

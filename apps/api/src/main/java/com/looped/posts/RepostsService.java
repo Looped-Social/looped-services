@@ -58,6 +58,7 @@ public class RepostsService {
                 && actorPrincipalId != post.get().authorPrincipalId) {
             return ToggleResult.notFound();
         }
+        if (actorPrincipalId == post.get().authorPrincipalId) return ToggleResult.selfRepostNotAllowed();
 
         boolean created = reposts.insertIfAbsent(actorPrincipalId, postId);
         int count = created ? reposts.incrementPostReposts(postId) : reposts.repostCount(postId);
@@ -100,7 +101,7 @@ public class RepostsService {
         int count = deleted ? reposts.decrementPostReposts(postId) : reposts.repostCount(postId);
         return ToggleResult.ok(deleted, false, count);
     }
-    public enum Status { OK, USER_NOT_PROVISIONED, NOT_FOUND, INVALID_SIGNATURE }
+    public enum Status { OK, USER_NOT_PROVISIONED, NOT_FOUND, INVALID_SIGNATURE, SELF_REPOST_NOT_ALLOWED }
 
     public record ToggleResult(Status status, boolean changed, boolean viewerHasReposted, int repostCount) {
         static ToggleResult ok(boolean changed, boolean viewerHasReposted, int repostCount) {
@@ -117,6 +118,10 @@ public class RepostsService {
 
         static ToggleResult invalidSignature() {
             return new ToggleResult(Status.INVALID_SIGNATURE, false, false, 0);
+        }
+
+        static ToggleResult selfRepostNotAllowed() {
+            return new ToggleResult(Status.SELF_REPOST_NOT_ALLOWED, false, false, 0);
         }
     }
 }

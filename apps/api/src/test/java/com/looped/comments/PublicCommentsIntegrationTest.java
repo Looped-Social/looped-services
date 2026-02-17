@@ -95,9 +95,10 @@ class PublicCommentsIntegrationTest extends PostgresTestBase {
 
         mockMvc.perform(get("/v1/public/posts/" + postId + "/comments"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.items.length()", equalTo(2)))
+                .andExpect(jsonPath("$.items.length()", equalTo(1)))
                 .andExpect(jsonPath("$.items[0].id", equalTo((int) topCommentId)))
                 .andExpect(jsonPath("$.items[0].author.username", equalTo("pubcommenter")))
+                .andExpect(jsonPath("$.items[0].parent_id").doesNotExist())
                 .andExpect(jsonPath("$.items[0].author_principal_id").doesNotExist())
                 .andExpect(jsonPath("$.items[0].user_liked").doesNotExist())
                 .andExpect(jsonPath("$.items[0].author.company_id").doesNotExist())
