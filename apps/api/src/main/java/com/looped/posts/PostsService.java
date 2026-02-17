@@ -130,19 +130,14 @@ public class PostsService {
                 return CreateResult.invalidAnonProof();
             }
             var decision = contentModeration.evaluateTextForAnon(content);
-            if (decision.action() == ContentModerationService.Action.REJECT_ANON) {
-                return CreateResult.contentUnderReview();
-            }
             var mediaValidation = validatePostMedia(normalizedMediaIds, null, true);
-            if (mediaValidation.underReview()) {
-                return CreateResult.contentUnderReview();
-            }
             if (mediaValidation.status() != MediaValidationStatus.OK) {
                 return toCreateResult(mediaValidation);
             }
             if (verified.actor().companyId() == null) {
                 return CreateResult.invalidAnonProof();
             }
+            boolean quarantinePost = decision.action() == ContentModerationService.Action.REJECT_ANON || mediaValidation.underReview();
 
             byte[] certBytes;
             byte[] sigBytes;
@@ -162,12 +157,22 @@ public class PostsService {
             if (poll != null) {
                 pollsService.createForPost(refreshed.id, poll);
             }
-            indexHashtags(refreshed.id, effectiveCompanyId, content);
-            try {
-                notifyPostFromFollowed(refreshed.authorPrincipalId, refreshed.id);
-                notifyMentions(refreshed.authorPrincipalId, null, effectiveCompanyId, content, refreshed.id);
-            } catch (RuntimeException ignored) {}
+            if (quarantinePost) {
+                String qSource = decision.action() == ContentModerationService.Action.REJECT_ANON ? decision.source() : "media";
+                String qReason = decision.action() == ContentModerationService.Action.REJECT_ANON ? decision.reason() : "policy:media_under_review";
+                quarantine.quarantinePost(refreshed.id, qSource, qReason);
+                refreshed = posts.findById(refreshed.id).orElse(refreshed);
+            } else {
+                indexHashtags(refreshed.id, effectiveCompanyId, content);
+                try {
+                    notifyPostFromFollowed(refreshed.authorPrincipalId, refreshed.id);
+                    notifyMentions(refreshed.authorPrincipalId, null, effectiveCompanyId, content, refreshed.id);
+                } catch (RuntimeException ignored) {}
+            }
             postState.applyForPrincipal(verified.actor().principalId(), java.util.List.of(refreshed));
+            if (quarantinePost) {
+                return CreateResult.contentUnderReview();
+            }
             return CreateResult.ok(refreshed, true);
         }
 
