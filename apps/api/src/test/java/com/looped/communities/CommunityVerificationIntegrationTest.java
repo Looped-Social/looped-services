@@ -25,9 +25,11 @@ import java.time.OffsetDateTime;
 import java.util.List;
 
 import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.greaterThan;
 import static org.hamcrest.Matchers.notNullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -186,5 +188,194 @@ class CommunityVerificationIntegrationTest extends PostgresTestBase {
                         .content(startBody))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error", equalTo("domains_not_configured")));
+    }
+
+    @Test
+    void email_verification_locks_after_max_invalid_attempts() throws Exception {
+        long companyId = jdbc.queryForObject("INSERT INTO companies(name, domain) VALUES ('Hotel', 'hotel.com') RETURNING id", Long.class);
+        jdbc.update("INSERT INTO users(firebase_uid, handle, company_id) VALUES ('uid-lock','harper',?)", companyId);
+        long communityId = jdbc.queryForObject(
+                "INSERT INTO communities(kind, name, description) VALUES ('company','Amazon','Amazon') RETURNING id",
+                Long.class
+        );
+        jdbc.update("INSERT INTO community_domains(community_id, domain) VALUES (?,?)", communityId, "amazon.com");
+
+        String auth = "Bearer " + tokenWithEmail("uid-lock", "ignored@gmail.com");
+        var start = mockMvc.perform(post("/v1/communities/" + communityId + "/verification/start")
+                        .header("Authorization", auth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "method": "email",
+                                  "email": "alice@amazon.com"
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.dev_code", notNullValue()))
+                .andReturn();
+
+        String devCode = start.getResponse().getContentAsString().replaceAll(".*\"dev_code\":\"([^\"]+)\".*", "$1");
+        String wrongBody = """
+                {
+                  "method": "email",
+                  "email": "alice@amazon.com",
+                  "code": "000000"
+                }
+                """;
+
+        for (int i = 0; i < 4; i++) {
+            mockMvc.perform(post("/v1/communities/" + communityId + "/verification/finish")
+                            .header("Authorization", auth)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(wrongBody))
+                    .andExpect(status().isForbidden())
+                    .andExpect(jsonPath("$.error", equalTo("invalid_code")));
+        }
+
+        mockMvc.perform(post("/v1/communities/" + communityId + "/verification/finish")
+                        .header("Authorization", auth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(wrongBody))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(jsonPath("$.error", equalTo("too_many_attempts")));
+
+        mockMvc.perform(post("/v1/communities/" + communityId + "/verification/finish")
+                        .header("Authorization", auth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "method": "email",
+                                  "email": "alice@amazon.com",
+                                  "code": "%s"
+                                }
+                                """.formatted(devCode)))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error", equalTo("invalid_code")));
+    }
+
+    @Test
+    void email_verification_finish_requires_same_email_as_start() throws Exception {
+        long companyId = jdbc.queryForObject("INSERT INTO companies(name, domain) VALUES ('India', 'india.com') RETURNING id", Long.class);
+        jdbc.update("INSERT INTO users(firebase_uid, handle, company_id) VALUES ('uid-bind','iris',?)", companyId);
+        long communityId = jdbc.queryForObject(
+                "INSERT INTO communities(kind, name, description) VALUES ('company','Amazon','Amazon') RETURNING id",
+                Long.class
+        );
+        jdbc.update("INSERT INTO community_domains(community_id, domain) VALUES (?,?)", communityId, "amazon.com");
+
+        String auth = "Bearer " + tokenWithEmail("uid-bind", "ignored@gmail.com");
+        var start = mockMvc.perform(post("/v1/communities/" + communityId + "/verification/start")
+                        .header("Authorization", auth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "method": "email",
+                                  "email": "alice@amazon.com"
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.dev_code", notNullValue()))
+                .andReturn();
+
+        String devCode = start.getResponse().getContentAsString().replaceAll(".*\"dev_code\":\"([^\"]+)\".*", "$1");
+        mockMvc.perform(post("/v1/communities/" + communityId + "/verification/finish")
+                        .header("Authorization", auth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "method": "email",
+                                  "email": "other@amazon.com",
+                                  "code": "%s"
+                                }
+                                """.formatted(devCode)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error", equalTo("email_mismatch")));
+    }
+
+    @Test
+    void email_verification_start_has_resend_cooldown() throws Exception {
+        long companyId = jdbc.queryForObject("INSERT INTO companies(name, domain) VALUES ('Juliet', 'juliet.com') RETURNING id", Long.class);
+        jdbc.update("INSERT INTO users(firebase_uid, handle, company_id) VALUES ('uid-cooldown','jules',?)", companyId);
+        long communityId = jdbc.queryForObject(
+                "INSERT INTO communities(kind, name, description) VALUES ('company','Amazon','Amazon') RETURNING id",
+                Long.class
+        );
+        jdbc.update("INSERT INTO community_domains(community_id, domain) VALUES (?,?)", communityId, "amazon.com");
+
+        String auth = "Bearer " + tokenWithEmail("uid-cooldown", "ignored@gmail.com");
+        String startBody = """
+                {
+                  "method": "email",
+                  "email": "alice@amazon.com"
+                }
+                """;
+
+        mockMvc.perform(post("/v1/communities/" + communityId + "/verification/start")
+                        .header("Authorization", auth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(startBody))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.dev_code", notNullValue()));
+
+        mockMvc.perform(post("/v1/communities/" + communityId + "/verification/start")
+                        .header("Authorization", auth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(startBody))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(jsonPath("$.error", equalTo("resend_cooldown")))
+                .andExpect(jsonPath("$.retry_after_seconds", greaterThan(0)));
+    }
+
+    @Test
+    void domains_are_accessible_during_onboarding() throws Exception {
+        long companyId = jdbc.queryForObject("INSERT INTO companies(name, domain) VALUES ('Delta', 'delta.com') RETURNING id", Long.class);
+        jdbc.update(
+                "INSERT INTO users(firebase_uid, handle, company_id, onboarding_step, onboarding_completed_at) VALUES ('uid-onb-domains','dani',?,'verification',NULL)",
+                companyId
+        );
+        long communityId = jdbc.queryForObject(
+                "INSERT INTO communities(kind, name, description) VALUES ('company','Wells Fargo','Wells Fargo') RETURNING id",
+                Long.class
+        );
+        jdbc.update("INSERT INTO community_domains(community_id, domain) VALUES (?,?)", communityId, "wellsfargo.com");
+
+        String auth = "Bearer " + tokenWithEmail("uid-onb-domains", "dani@delta.com");
+        mockMvc.perform(get("/v1/communities/" + communityId + "/domains")
+                        .header("Authorization", auth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0]", equalTo("wellsfargo.com")));
+    }
+
+    @Test
+    void onboarding_step_update_is_immediately_visible_to_gating() throws Exception {
+        long companyId = jdbc.queryForObject("INSERT INTO companies(name, domain) VALUES ('Epsilon', 'epsilon.com') RETURNING id", Long.class);
+        jdbc.update("INSERT INTO users(firebase_uid, handle, company_id) VALUES ('uid-onb-step-sync','erin',?)", companyId);
+
+        String auth = "Bearer " + tokenWithEmail("uid-onb-step-sync", "erin@epsilon.com");
+        mockMvc.perform(put("/v1/users/me/onboarding")
+                        .header("Authorization", auth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"step\":\"select_company\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.onboarding_step", equalTo("select_company")));
+
+        mockMvc.perform(get("/v1/feed")
+                        .header("Authorization", auth))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error", equalTo("onboarding_incomplete")))
+                .andExpect(jsonPath("$.onboarding_step", equalTo("select_company")));
+
+        mockMvc.perform(put("/v1/users/me/onboarding")
+                        .header("Authorization", auth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"step\":\"verification\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.onboarding_step", equalTo("verification")));
+
+        mockMvc.perform(get("/v1/feed")
+                        .header("Authorization", auth))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error", equalTo("onboarding_incomplete")))
+                .andExpect(jsonPath("$.onboarding_step", equalTo("verification")));
     }
 }

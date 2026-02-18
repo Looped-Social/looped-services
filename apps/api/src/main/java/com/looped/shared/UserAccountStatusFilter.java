@@ -124,6 +124,7 @@ public class UserAccountStatusFilter extends OncePerRequestFilter {
                 || allowRoute(method, path, HttpMethod.POST, "/v1/specializations/*/follow")
                 || allowRoute(method, path, HttpMethod.DELETE, "/v1/specializations/*/follow")
                 || allowRoute(method, path, HttpMethod.GET, "/v1/communities/*/permissions")
+                || allowRoute(method, path, HttpMethod.GET, "/v1/communities/*/domains")
                 || allowRoute(method, path, HttpMethod.POST, "/v1/communities/*/verification/start")
                 || allowRoute(method, path, HttpMethod.POST, "/v1/communities/*/verification/finish")
                 || allowRoute(method, path, HttpMethod.POST, "/v1/communities/*/verification/photo-id/start")

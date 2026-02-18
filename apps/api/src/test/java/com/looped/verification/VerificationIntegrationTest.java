@@ -24,6 +24,7 @@ import java.time.Instant;
 import java.util.List;
 
 import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.greaterThan;
 import static org.hamcrest.Matchers.notNullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -154,5 +155,78 @@ class VerificationIntegrationTest extends PostgresTestBase {
                         .content("{\"method\":\"thirdparty\",\"token\":\"tok-abc\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.verified", equalTo(true)));
+    }
+
+    @Test
+    void email_verification_locks_after_max_invalid_attempts() throws Exception {
+        long companyId = jdbc.queryForObject(
+                "INSERT INTO companies(name, domain) VALUES ('Delta', 'delta.com') RETURNING id",
+                Long.class
+        );
+        jdbc.update("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?)",
+                "uid-lock", "drew", companyId);
+
+        String auth = "Bearer " + token("uid-lock");
+
+        var start = mockMvc.perform(post("/v1/verification/start")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", auth)
+                        .content("{\"method\":\"email\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.dev_code", notNullValue()))
+                .andReturn();
+
+        String code = new com.fasterxml.jackson.databind.ObjectMapper()
+                .readTree(start.getResponse().getContentAsString()).get("dev_code").asText();
+
+        for (int i = 0; i < 4; i++) {
+            mockMvc.perform(post("/v1/verification/finish")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .header("Authorization", auth)
+                            .content("{\"method\":\"email\",\"code\":\"000000\"}"))
+                    .andExpect(status().isForbidden())
+                    .andExpect(jsonPath("$.error", equalTo("invalid_code")));
+        }
+
+        mockMvc.perform(post("/v1/verification/finish")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", auth)
+                        .content("{\"method\":\"email\",\"code\":\"000000\"}"))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(jsonPath("$.error", equalTo("too_many_attempts")));
+
+        mockMvc.perform(post("/v1/verification/finish")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", auth)
+                        .content("{\"method\":\"email\",\"code\":\"" + code + "\"}"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error", equalTo("invalid_code")));
+    }
+
+    @Test
+    void email_verification_start_has_resend_cooldown() throws Exception {
+        long companyId = jdbc.queryForObject(
+                "INSERT INTO companies(name, domain) VALUES ('Epsilon', 'epsilon.com') RETURNING id",
+                Long.class
+        );
+        jdbc.update("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?)",
+                "uid-cooldown", "elliot", companyId);
+
+        String auth = "Bearer " + token("uid-cooldown");
+
+        mockMvc.perform(post("/v1/verification/start")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", auth)
+                        .content("{\"method\":\"email\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.dev_code", notNullValue()));
+
+        mockMvc.perform(post("/v1/verification/start")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", auth)
+                        .content("{\"method\":\"email\"}"))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(jsonPath("$.error", equalTo("resend_cooldown")))
+                .andExpect(jsonPath("$.retry_after_seconds", greaterThan(0)));
     }
 }

@@ -64,6 +64,16 @@ public class CommunityVerificationController {
         if (res.status() == CommunityVerificationService.Status.SEND_FAILED) {
             return ResponseEntity.status(HttpStatus.BAD_GATEWAY).body(Map.of("error", res.error()));
         }
+        if (res.status() == CommunityVerificationService.Status.RATE_LIMITED) {
+            Map<String, Object> responseBody = new HashMap<>();
+            responseBody.put("error", res.error());
+            if (res.retryAfterSeconds() != null) responseBody.put("retry_after_seconds", res.retryAfterSeconds());
+            var builder = ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS);
+            if (res.retryAfterSeconds() != null) {
+                builder.header("Retry-After", Integer.toString(res.retryAfterSeconds()));
+            }
+            return builder.body(responseBody);
+        }
         if (res.status() != CommunityVerificationService.Status.OK) {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
@@ -96,6 +106,16 @@ public class CommunityVerificationController {
         }
         if (res.status() == CommunityVerificationService.Status.CONFLICT) {
             return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", res.error()));
+        }
+        if (res.status() == CommunityVerificationService.Status.RATE_LIMITED) {
+            Map<String, Object> responseBody = new HashMap<>();
+            responseBody.put("error", res.error());
+            if (res.retryAfterSeconds() != null) responseBody.put("retry_after_seconds", res.retryAfterSeconds());
+            var builder = ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS);
+            if (res.retryAfterSeconds() != null) {
+                builder.header("Retry-After", Integer.toString(res.retryAfterSeconds()));
+            }
+            return builder.body(responseBody);
         }
         boolean verified = res.verified() != null && res.verified();
         Map<String, Object> out = new HashMap<>();

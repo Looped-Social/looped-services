@@ -8,13 +8,14 @@ import org.springframework.stereotype.Service;
 
 import java.security.SecureRandom;
 import java.time.Duration;
-import java.util.Optional;
+import java.util.Locale;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 
 @Service
 public class VerificationService {
     public enum Method { email, video, thirdparty }
-    public enum Status { OK, USER_NOT_PROVISIONED, BAD_REQUEST, INVALID_CODE, SEND_FAILED }
+    public enum Status { OK, USER_NOT_PROVISIONED, BAD_REQUEST, INVALID_CODE, SEND_FAILED, RATE_LIMITED }
 
     private final UserRepository users;
     private final VerificationRepository repo;
@@ -54,9 +55,13 @@ public class VerificationService {
         String instructions = null;
         switch (method) {
             case email -> {
+                var rateLimit = reserveEmailStartBudget(userId);
+                if (rateLimit != null) return StartResult.rateLimited(rateLimit.error(), rateLimit.retryAfterSeconds());
+
                 String code = generateCode6();
                 String key = keyEmail(userId);
                 redis.opsForValue().set(key, code, Duration.ofSeconds(props.getCodeTtlSeconds()));
+                redis.delete(keyEmailAttempts(userId));
                 if (!emailService.isEnabled()) {
                     if (!props.isEchoCode()) return StartResult.sendFailed();
                 } else {
@@ -97,8 +102,17 @@ public class VerificationService {
                 if (code == null || code.isBlank()) return FinishResult.badRequest("code_required");
                 String key = keyEmail(userId);
                 String expected = redis.opsForValue().get(key);
-                if (expected == null || !expected.equals(code)) return FinishResult.invalidCode();
+                if (expected == null || !expected.equals(code)) {
+                    if (expected == null) return FinishResult.invalidCode();
+                    long attempts = incrementAttemptsWithTtl(keyEmailAttempts(userId), Duration.ofSeconds(props.getCodeTtlSeconds()));
+                    if (attempts >= Math.max(1, props.getEmailCodeMaxAttempts())) {
+                        clearEmailChallenge(userId);
+                        return FinishResult.rateLimited("too_many_attempts", null);
+                    }
+                    return FinishResult.invalidCode();
+                }
                 redis.delete(key);
+                redis.delete(keyEmailAttempts(userId));
             }
             case video -> {
                 if (mediaKey == null || mediaKey.isBlank()) return FinishResult.badRequest("media_key_required");
@@ -138,19 +152,93 @@ public class VerificationService {
     }
 
     private String keyEmail(long userId) { return "verify:email:" + userId; }
+    private String keyEmailAttempts(long userId) { return "verify:email:attempts:" + userId; }
+    private String keyEmailCooldown(long userId) { return "verify:email:cooldown:" + userId; }
+    private String keyEmailStartsHour(long userId) { return "verify:email:start:hour:" + userId; }
+    private String keyEmailStartsDay(long userId) { return "verify:email:start:day:" + userId; }
     private String keyThirdParty(long userId) { return "verify:thirdparty:" + userId; }
 
-    public record StartResult(Status status, String method, String devCode, String sessionId, String instructions, String error) {
-        static StartResult ok(String method, String devCode, String sessionId, String instructions) { return new StartResult(Status.OK, method, devCode, sessionId, instructions, null); }
-        static StartResult userNotProvisioned() { return new StartResult(Status.USER_NOT_PROVISIONED, null, null, null, null, null); }
-        static StartResult badRequest(String err) { return new StartResult(Status.BAD_REQUEST, null, null, null, null, err); }
-        static StartResult sendFailed() { return new StartResult(Status.SEND_FAILED, null, null, null, null, "email_send_failed"); }
+    private RateLimitResult reserveEmailStartBudget(long userId) {
+        String cooldownKey = keyEmailCooldown(userId);
+        String hourKey = keyEmailStartsHour(userId);
+        String dayKey = keyEmailStartsDay(userId);
+
+        Integer cooldownRetry = readPositiveTtlSeconds(cooldownKey);
+        if (cooldownRetry != null) {
+            return new RateLimitResult("resend_cooldown", cooldownRetry);
+        }
+
+        if (!incrementWithinLimit(hourKey, props.getEmailMaxStartsPerHour(), Duration.ofHours(1))) {
+            return new RateLimitResult("email_start_rate_limited_hour", readPositiveTtlSeconds(hourKey));
+        }
+        if (!incrementWithinLimit(dayKey, props.getEmailMaxStartsPerDay(), Duration.ofDays(1))) {
+            return new RateLimitResult("email_start_rate_limited_day", readPositiveTtlSeconds(dayKey));
+        }
+
+        int cooldownSeconds = props.getEmailResendCooldownSeconds();
+        if (cooldownSeconds > 0) {
+            redis.opsForValue().set(cooldownKey, "1", Duration.ofSeconds(cooldownSeconds));
+        }
+        return null;
     }
 
-    public record FinishResult(Status status, Boolean verified, String error) {
-        static FinishResult ok(boolean verified) { return new FinishResult(Status.OK, verified, null); }
-        static FinishResult userNotProvisioned() { return new FinishResult(Status.USER_NOT_PROVISIONED, null, null); }
-        static FinishResult badRequest(String err) { return new FinishResult(Status.BAD_REQUEST, null, err); }
-        static FinishResult invalidCode() { return new FinishResult(Status.INVALID_CODE, null, "invalid_code"); }
+    private long incrementAttemptsWithTtl(String key, Duration ttl) {
+        Long value = redis.opsForValue().increment(key);
+        long attempts = value == null ? 1L : value;
+        if (attempts == 1L) {
+            redis.expire(key, ttl);
+        }
+        return attempts;
+    }
+
+    private boolean incrementWithinLimit(String key, int max, Duration ttl) {
+        if (max <= 0) return true;
+        Long value = redis.opsForValue().increment(key);
+        long count = value == null ? 1L : value;
+        if (count == 1L) {
+            redis.expire(key, ttl);
+        }
+        return count <= max;
+    }
+
+    private Integer readPositiveTtlSeconds(String key) {
+        Long ttl = redis.getExpire(key, TimeUnit.SECONDS);
+        if (ttl == null || ttl <= 0) return null;
+        long bounded = Math.min(ttl, Integer.MAX_VALUE);
+        return (int) bounded;
+    }
+
+    private void clearEmailChallenge(long userId) {
+        redis.delete(keyEmail(userId));
+        redis.delete(keyEmailAttempts(userId));
+    }
+
+    private record RateLimitResult(String error, Integer retryAfterSeconds) {}
+
+    public record StartResult(Status status, String method, String devCode, String sessionId, String instructions, String error, Integer retryAfterSeconds) {
+        static StartResult ok(String method, String devCode, String sessionId, String instructions) {
+            return new StartResult(Status.OK, method, devCode, sessionId, instructions, null, null);
+        }
+        static StartResult userNotProvisioned() { return new StartResult(Status.USER_NOT_PROVISIONED, null, null, null, null, null, null); }
+        static StartResult badRequest(String err) { return new StartResult(Status.BAD_REQUEST, null, null, null, null, err, null); }
+        static StartResult sendFailed() { return new StartResult(Status.SEND_FAILED, null, null, null, null, "email_send_failed", null); }
+        static StartResult rateLimited(String err, Integer retryAfterSeconds) {
+            return new StartResult(Status.RATE_LIMITED, null, null, null, null, normalizeError(err), retryAfterSeconds);
+        }
+    }
+
+    private static String normalizeError(String err) {
+        if (err == null || err.isBlank()) return "rate_limited";
+        return err.trim().toLowerCase(Locale.ROOT);
+    }
+
+    public record FinishResult(Status status, Boolean verified, String error, Integer retryAfterSeconds) {
+        static FinishResult ok(boolean verified) { return new FinishResult(Status.OK, verified, null, null); }
+        static FinishResult userNotProvisioned() { return new FinishResult(Status.USER_NOT_PROVISIONED, null, null, null); }
+        static FinishResult badRequest(String err) { return new FinishResult(Status.BAD_REQUEST, null, err, null); }
+        static FinishResult invalidCode() { return new FinishResult(Status.INVALID_CODE, null, "invalid_code", null); }
+        static FinishResult rateLimited(String err, Integer retryAfterSeconds) {
+            return new FinishResult(Status.RATE_LIMITED, null, normalizeError(err), retryAfterSeconds);
+        }
     }
 }

@@ -35,6 +35,16 @@ public class VerificationController {
         if (res.status() == VerificationService.Status.SEND_FAILED) {
             return ResponseEntity.status(HttpStatus.BAD_GATEWAY).body(Map.of("error", res.error()));
         }
+        if (res.status() == VerificationService.Status.RATE_LIMITED) {
+            Map<String, Object> responseBody = new HashMap<>();
+            responseBody.put("error", res.error());
+            if (res.retryAfterSeconds() != null) responseBody.put("retry_after_seconds", res.retryAfterSeconds());
+            var builder = ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS);
+            if (res.retryAfterSeconds() != null) {
+                builder.header("Retry-After", Integer.toString(res.retryAfterSeconds()));
+            }
+            return builder.body(responseBody);
+        }
         if (res.status() != VerificationService.Status.OK) {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
@@ -59,6 +69,16 @@ public class VerificationController {
         }
         if (res.status() == VerificationService.Status.INVALID_CODE) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "invalid_code"));
+        }
+        if (res.status() == VerificationService.Status.RATE_LIMITED) {
+            Map<String, Object> responseBody = new HashMap<>();
+            responseBody.put("error", res.error());
+            if (res.retryAfterSeconds() != null) responseBody.put("retry_after_seconds", res.retryAfterSeconds());
+            var builder = ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS);
+            if (res.retryAfterSeconds() != null) {
+                builder.header("Retry-After", Integer.toString(res.retryAfterSeconds()));
+            }
+            return builder.body(responseBody);
         }
         boolean verified = res.verified() != null && res.verified();
         Map<String, Object> out = new HashMap<>();

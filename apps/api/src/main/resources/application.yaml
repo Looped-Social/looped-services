@@ -140,6 +140,10 @@ communities:
 verification:
   echo-code: ${VERIFICATION_ECHO_CODE:false}
   code-ttl-seconds: ${VERIFICATION_CODE_TTL_SECONDS:600}
+  email-code-max-attempts: ${VERIFICATION_EMAIL_CODE_MAX_ATTEMPTS:5}
+  email-resend-cooldown-seconds: ${VERIFICATION_EMAIL_RESEND_COOLDOWN_SECONDS:60}
+  email-max-starts-per-hour: ${VERIFICATION_EMAIL_MAX_STARTS_PER_HOUR:10}
+  email-max-starts-per-day: ${VERIFICATION_EMAIL_MAX_STARTS_PER_DAY:25}
   default-community-ttl-days: ${VERIFICATION_DEFAULT_COMMUNITY_TTL_DAYS:365}
 
 specializations:

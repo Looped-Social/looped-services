@@ -13,12 +13,14 @@ import org.springframework.stereotype.Service;
 import java.security.SecureRandom;
 import java.time.Duration;
 import java.time.OffsetDateTime;
+import java.util.Locale;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 
 @Service
 public class CommunityVerificationService {
     public enum Method { email, video, thirdparty }
-    public enum Status { OK, USER_NOT_PROVISIONED, COMMUNITY_NOT_FOUND, BAD_REQUEST, INVALID_CODE, SEND_FAILED, CONFLICT }
+    public enum Status { OK, USER_NOT_PROVISIONED, COMMUNITY_NOT_FOUND, BAD_REQUEST, INVALID_CODE, SEND_FAILED, CONFLICT, RATE_LIMITED }
 
     private final UserRepository users;
     private final CommunitiesRepository communities;
@@ -82,11 +84,16 @@ public class CommunityVerificationService {
                 if (owner.isPresent() && owner.get() != u.get().id) {
                     return StartResult.conflict("email_in_use");
                 }
+                var rateLimit = reserveEmailStartBudget(u.get().id, communityId);
+                if (rateLimit != null) {
+                    return StartResult.rateLimited(rateLimit.error(), rateLimit.retryAfterSeconds());
+                }
                 String code = generateCode6();
                 String key = keyEmail(u.get().id, communityId);
                 redis.opsForValue().set(key, code, Duration.ofSeconds(props.getCodeTtlSeconds()));
                 String emailKey = keyEmailAddress(u.get().id, communityId);
                 redis.opsForValue().set(emailKey, normalizedEmail, Duration.ofSeconds(props.getCodeTtlSeconds()));
+                redis.delete(keyEmailAttempts(u.get().id, communityId));
                 if (!emailService.isEnabled()) {
                     if (!props.isEchoCode()) return StartResult.sendFailed();
                 } else {
@@ -123,17 +130,23 @@ public class CommunityVerificationService {
             return FinishResult.badRequest("verification_not_supported");
         }
 
-        String resolvedEmail = resolveRequestEmail(method, requestEmail, fallbackEmail);
+        String resolvedEmail;
         if (method == Method.email) {
-            if (resolvedEmail == null) {
-                String cached = redis.opsForValue().get(keyEmailAddress(u.get().id, communityId));
-                if (cached != null) resolvedEmail = cached;
+            String cached = normalizeEmail(redis.opsForValue().get(keyEmailAddress(u.get().id, communityId)));
+            if (cached == null) return FinishResult.invalidCode();
+
+            String requested = normalizeEmail(requestEmail);
+            if (requested != null && !requested.equals(cached)) {
+                return FinishResult.badRequest("email_mismatch");
             }
+            resolvedEmail = cached;
             if (resolvedEmail == null) return FinishResult.badRequest("email_required");
             String domain = extractDomain(resolvedEmail);
             if (domain == null) return FinishResult.badRequest("invalid_email");
             if (!hasEffectiveDomains(community.get())) return FinishResult.badRequest("domains_not_configured");
             if (!isDomainAllowed(community.get(), domain)) return FinishResult.badRequest("email_domain_not_allowed");
+        } else {
+            resolvedEmail = resolveRequestEmail(method, requestEmail, fallbackEmail);
         }
 
         switch (method) {
@@ -141,9 +154,19 @@ public class CommunityVerificationService {
                 if (code == null || code.isBlank()) return FinishResult.badRequest("code_required");
                 String key = keyEmail(u.get().id, communityId);
                 String expected = redis.opsForValue().get(key);
-                if (expected == null || !expected.equals(code)) return FinishResult.invalidCode();
-                redis.delete(key);
-                redis.delete(keyEmailAddress(u.get().id, communityId));
+                if (expected == null || !expected.equals(code)) {
+                    if (expected == null) return FinishResult.invalidCode();
+                    long attempts = incrementAttemptsWithTtl(
+                            keyEmailAttempts(u.get().id, communityId),
+                            Duration.ofSeconds(props.getCodeTtlSeconds())
+                    );
+                    if (attempts >= Math.max(1, props.getEmailCodeMaxAttempts())) {
+                        clearEmailChallenge(u.get().id, communityId);
+                        return FinishResult.rateLimited("too_many_attempts", null);
+                    }
+                    return FinishResult.invalidCode();
+                }
+                clearEmailChallenge(u.get().id, communityId);
             }
             case video -> {
                 if (mediaKey == null || mediaKey.isBlank()) return FinishResult.badRequest("media_key_required");
@@ -217,6 +240,10 @@ public class CommunityVerificationService {
 
     private String keyEmail(long userId, long communityId) { return "verify:community:email:" + userId + ":" + communityId; }
     private String keyEmailAddress(long userId, long communityId) { return "verify:community:email:addr:" + userId + ":" + communityId; }
+    private String keyEmailAttempts(long userId, long communityId) { return "verify:community:email:attempts:" + userId + ":" + communityId; }
+    private String keyEmailCooldown(long userId, long communityId) { return "verify:community:email:cooldown:" + userId + ":" + communityId; }
+    private String keyEmailStartsHour(long userId, long communityId) { return "verify:community:email:start:hour:" + userId + ":" + communityId; }
+    private String keyEmailStartsDay(long userId, long communityId) { return "verify:community:email:start:day:" + userId + ":" + communityId; }
     private String keyThirdParty(long userId, long communityId) { return "verify:community:thirdparty:" + userId + ":" + communityId; }
 
     private boolean hasEffectiveDomains(CommunitiesRepository.CommunityRow community) {
@@ -237,9 +264,65 @@ public class CommunityVerificationService {
         return normalizeEmail(fallbackEmail);
     }
 
+    private RateLimitResult reserveEmailStartBudget(long userId, long communityId) {
+        String cooldownKey = keyEmailCooldown(userId, communityId);
+        String hourKey = keyEmailStartsHour(userId, communityId);
+        String dayKey = keyEmailStartsDay(userId, communityId);
+
+        Integer cooldownRetry = readPositiveTtlSeconds(cooldownKey);
+        if (cooldownRetry != null) {
+            return new RateLimitResult("resend_cooldown", cooldownRetry);
+        }
+
+        if (!incrementWithinLimit(hourKey, props.getEmailMaxStartsPerHour(), Duration.ofHours(1))) {
+            return new RateLimitResult("email_start_rate_limited_hour", readPositiveTtlSeconds(hourKey));
+        }
+        if (!incrementWithinLimit(dayKey, props.getEmailMaxStartsPerDay(), Duration.ofDays(1))) {
+            return new RateLimitResult("email_start_rate_limited_day", readPositiveTtlSeconds(dayKey));
+        }
+
+        int cooldownSeconds = props.getEmailResendCooldownSeconds();
+        if (cooldownSeconds > 0) {
+            redis.opsForValue().set(cooldownKey, "1", Duration.ofSeconds(cooldownSeconds));
+        }
+        return null;
+    }
+
+    private long incrementAttemptsWithTtl(String key, Duration ttl) {
+        Long value = redis.opsForValue().increment(key);
+        long attempts = value == null ? 1L : value;
+        if (attempts == 1L) {
+            redis.expire(key, ttl);
+        }
+        return attempts;
+    }
+
+    private boolean incrementWithinLimit(String key, int max, Duration ttl) {
+        if (max <= 0) return true;
+        Long value = redis.opsForValue().increment(key);
+        long count = value == null ? 1L : value;
+        if (count == 1L) {
+            redis.expire(key, ttl);
+        }
+        return count <= max;
+    }
+
+    private Integer readPositiveTtlSeconds(String key) {
+        Long ttl = redis.getExpire(key, TimeUnit.SECONDS);
+        if (ttl == null || ttl <= 0) return null;
+        long bounded = Math.min(ttl, Integer.MAX_VALUE);
+        return (int) bounded;
+    }
+
+    private void clearEmailChallenge(long userId, long communityId) {
+        redis.delete(keyEmail(userId, communityId));
+        redis.delete(keyEmailAddress(userId, communityId));
+        redis.delete(keyEmailAttempts(userId, communityId));
+    }
+
     private String normalizeEmail(String email) {
         if (email == null) return null;
-        String trimmed = email.trim().toLowerCase(java.util.Locale.ROOT);
+        String trimmed = email.trim().toLowerCase(Locale.ROOT);
         if (trimmed.isBlank()) return null;
         return trimmed;
     }
@@ -251,23 +334,36 @@ public class CommunityVerificationService {
         return email.substring(at + 1);
     }
 
-    public record StartResult(Status status, String method, String devCode, String sessionId, String instructions, String error) {
-        static StartResult ok(String method, String devCode, String sessionId, String instructions) {
-            return new StartResult(Status.OK, method, devCode, sessionId, instructions, null);
-        }
-        static StartResult userNotProvisioned() { return new StartResult(Status.USER_NOT_PROVISIONED, null, null, null, null, null); }
-        static StartResult communityNotFound() { return new StartResult(Status.COMMUNITY_NOT_FOUND, null, null, null, null, null); }
-        static StartResult badRequest(String err) { return new StartResult(Status.BAD_REQUEST, null, null, null, null, err); }
-        static StartResult sendFailed() { return new StartResult(Status.SEND_FAILED, null, null, null, null, "email_send_failed"); }
-        static StartResult conflict(String err) { return new StartResult(Status.CONFLICT, null, null, null, null, err); }
+    private static String normalizeError(String err) {
+        if (err == null || err.isBlank()) return "rate_limited";
+        return err.trim().toLowerCase(Locale.ROOT);
     }
 
-    public record FinishResult(Status status, Boolean verified, OffsetDateTime expiresAt, String error) {
-        static FinishResult ok(boolean verified, OffsetDateTime expiresAt) { return new FinishResult(Status.OK, verified, expiresAt, null); }
-        static FinishResult userNotProvisioned() { return new FinishResult(Status.USER_NOT_PROVISIONED, null, null, null); }
-        static FinishResult communityNotFound() { return new FinishResult(Status.COMMUNITY_NOT_FOUND, null, null, null); }
-        static FinishResult badRequest(String err) { return new FinishResult(Status.BAD_REQUEST, null, null, err); }
-        static FinishResult invalidCode() { return new FinishResult(Status.INVALID_CODE, null, null, "invalid_code"); }
-        static FinishResult conflict(String err) { return new FinishResult(Status.CONFLICT, null, null, err); }
+    private record RateLimitResult(String error, Integer retryAfterSeconds) {}
+
+    public record StartResult(Status status, String method, String devCode, String sessionId, String instructions, String error, Integer retryAfterSeconds) {
+        static StartResult ok(String method, String devCode, String sessionId, String instructions) {
+            return new StartResult(Status.OK, method, devCode, sessionId, instructions, null, null);
+        }
+        static StartResult userNotProvisioned() { return new StartResult(Status.USER_NOT_PROVISIONED, null, null, null, null, null, null); }
+        static StartResult communityNotFound() { return new StartResult(Status.COMMUNITY_NOT_FOUND, null, null, null, null, null, null); }
+        static StartResult badRequest(String err) { return new StartResult(Status.BAD_REQUEST, null, null, null, null, err, null); }
+        static StartResult sendFailed() { return new StartResult(Status.SEND_FAILED, null, null, null, null, "email_send_failed", null); }
+        static StartResult conflict(String err) { return new StartResult(Status.CONFLICT, null, null, null, null, err, null); }
+        static StartResult rateLimited(String err, Integer retryAfterSeconds) {
+            return new StartResult(Status.RATE_LIMITED, null, null, null, null, normalizeError(err), retryAfterSeconds);
+        }
+    }
+
+    public record FinishResult(Status status, Boolean verified, OffsetDateTime expiresAt, String error, Integer retryAfterSeconds) {
+        static FinishResult ok(boolean verified, OffsetDateTime expiresAt) { return new FinishResult(Status.OK, verified, expiresAt, null, null); }
+        static FinishResult userNotProvisioned() { return new FinishResult(Status.USER_NOT_PROVISIONED, null, null, null, null); }
+        static FinishResult communityNotFound() { return new FinishResult(Status.COMMUNITY_NOT_FOUND, null, null, null, null); }
+        static FinishResult badRequest(String err) { return new FinishResult(Status.BAD_REQUEST, null, null, err, null); }
+        static FinishResult invalidCode() { return new FinishResult(Status.INVALID_CODE, null, null, "invalid_code", null); }
+        static FinishResult conflict(String err) { return new FinishResult(Status.CONFLICT, null, null, err, null); }
+        static FinishResult rateLimited(String err, Integer retryAfterSeconds) {
+            return new FinishResult(Status.RATE_LIMITED, null, null, normalizeError(err), retryAfterSeconds);
+        }
     }
 }
