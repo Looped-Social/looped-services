@@ -435,6 +435,7 @@ resource "aws_ecs_task_definition" "api" {
           { name = "S3_DM_REGION", value = data.aws_region.current.name },
           { name = "CLOUDFRONT_DOMAIN", value = var.cloudfront_domain },
           { name = "APP_ENV", value = var.environment },
+          { name = "VERIFICATION_ECHO_CODE", value = "false" },
           { name = "ADMIN_OPS_ALERTS_ENABLED", value = tostring(var.environment == "prod") },
           { name = "ADMIN_OPS_ALERTS_ADMIN_BASE_URL", value = trimspace(split(",", var.cors_allowed_origins)[0]) },
           { name = "ADMIN_FYP_ALERTS_ENABLED", value = tostring(var.environment == "prod") },
