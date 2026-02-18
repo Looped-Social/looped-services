@@ -141,7 +141,7 @@ public class NotificationPublisher {
         String name = (communityName == null || communityName.isBlank()) ? "your community" : communityName.trim();
         Map<String, Object> payload = communityVerificationPayloadBase("approved", communityId, name, method, expiresAt);
         payload.put("title", "Verified");
-        payload.put("body", "You're verified for " + name + ". Get to posting.");
+        payload.put("body", "You're verified for " + name + ". You're all set! Can't wait to see what you share.");
         String eventKey = "verification_request:" + verificationRequestId + ":approved";
         publishToUserIdempotent(targetUserId, NotificationType.ANNOUNCEMENT, eventKey, payload);
     }
@@ -206,7 +206,7 @@ public class NotificationPublisher {
         payload.put("status", "approved");
         if (method != null && !method.isBlank()) payload.put("method", method.trim().toLowerCase(Locale.ROOT));
         payload.put("title", "Verified");
-        payload.put("body", "You're verified. Get to posting.");
+        payload.put("body", "You're verified. You're all set! Can't wait to see what you share.");
         String eventKey = "verification_request:" + verificationRequestId + ":approved";
         publishToUserIdempotent(targetUserId, NotificationType.ANNOUNCEMENT, eventKey, payload);
     }

@@ -85,11 +85,11 @@ public class EmailService {
         if (to == null || to.isBlank()) return;
         String name = communityName == null || communityName.isBlank() ? "your community" : communityName.trim();
         String subject = "You're verified for " + name;
-        String text = "Hey — you're verified for " + name + ".\n\nGet to posting.\n";
+        String text = "Hey — you're verified for " + name + ".\n\nYou're all set! Can't wait to see what you share.\n";
         String html = "<html><body style=\"margin:0;padding:0;background-color:#ffffff;color:#1f2937;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Helvetica,Arial,sans-serif;\">" +
                 "<div style=\"max-width:560px;margin:0 auto;padding:32px 16px;\">" +
                 "<div style=\"font-size:22px;font-weight:700;margin-bottom:8px;\">You're verified for " + escape(name) + "</div>" +
-                "<div style=\"font-size:14px;color:#6b7280;\">Get to posting.</div>" +
+                "<div style=\"font-size:14px;color:#6b7280;\">You're all set! Can't wait to see what you share.</div>" +
                 "</div></body></html>";
         sendEmail(to, subject, text, html);
     }
@@ -120,11 +120,11 @@ public class EmailService {
         if (!isEnabled()) return;
         if (to == null || to.isBlank()) return;
         String subject = "You're verified on Looped";
-        String text = "You're verified on Looped.\n\nGet to posting.\n";
+        String text = "You're verified on Looped.\n\nYou're all set! Can't wait to see what you share.\n";
         String html = "<html><body style=\"margin:0;padding:0;background-color:#ffffff;color:#1f2937;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Helvetica,Arial,sans-serif;\">" +
                 "<div style=\"max-width:560px;margin:0 auto;padding:32px 16px;\">" +
                 "<div style=\"font-size:22px;font-weight:700;margin-bottom:8px;\">You're verified</div>" +
-                "<div style=\"font-size:14px;color:#6b7280;\">Get to posting.</div>" +
+                "<div style=\"font-size:14px;color:#6b7280;\">You're all set! Can't wait to see what you share.</div>" +
                 "</div></body></html>";
         sendEmail(to, subject, text, html);
     }
