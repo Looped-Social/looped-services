@@ -1,6 +1,7 @@
 package com.looped.auth;
 
 import com.looped.settings.AppConfigService;
+import com.looped.users.OnboardingV2Service;
 import com.looped.users.UsersService;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
@@ -28,6 +29,9 @@ class MeControllerClaimsTest {
         when(users.onLogin("uid", "test@example.com", null)).thenReturn(UsersService.LoginStatus.ACTIVE);
         doNothing().when(users).syncEmail(anyString(), anyString());
         when(users.onboardingState("uid")).thenReturn(new UsersService.OnboardingState(false, "verification"));
+        when(users.onboardingStateV2("uid")).thenReturn(
+                new OnboardingV2Service.Snapshot(false, "verification", "email_verification", Map.of())
+        );
         when(users.currentProfile("uid")).thenReturn(Optional.empty());
 
         Jwt jwt = Jwt.withTokenValue("t")
@@ -55,6 +59,9 @@ class MeControllerClaimsTest {
 
         when(users.onLogin("uid", null, null)).thenReturn(UsersService.LoginStatus.ACTIVE);
         when(users.onboardingState("uid")).thenReturn(new UsersService.OnboardingState(false, "verification"));
+        when(users.onboardingStateV2("uid")).thenReturn(
+                new OnboardingV2Service.Snapshot(false, "verification", "email_verification", Map.of())
+        );
         when(users.currentProfile("uid")).thenReturn(Optional.empty());
 
         Jwt jwt = Jwt.withTokenValue("t")

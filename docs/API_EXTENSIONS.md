@@ -43,6 +43,49 @@
   - Body: `{ "username": "string", "firstName": "string", "lastName": "string", "dateOfBirth": "YYYY-MM-DD" }`
   - Errors: `invalid_username`, `username_taken`, `email_required`, `company_not_found`, `already_onboarded`, `account_deleted`.
   - `GET /v1/users/username/availability?username=` → `{ "username": "normalized", "available": true|false }`
+  - Legacy compatibility contract (unchanged):
+    - `GET /v1/me` still returns:
+      - `onboarding_complete: boolean`
+      - `onboarding_step: "profile_setup" | "select_company" | "verification" | "verification_notifications"`
+    - `PUT /v1/users/me/onboarding` still accepts `{ "step": "<legacy_step>" }`.
+    - Invalid legacy updates still return `422 invalid_onboarding_step` with:
+      - `current_step`, `allowed_next_steps`
+      - plus additive v2 metadata: `current_stage_v2`, `allowed_next_stages_v2`
+  - Additive `/v1/me` fields for new clients:
+    - `onboarding_stage_v2: string`
+    - `onboarding_context: { selected_org_id, selected_org_kind, verification_path, verification_status, requires_specialization_selection, selected_specialization_id, completion_reason, milestones }`
+  - New onboarding v2 mutation endpoints:
+    - `POST /v1/users/me/onboarding-v2/info-screen/viewed`
+    - `PUT /v1/users/me/onboarding-v2/org` body `{ "orgId": <community_id> }`
+    - `PUT /v1/users/me/onboarding-v2/verification-choice` body `{ "verificationPath": "skip"|"email"|"photo_id" }`
+    - `POST /v1/users/me/onboarding-v2/email-verification/success`
+    - `POST /v1/users/me/onboarding-v2/specialization` body `{ "specializationId": <community_id> }`
+    - `POST /v1/users/me/onboarding-v2/skip-explainer/ack`
+    - `POST /v1/users/me/onboarding-v2/photo-pending-explainer/ack`
+    - `POST /v1/users/me/onboarding-v2/finalize`
+  - Onboarding v2 transition diagram:
+    ```text
+    profile_setup
+      -> posting_info
+      -> org_selected
+      -> (verification choice)
+         -> skip_explainer -> finalize -> completed
+         -> email_verification -> email_verification_success -> specialization_selection -> finalize -> completed
+         -> photo_id_verification -> photo_pending_explainer -> finalize -> completed
+    ```
+  - Deterministic v2 stage → legacy `onboarding_step` mapping:
+    - `profile_setup`, `posting_info` -> `profile_setup`
+    - `org_selected` -> `select_company`
+    - `email_verification`, `specialization_selection`, `skip_explainer`, `photo_id_verification`, `photo_pending_explainer` -> `verification`
+    - `completed` -> `verification_notifications` (with `onboarding_complete=true`)
+  - Branch enforcement:
+    - Skip and photo-pending users may complete onboarding without specialization join.
+    - Email branch cannot complete onboarding until specialization is selected and joined.
+    - Skip/photo-pending users are blocked from joining majors/fields until selected-org verification becomes `approved`.
+  - Compatibility policy:
+    - Legacy clients only ever receive legacy `onboarding_step` enum values.
+    - New v2 fields are additive and optional for clients to read.
+    - Old and new clients can run concurrently during rollout without forced upgrade.
 - **Employment verification alias**
   - `POST /users/verify-employment` (also available at `/v1/users/verify-employment`)
   - Delegates to existing verification flow; accepts `{ "method": "email|video|thirdparty" }` (defaults to `email` when omitted). Response mirrors `/v1/verification/start`.

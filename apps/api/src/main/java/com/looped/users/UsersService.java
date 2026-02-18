@@ -47,6 +47,7 @@ public class UsersService {
     private final CommunityVerificationsRepository communityVerifications;
     private final SpecializationJoinsRepository specializationJoins;
     private final MediaRepository media;
+    private final OnboardingV2Service onboardingV2;
     private final FirebaseAdminService firebaseAdmin;
     private final AppConfigService appConfig;
     private final int deactivatedRetentionDays;
@@ -69,6 +70,7 @@ public class UsersService {
                         CommunityVerificationsRepository communityVerifications,
                         SpecializationJoinsRepository specializationJoins,
                         MediaRepository media,
+                        OnboardingV2Service onboardingV2,
                         FirebaseAdminService firebaseAdmin,
                         AppConfigService appConfig,
                         @Value("${retention.deactivated-days:90}") int deactivatedRetentionDays,
@@ -90,6 +92,7 @@ public class UsersService {
         this.communityVerifications = communityVerifications;
         this.specializationJoins = specializationJoins;
         this.media = media;
+        this.onboardingV2 = onboardingV2;
         this.firebaseAdmin = firebaseAdmin;
         this.appConfig = appConfig;
         this.deactivatedRetentionDays = Math.max(1, deactivatedRetentionDays);
@@ -568,16 +571,11 @@ public class UsersService {
         return Optional.of(buildProfile(user.get(), verification));
     }
 
-    private static final String ONBOARDING_STEP_PROFILE_SETUP = "profile_setup";
-    private static final String ONBOARDING_STEP_SELECT_COMPANY = "select_company";
-    private static final String ONBOARDING_STEP_VERIFICATION = "verification";
-    private static final String ONBOARDING_STEP_VERIFICATION_NOTIFICATIONS = "verification_notifications";
-    private static final List<String> ONBOARDING_STEP_SEQUENCE = List.of(
-            ONBOARDING_STEP_PROFILE_SETUP,
-            ONBOARDING_STEP_SELECT_COMPANY,
-            ONBOARDING_STEP_VERIFICATION,
-            ONBOARDING_STEP_VERIFICATION_NOTIFICATIONS
-    );
+    private static final String ONBOARDING_STEP_PROFILE_SETUP = OnboardingV2Stages.LEGACY_PROFILE_SETUP;
+    private static final String ONBOARDING_STEP_SELECT_COMPANY = OnboardingV2Stages.LEGACY_SELECT_COMPANY;
+    private static final String ONBOARDING_STEP_VERIFICATION = OnboardingV2Stages.LEGACY_VERIFICATION;
+    private static final String ONBOARDING_STEP_VERIFICATION_NOTIFICATIONS = OnboardingV2Stages.LEGACY_VERIFICATION_NOTIFICATIONS;
+    private static final List<String> ONBOARDING_STEP_SEQUENCE = OnboardingV2Stages.LEGACY_SEQUENCE;
 
     public OnboardingState onboardingState(String firebaseUid) {
         var userOpt = users.findByFirebaseUid(firebaseUid);
@@ -591,9 +589,13 @@ public class UsersService {
         if (user.onboardingCompletedAt != null) {
             return new OnboardingState(true, ONBOARDING_STEP_VERIFICATION_NOTIFICATIONS);
         }
-        String step = user.onboardingStep;
-        if (step == null || step.isBlank()) step = ONBOARDING_STEP_VERIFICATION;
+        String step = OnboardingV2Stages.normalizeLegacyStep(user.onboardingStep);
+        if (step == null) step = ONBOARDING_STEP_VERIFICATION;
         return new OnboardingState(false, step);
+    }
+
+    public OnboardingV2Service.Snapshot onboardingStateV2(String firebaseUid) {
+        return onboardingV2.snapshot(firebaseUid);
     }
 
     public UpdateOnboardingResult updateOnboardingStep(String firebaseUid, String step) {
@@ -611,10 +613,12 @@ public class UsersService {
 
         if (ONBOARDING_STEP_VERIFICATION_NOTIFICATIONS.equals(normalized)) {
             users.markOnboardingComplete(actor.get().id);
+            onboardingV2.syncFromLegacyStep(actor.get().id, normalized, OffsetDateTime.now());
             return UpdateOnboardingResult.ok(new OnboardingState(true, ONBOARDING_STEP_VERIFICATION_NOTIFICATIONS));
         }
 
         users.updateOnboardingStep(actor.get().id, normalized);
+        onboardingV2.syncFromLegacyStep(actor.get().id, normalized, null);
         return UpdateOnboardingResult.ok(new OnboardingState(false, normalized));
     }
 
@@ -625,12 +629,8 @@ public class UsersService {
     }
 
     private String currentOnboardingStep(UserRepository.UserRow actor) {
-        String step = actor.onboardingStep;
-        if (step == null || step.isBlank()) {
-            return ONBOARDING_STEP_VERIFICATION;
-        }
-        String normalized = step.trim().toLowerCase(Locale.ROOT);
-        return ONBOARDING_STEP_SEQUENCE.contains(normalized) ? normalized : ONBOARDING_STEP_VERIFICATION;
+        String step = OnboardingV2Stages.normalizeLegacyStep(actor.onboardingStep);
+        return step != null ? step : ONBOARDING_STEP_VERIFICATION;
     }
 
     public void syncEmail(String firebaseUid, String email) {

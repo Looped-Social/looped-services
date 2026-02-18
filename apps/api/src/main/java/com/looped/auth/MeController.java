@@ -1,6 +1,7 @@
 package com.looped.auth;
 
 import com.looped.users.UserPayloads;
+import com.looped.users.OnboardingV2Stages;
 import com.looped.users.UsersService;
 import com.looped.settings.AppConfigService;
 import org.springframework.http.HttpStatus;
@@ -35,18 +36,24 @@ public class MeController {
         Boolean emailVerified = jwt.getClaimAsBoolean("email_verified");
         var loginStatus = users.onLogin(jwt.getSubject(), email, emailVerified);
         if (loginStatus == UsersService.LoginStatus.PURGED) {
+            var onboardingV2 = users.onboardingStateV2(jwt.getSubject());
             resp.put("provisioned", false);
             resp.put("account_deleted", true);
             resp.put("onboarding_complete", false);
             resp.put("onboarding_step", "profile_setup");
+            resp.put("onboarding_stage_v2", onboardingV2.onboardingStageV2());
+            resp.put("onboarding_context", onboardingV2.onboardingContext());
             resp.put("error", "account_deleted");
             return ResponseEntity.status(HttpStatus.CONFLICT).body(resp);
         }
         if (loginStatus == UsersService.LoginStatus.PURGE_FAILED) {
+            var onboardingV2 = users.onboardingStateV2(jwt.getSubject());
             resp.put("provisioned", false);
             resp.put("account_delete_pending", true);
             resp.put("onboarding_complete", false);
             resp.put("onboarding_step", "profile_setup");
+            resp.put("onboarding_stage_v2", onboardingV2.onboardingStageV2());
+            resp.put("onboarding_context", onboardingV2.onboardingContext());
             resp.put("error", "account_delete_pending");
             return ResponseEntity.status(HttpStatus.CONFLICT).body(resp);
         }
@@ -56,8 +63,11 @@ public class MeController {
         }
 
         var onboarding = users.onboardingState(jwt.getSubject());
+        var onboardingV2 = users.onboardingStateV2(jwt.getSubject());
         resp.put("onboarding_complete", onboarding.onboardingComplete());
         resp.put("onboarding_step", onboarding.onboardingStep());
+        resp.put("onboarding_stage_v2", onboardingV2.onboardingStageV2());
+        resp.put("onboarding_context", onboardingV2.onboardingContext());
 
         var profile = users.currentProfile(jwt.getSubject());
         if (profile.isEmpty()) {
@@ -68,7 +78,12 @@ public class MeController {
         resp.put("provisioned", true);
         resp.put("user", UserPayloads.fromProfile(profile.get(), true, true, appConfig.defaultProfileImageUrl()));
         if (!onboarding.onboardingComplete()) {
+            var allowedNextStagesV2 = OnboardingV2Stages.allowedNextStages(onboardingV2.onboardingStageV2());
             resp.put("error", "onboarding_incomplete");
+            resp.put("current_step", onboarding.onboardingStep());
+            resp.put("allowed_next_steps", OnboardingV2Stages.toLegacySteps(allowedNextStagesV2));
+            resp.put("current_stage_v2", onboardingV2.onboardingStageV2());
+            resp.put("allowed_next_stages_v2", allowedNextStagesV2);
             return ResponseEntity.status(HttpStatus.CONFLICT).body(resp);
         }
         return ResponseEntity.ok(resp);

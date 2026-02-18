@@ -214,6 +214,8 @@ public class UsersController {
             @Validated @RequestBody UpdateOnboardingRequest body
     ) {
         var res = service.updateOnboardingStep(jwt.getSubject(), body.step());
+        var snapshot = service.onboardingStateV2(jwt.getSubject());
+        var allowedNextStagesV2 = OnboardingV2Stages.allowedNextStages(snapshot.onboardingStageV2());
         return switch (res.status()) {
             case USER_NOT_PROVISIONED -> ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
                     "error", "user_not_provisioned"
@@ -224,11 +226,15 @@ public class UsersController {
                     "current_step", res.currentStep(),
                     "currentStep", res.currentStep(),
                     "allowed_next_steps", res.allowedNextSteps(),
-                    "allowedNextSteps", res.allowedNextSteps()
+                    "allowedNextSteps", res.allowedNextSteps(),
+                    "current_stage_v2", snapshot.onboardingStageV2(),
+                    "allowed_next_stages_v2", allowedNextStagesV2
             ));
             case OK -> ResponseEntity.ok(Map.of(
                     "onboarding_complete", res.state().onboardingComplete(),
-                    "onboarding_step", res.state().onboardingStep()
+                    "onboarding_step", res.state().onboardingStep(),
+                    "onboarding_stage_v2", snapshot.onboardingStageV2(),
+                    "onboarding_context", snapshot.onboardingContext()
             ));
         };
     }

@@ -79,6 +79,7 @@ class UsersServiceDeleteTest {
         CommunityVerificationsRepository communityVerifications = mock(CommunityVerificationsRepository.class);
         SpecializationJoinsRepository specializationJoins = mock(SpecializationJoinsRepository.class);
         MediaRepository media = mock(MediaRepository.class);
+        OnboardingV2Service onboardingV2 = mock(OnboardingV2Service.class);
         AppConfigService appConfig = mock(AppConfigService.class);
 
         return new UsersService(
@@ -97,6 +98,7 @@ class UsersServiceDeleteTest {
                 communityVerifications,
                 specializationJoins,
                 media,
+                onboardingV2,
                 firebaseAdmin,
                 appConfig,
                 90,

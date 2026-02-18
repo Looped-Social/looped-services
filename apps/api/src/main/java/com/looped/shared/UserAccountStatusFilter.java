@@ -1,5 +1,7 @@
 package com.looped.shared;
 
+import com.looped.users.OnboardingV2Service;
+import com.looped.users.OnboardingV2Stages;
 import com.looped.users.UserRepository;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -16,6 +18,8 @@ import org.springframework.util.AntPathMatcher;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
+import java.time.OffsetDateTime;
+import java.util.List;
 import java.util.Locale;
 
 @Component
@@ -23,9 +27,11 @@ import java.util.Locale;
 public class UserAccountStatusFilter extends OncePerRequestFilter {
     private static final AntPathMatcher PATH_MATCHER = new AntPathMatcher();
     private final UserRepository users;
+    private final OnboardingV2Service onboardingV2;
 
-    public UserAccountStatusFilter(UserRepository users) {
+    public UserAccountStatusFilter(UserRepository users, OnboardingV2Service onboardingV2) {
         this.users = users;
+        this.onboardingV2 = onboardingV2;
     }
 
     @Override
@@ -81,7 +87,7 @@ public class UserAccountStatusFilter extends OncePerRequestFilter {
             return;
         }
         if (status.onboardingCompletedAt == null && !isOnboardingBootstrapRoute(request) && !isMeRoute(path)) {
-            respondOnboardingIncomplete(response, status.onboardingStep);
+            respondOnboardingIncomplete(response, status.id, status.onboardingStep, status.onboardingCompletedAt);
             return;
         }
         filterChain.doFilter(request, response);
@@ -106,6 +112,8 @@ public class UserAccountStatusFilter extends OncePerRequestFilter {
         return allowRoute(method, path, HttpMethod.POST, "/v1/users/onboard")
                 || allowRoute(method, path, HttpMethod.GET, "/v1/users/username/availability")
                 || allowRoute(method, path, HttpMethod.PUT, "/v1/users/me/onboarding")
+                || allowRoute(method, path, HttpMethod.POST, "/v1/users/me/onboarding-v2/**")
+                || allowRoute(method, path, HttpMethod.PUT, "/v1/users/me/onboarding-v2/**")
                 || allowRoute(method, path, HttpMethod.PUT, "/v1/users/me/identity")
                 || allowRoute(method, path, HttpMethod.PUT, "/v1/users/me/display-community")
                 || allowRoute(method, path, HttpMethod.PUT, "/v1/users/me/display-specialization")
@@ -139,24 +147,47 @@ public class UserAccountStatusFilter extends OncePerRequestFilter {
         return expectedMethod.matches(method) && PATH_MATCHER.match(pattern, path);
     }
 
-    private void respondOnboardingIncomplete(HttpServletResponse response, String onboardingStep) throws IOException {
+    private void respondOnboardingIncomplete(HttpServletResponse response,
+                                             long userId,
+                                             String onboardingStep,
+                                             OffsetDateTime onboardingCompletedAt) throws IOException {
         response.setStatus(409);
         response.setContentType("application/json");
         String step = normalizeOnboardingStep(onboardingStep);
+        String stage = onboardingV2.stageForUser(userId, step, onboardingCompletedAt);
+        if (stage == null || stage.isBlank()) {
+            stage = OnboardingV2Stages.stageForLegacy(step, onboardingCompletedAt);
+        }
+        List<String> allowedNextStagesV2 = OnboardingV2Stages.allowedNextStages(stage);
+        List<String> allowedNextSteps = OnboardingV2Stages.toLegacySteps(allowedNextStagesV2);
         response.getWriter().write(
                 "{\"error\":\"onboarding_incomplete\",\"message\":\"Complete onboarding before using this endpoint\",\"onboarding_step\":\""
                         + escapeJson(step)
                         + "\",\"onboardingStep\":\""
                         + escapeJson(step)
-                        + "\"}"
+                        + "\",\"current_step\":\""
+                        + escapeJson(step)
+                        + "\",\"currentStep\":\""
+                        + escapeJson(step)
+                        + "\",\"allowed_next_steps\":"
+                        + jsonArray(allowedNextSteps)
+                        + ",\"allowedNextSteps\":"
+                        + jsonArray(allowedNextSteps)
+                        + ",\"current_stage_v2\":\""
+                        + escapeJson(stage)
+                        + "\",\"allowed_next_stages_v2\":"
+                        + jsonArray(allowedNextStagesV2)
+                        + "}"
         );
     }
 
     private String normalizeOnboardingStep(String onboardingStep) {
         if (onboardingStep == null || onboardingStep.isBlank()) {
-            return "verification";
+            return OnboardingV2Stages.LEGACY_VERIFICATION;
         }
-        return onboardingStep.trim().toLowerCase(Locale.ROOT);
+        String normalized = onboardingStep.trim().toLowerCase(Locale.ROOT);
+        String valid = OnboardingV2Stages.normalizeLegacyStep(normalized);
+        return valid != null ? valid : OnboardingV2Stages.LEGACY_VERIFICATION;
     }
 
     private void respond(HttpServletResponse response, int status, String error, String message) throws IOException {
@@ -170,5 +201,16 @@ public class UserAccountStatusFilter extends OncePerRequestFilter {
     private String escapeJson(String s) {
         if (s == null) return "";
         return s.replace("\\", "\\\\").replace("\"", "\\\"");
+    }
+
+    private String jsonArray(List<String> values) {
+        if (values == null || values.isEmpty()) return "[]";
+        StringBuilder out = new StringBuilder("[");
+        for (int i = 0; i < values.size(); i++) {
+            if (i > 0) out.append(',');
+            out.append('"').append(escapeJson(values.get(i))).append('"');
+        }
+        out.append(']');
+        return out.toString();
     }
 }

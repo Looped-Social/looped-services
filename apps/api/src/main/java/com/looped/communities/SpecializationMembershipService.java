@@ -2,6 +2,7 @@ package com.looped.communities;
 
 import com.looped.settings.AppSettingsKeys;
 import com.looped.settings.AppSettingsRepository;
+import com.looped.users.OnboardingV2Repository;
 import com.looped.users.UserRepository;
 import org.springframework.stereotype.Service;
 
@@ -23,6 +24,7 @@ public class SpecializationMembershipService {
     private final SpecializationProperties specializationProps;
     private final AppSettingsRepository settings;
     private final CommunityVerificationsRepository communityVerifications;
+    private final OnboardingV2Repository onboardingV2;
 
     public SpecializationMembershipService(UserRepository users,
                                            CommunitiesRepository communities,
@@ -31,7 +33,8 @@ public class SpecializationMembershipService {
                                            SpecializationLimitsRepository limits,
                                            SpecializationProperties specializationProps,
                                            AppSettingsRepository settings,
-                                           CommunityVerificationsRepository communityVerifications) {
+                                           CommunityVerificationsRepository communityVerifications,
+                                           OnboardingV2Repository onboardingV2) {
         this.users = users;
         this.communities = communities;
         this.follows = follows;
@@ -40,6 +43,7 @@ public class SpecializationMembershipService {
         this.specializationProps = specializationProps;
         this.settings = settings;
         this.communityVerifications = communityVerifications;
+        this.onboardingV2 = onboardingV2;
     }
 
     public enum Status { OK, USER_NOT_PROVISIONED, NOT_FOUND, INVALID_SPECIALIZATION, LIMIT_REACHED, COOLDOWN, VERIFICATION_REQUIRED }
@@ -101,6 +105,10 @@ public class SpecializationMembershipService {
         }
 
         String requiredKind = requiredVerificationKindForSpecializationType(specializationType);
+        String onboardingRequiredKind = onboardingVerificationRequiredKind(actor.get().id, requiredKind);
+        if (onboardingRequiredKind != null) {
+            return JoinResult.verificationRequired(specializationType, onboardingRequiredKind);
+        }
         if (requiredKind != null && !communityVerifications.hasActiveVerifiedCommunityOfKind(actor.get().id, requiredKind)) {
             return JoinResult.verificationRequired(specializationType, requiredKind);
         }
@@ -194,7 +202,14 @@ public class SpecializationMembershipService {
         }
 
         String requiredKind = requiredVerificationKindForSpecializationType(normalizedType);
-        boolean prerequisiteMet = requiredKind == null || communityVerifications.hasActiveVerifiedCommunityOfKind(userId, requiredKind);
+        String onboardingRequiredKind = onboardingVerificationRequiredKind(userId, requiredKind);
+        boolean prerequisiteMet;
+        if (onboardingRequiredKind != null) {
+            requiredKind = onboardingRequiredKind;
+            prerequisiteMet = false;
+        } else {
+            prerequisiteMet = requiredKind == null || communityVerifications.hasActiveVerifiedCommunityOfKind(userId, requiredKind);
+        }
 
         int max = maxJoinsPerType(normalizedType);
         int joinedCount = joins.countJoinedByType(userId, normalizedType);
@@ -264,6 +279,21 @@ public class SpecializationMembershipService {
             case "field" -> "company";
             default -> null;
         };
+    }
+
+    private String onboardingVerificationRequiredKind(long userId, String fallbackRequiredKind) {
+        var rowOpt = onboardingV2.findByUserId(userId);
+        if (rowOpt.isEmpty()) return null;
+        var row = rowOpt.get();
+        String path = row.verificationPath == null ? null : row.verificationPath.trim().toLowerCase(Locale.ROOT);
+        String status = row.verificationStatus == null ? "none" : row.verificationStatus.trim().toLowerCase(Locale.ROOT);
+        if (!"skip".equals(path) && !"photo_id".equals(path)) return null;
+        if ("approved".equals(status)) return null;
+        String orgKind = row.selectedOrgKind == null ? null : row.selectedOrgKind.trim().toLowerCase(Locale.ROOT);
+        if ("company".equals(orgKind) || "school".equals(orgKind)) {
+            return orgKind;
+        }
+        return fallbackRequiredKind;
     }
 
     private int resolveCooldownMonthsForCommunity(CommunitiesRepository.CommunityRow community) {
