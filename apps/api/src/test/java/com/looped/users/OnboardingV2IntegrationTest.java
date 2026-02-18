@@ -291,6 +291,95 @@ class OnboardingV2IntegrationTest extends PostgresTestBase {
     }
 
     @Test
+    void verification_choice_skip_from_choice_stage_returns_ok() throws Exception {
+        long companyId = company("ChoiceSkipCo", "choiceskip.com");
+        user("uid-onb-v2-choice-skip", "choiceskip", companyId);
+        long orgId = community("company", "Choice Skip Org");
+        String auth = auth("uid-onb-v2-choice-skip");
+
+        mockMvc.perform(post("/v1/users/me/onboarding-v2/info-screen/viewed").header("Authorization", auth))
+                .andExpect(status().isOk());
+        mockMvc.perform(put("/v1/users/me/onboarding-v2/org")
+                        .header("Authorization", auth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"orgId\":" + orgId + "}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.onboarding_stage_v2", equalTo("org_selected")));
+
+        mockMvc.perform(put("/v1/users/me/onboarding-v2/verification-choice")
+                        .header("Authorization", auth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"verificationPath\":\"skip\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.onboarding_complete", equalTo(false)))
+                .andExpect(jsonPath("$.onboarding_step", equalTo("verification")))
+                .andExpect(jsonPath("$.onboarding_stage_v2", equalTo("skip_explainer")))
+                .andExpect(jsonPath("$.onboarding_context.verification_path", equalTo("skip")));
+    }
+
+    @Test
+    void verification_choice_skip_from_email_verification_returns_ok() throws Exception {
+        long companyId = company("EmailSkipCo", "emailskip.com");
+        user("uid-onb-v2-email-skip", "emailskip", companyId);
+        long orgId = community("company", "Email Skip Org");
+        String auth = auth("uid-onb-v2-email-skip");
+
+        mockMvc.perform(post("/v1/users/me/onboarding-v2/info-screen/viewed").header("Authorization", auth))
+                .andExpect(status().isOk());
+        mockMvc.perform(put("/v1/users/me/onboarding-v2/org")
+                        .header("Authorization", auth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"orgId\":" + orgId + "}"))
+                .andExpect(status().isOk());
+        mockMvc.perform(put("/v1/users/me/onboarding-v2/verification-choice")
+                        .header("Authorization", auth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"verificationPath\":\"email\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.onboarding_stage_v2", equalTo("email_verification")));
+
+        mockMvc.perform(put("/v1/users/me/onboarding-v2/verification-choice")
+                        .header("Authorization", auth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"verificationPath\":\"skip\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.onboarding_complete", equalTo(false)))
+                .andExpect(jsonPath("$.onboarding_step", equalTo("verification")))
+                .andExpect(jsonPath("$.onboarding_stage_v2", equalTo("skip_explainer")))
+                .andExpect(jsonPath("$.onboarding_context.verification_path", equalTo("skip")));
+    }
+
+    @Test
+    void invalid_stage_from_email_verification_includes_skip_explainer_in_allowed_next_stages() throws Exception {
+        long companyId = company("EmailAllowedCo", "emailallowed.com");
+        user("uid-onb-v2-email-allowed", "emailallowed", companyId);
+        long orgId = community("company", "Email Allowed Org");
+        String auth = auth("uid-onb-v2-email-allowed");
+
+        mockMvc.perform(post("/v1/users/me/onboarding-v2/info-screen/viewed").header("Authorization", auth))
+                .andExpect(status().isOk());
+        mockMvc.perform(put("/v1/users/me/onboarding-v2/org")
+                        .header("Authorization", auth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"orgId\":" + orgId + "}"))
+                .andExpect(status().isOk());
+        mockMvc.perform(put("/v1/users/me/onboarding-v2/verification-choice")
+                        .header("Authorization", auth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"verificationPath\":\"email\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.onboarding_stage_v2", equalTo("email_verification")));
+
+        mockMvc.perform(post("/v1/users/me/onboarding-v2/photo-pending-explainer/ack")
+                        .header("Authorization", auth))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.error", equalTo("invalid_onboarding_stage")))
+                .andExpect(jsonPath("$.current_stage_v2", equalTo("email_verification")))
+                .andExpect(jsonPath("$.allowed_next_stages_v2", hasItem("specialization_selection")))
+                .andExpect(jsonPath("$.allowed_next_stages_v2", hasItem("skip_explainer")));
+    }
+
+    @Test
     void me_keeps_legacy_onboarding_step_enum_while_exposing_v2_stage() throws Exception {
         long companyId = company("LegacyEnumCo", "legacyenum.com");
         long userId = user("uid-onb-v2-legacy-enum", "legacyenum", companyId);

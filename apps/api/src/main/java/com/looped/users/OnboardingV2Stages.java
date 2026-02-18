@@ -23,6 +23,7 @@ public final class OnboardingV2Stages {
     public static final String PROFILE_SETUP = "profile_setup";
     public static final String POSTING_INFO = "posting_info";
     public static final String ORG_SELECTED = "org_selected";
+    public static final String VERIFICATION_CHOICE = "verification_choice";
     public static final String EMAIL_VERIFICATION = "email_verification";
     public static final String SPECIALIZATION_SELECTION = "specialization_selection";
     public static final String SKIP_EXPLAINER = "skip_explainer";
@@ -51,6 +52,9 @@ public final class OnboardingV2Stages {
     public static String normalizeStage(String stage) {
         if (stage == null || stage.isBlank()) return null;
         String normalized = stage.trim().toLowerCase(Locale.ROOT);
+        if (VERIFICATION_CHOICE.equals(normalized)) {
+            return ORG_SELECTED;
+        }
         return ALL_STAGES.contains(normalized) ? normalized : null;
     }
 
@@ -86,10 +90,10 @@ public final class OnboardingV2Stages {
             case PROFILE_SETUP -> List.of(POSTING_INFO);
             case POSTING_INFO -> List.of(ORG_SELECTED);
             case ORG_SELECTED -> List.of(EMAIL_VERIFICATION, SKIP_EXPLAINER, PHOTO_ID_VERIFICATION);
-            case EMAIL_VERIFICATION -> List.of(SPECIALIZATION_SELECTION);
+            case EMAIL_VERIFICATION -> List.of(SPECIALIZATION_SELECTION, SKIP_EXPLAINER);
             case SPECIALIZATION_SELECTION -> List.of(COMPLETED);
             case SKIP_EXPLAINER -> List.of(COMPLETED);
-            case PHOTO_ID_VERIFICATION -> List.of(PHOTO_PENDING_EXPLAINER);
+            case PHOTO_ID_VERIFICATION -> List.of(PHOTO_PENDING_EXPLAINER, SKIP_EXPLAINER);
             case PHOTO_PENDING_EXPLAINER -> List.of(COMPLETED);
             case COMPLETED -> List.of(COMPLETED);
             default -> ALL_STAGES;

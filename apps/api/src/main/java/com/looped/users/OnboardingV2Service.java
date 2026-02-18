@@ -135,7 +135,17 @@ public class OnboardingV2Service {
         var bundle = bundleOpt.get();
         if (isCompleted(bundle.state)) return Result.ok(snapshot(bundle.user, bundle.state));
 
-        if (!OnboardingV2Stages.ORG_SELECTED.equals(bundle.state.stageV2)) {
+        String currentStage = OnboardingV2Stages.normalizeStage(bundle.state.stageV2);
+        if (currentStage == null) {
+            currentStage = bundle.state.stageV2;
+        }
+        boolean canSetChoice = OnboardingV2Stages.ORG_SELECTED.equals(currentStage);
+        if ("skip".equals(path)) {
+            canSetChoice = canSetChoice
+                    || OnboardingV2Stages.EMAIL_VERIFICATION.equals(currentStage)
+                    || OnboardingV2Stages.PHOTO_ID_VERIFICATION.equals(currentStage);
+        }
+        if (!canSetChoice) {
             return Result.invalidStage(bundle);
         }
         if (bundle.state.selectedOrgId == null || bundle.state.selectedOrgKind == null) {
