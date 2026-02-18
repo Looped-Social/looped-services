@@ -22,6 +22,7 @@ import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.notNullValue;
+import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
@@ -377,6 +378,106 @@ class OnboardingV2IntegrationTest extends PostgresTestBase {
                 .andExpect(jsonPath("$.current_stage_v2", equalTo("email_verification")))
                 .andExpect(jsonPath("$.allowed_next_stages_v2", hasItem("specialization_selection")))
                 .andExpect(jsonPath("$.allowed_next_stages_v2", hasItem("skip_explainer")));
+    }
+
+    @Test
+    void undo_skip_to_email_from_skip_explainer_returns_ok() throws Exception {
+        long companyId = company("UndoSkipEmailCo", "undoskipemail.com");
+        user("uid-onb-v2-undo-skip-email", "undoskipemail", companyId);
+        long orgId = community("company", "Undo Skip Email Org");
+        String auth = auth("uid-onb-v2-undo-skip-email");
+
+        mockMvc.perform(post("/v1/users/me/onboarding-v2/info-screen/viewed").header("Authorization", auth))
+                .andExpect(status().isOk());
+        mockMvc.perform(put("/v1/users/me/onboarding-v2/org")
+                        .header("Authorization", auth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"orgId\":" + orgId + "}"))
+                .andExpect(status().isOk());
+        mockMvc.perform(put("/v1/users/me/onboarding-v2/verification-choice")
+                        .header("Authorization", auth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"verificationPath\":\"skip\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.onboarding_stage_v2", equalTo("skip_explainer")));
+
+        mockMvc.perform(put("/v1/users/me/onboarding-v2/verification-choice")
+                        .header("Authorization", auth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"verificationPath\":\"email\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.onboarding_complete", equalTo(false)))
+                .andExpect(jsonPath("$.onboarding_step", equalTo("verification")))
+                .andExpect(jsonPath("$.onboarding_stage_v2", equalTo("email_verification")))
+                .andExpect(jsonPath("$.onboarding_context.verification_path", equalTo("email")))
+                .andExpect(jsonPath("$.onboarding_context.completion_reason", nullValue()));
+    }
+
+    @Test
+    void undo_skip_to_photo_id_from_skip_explainer_returns_ok() throws Exception {
+        long companyId = company("UndoSkipPhotoCo", "undoskipphoto.com");
+        user("uid-onb-v2-undo-skip-photo", "undoskipphoto", companyId);
+        long orgId = community("school", "Undo Skip Photo Org");
+        String auth = auth("uid-onb-v2-undo-skip-photo");
+
+        mockMvc.perform(post("/v1/users/me/onboarding-v2/info-screen/viewed").header("Authorization", auth))
+                .andExpect(status().isOk());
+        mockMvc.perform(put("/v1/users/me/onboarding-v2/org")
+                        .header("Authorization", auth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"orgId\":" + orgId + "}"))
+                .andExpect(status().isOk());
+        mockMvc.perform(put("/v1/users/me/onboarding-v2/verification-choice")
+                        .header("Authorization", auth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"verificationPath\":\"skip\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.onboarding_stage_v2", equalTo("skip_explainer")));
+
+        mockMvc.perform(put("/v1/users/me/onboarding-v2/verification-choice")
+                        .header("Authorization", auth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"verificationPath\":\"photo_id\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.onboarding_complete", equalTo(false)))
+                .andExpect(jsonPath("$.onboarding_step", equalTo("verification")))
+                .andExpect(jsonPath("$.onboarding_stage_v2", equalTo("photo_id_verification")))
+                .andExpect(jsonPath("$.onboarding_context.verification_path", equalTo("photo_id")))
+                .andExpect(jsonPath("$.onboarding_context.completion_reason", nullValue()));
+    }
+
+    @Test
+    void rejected_action_from_skip_explainer_returns_standard_metadata() throws Exception {
+        long companyId = company("SkipMetaCo", "skipmeta.com");
+        user("uid-onb-v2-skip-meta", "skipmeta", companyId);
+        long orgId = community("company", "Skip Meta Org");
+        String auth = auth("uid-onb-v2-skip-meta");
+
+        mockMvc.perform(post("/v1/users/me/onboarding-v2/info-screen/viewed").header("Authorization", auth))
+                .andExpect(status().isOk());
+        mockMvc.perform(put("/v1/users/me/onboarding-v2/org")
+                        .header("Authorization", auth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"orgId\":" + orgId + "}"))
+                .andExpect(status().isOk());
+        mockMvc.perform(put("/v1/users/me/onboarding-v2/verification-choice")
+                        .header("Authorization", auth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"verificationPath\":\"skip\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.onboarding_stage_v2", equalTo("skip_explainer")));
+
+        mockMvc.perform(post("/v1/users/me/onboarding-v2/email-verification/success")
+                        .header("Authorization", auth))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.error", equalTo("invalid_onboarding_stage")))
+                .andExpect(jsonPath("$.current_stage_v2", equalTo("skip_explainer")))
+                .andExpect(jsonPath("$.allowed_next_stages_v2", hasItem("completed")))
+                .andExpect(jsonPath("$.allowed_next_stages_v2", hasItem("email_verification")))
+                .andExpect(jsonPath("$.allowed_next_stages_v2", hasItem("photo_id_verification")))
+                .andExpect(jsonPath("$.current_step", equalTo("verification")))
+                .andExpect(jsonPath("$.allowed_next_steps", hasItem("verification")))
+                .andExpect(jsonPath("$.allowed_next_steps", hasItem("verification_notifications")));
     }
 
     @Test

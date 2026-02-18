@@ -140,11 +140,14 @@ public class OnboardingV2Service {
             currentStage = bundle.state.stageV2;
         }
         boolean canSetChoice = OnboardingV2Stages.ORG_SELECTED.equals(currentStage);
+        boolean canUndoSkipChoice = OnboardingV2Stages.SKIP_EXPLAINER.equals(currentStage)
+                && ("email".equals(path) || "photo_id".equals(path));
         if ("skip".equals(path)) {
             canSetChoice = canSetChoice
                     || OnboardingV2Stages.EMAIL_VERIFICATION.equals(currentStage)
                     || OnboardingV2Stages.PHOTO_ID_VERIFICATION.equals(currentStage);
         }
+        canSetChoice = canSetChoice || canUndoSkipChoice;
         if (!canSetChoice) {
             return Result.invalidStage(bundle);
         }
