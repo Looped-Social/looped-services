@@ -192,7 +192,51 @@ class CommentsIntegrationTest extends PostgresTestBase {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"content\":\"nope\"}"))
                 .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.error").value("community_not_verified"));
+                .andExpect(jsonPath("$.error").value("community_not_verified"))
+                .andExpect(jsonPath("$.error_code").value("community_not_verified"))
+                .andExpect(jsonPath("$.lockContext.communityId").value((int) communityId))
+                .andExpect(jsonPath("$.primaryUnlockAction.type").value("VERIFY_COMMUNITY"));
+    }
+
+    @Test
+    void comment_in_major_returns_verify_parent_then_join_context() throws Exception {
+        long companyId = jdbc.queryForObject("INSERT INTO companies(name, domain) VALUES ('CommentMajorCo','comment-major.co') RETURNING id", Long.class);
+        long authorId = jdbc.queryForObject(
+                "INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?) RETURNING id",
+                Long.class, "uid-cm-author", "cmauthor", companyId
+        );
+        jdbc.queryForObject(
+                "INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?) RETURNING id",
+                Long.class, "uid-cm-viewer", "cmviewer", companyId
+        );
+        long authorPrincipal = jdbc.queryForObject("INSERT INTO principals(kind, user_id) VALUES ('user', ?) RETURNING id", Long.class, authorId);
+        long majorId = jdbc.queryForObject(
+                "INSERT INTO communities(kind, specialization_type, name) VALUES ('specialization','major','History') RETURNING id",
+                Long.class
+        );
+        long schoolId = jdbc.queryForObject(
+                "INSERT INTO communities(kind, name) VALUES ('school', 'Comment Major University') RETURNING id",
+                Long.class
+        );
+        jdbc.update("INSERT INTO specialization_joins(user_id, specialization_id) VALUES (?,?)", authorId, majorId);
+        long postId = jdbc.queryForObject(
+                "INSERT INTO posts(author_id, author_principal_id, company_id, community_id, content) VALUES (?,?,?,?,?) RETURNING id",
+                Long.class, authorId, authorPrincipal, companyId, majorId, "major post"
+        );
+
+        mockMvc.perform(post("/v1/posts/" + postId + "/comments")
+                        .header("Authorization", "Bearer " + token("uid-cm-viewer"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"content\":\"blocked\"}"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error").value("specialization_verification_required"))
+                .andExpect(jsonPath("$.error_code").value("specialization_verification_required"))
+                .andExpect(jsonPath("$.lockContext.requiredVerificationKind").value("school"))
+                .andExpect(jsonPath("$.lockContext.verifyTargetCommunityId").value((int) schoolId))
+                .andExpect(jsonPath("$.lockContext.verifyTargetCommunityName").value("Comment Major University"))
+                .andExpect(jsonPath("$.primaryUnlockAction.type").value("VERIFY_PARENT_THEN_JOIN"))
+                .andExpect(jsonPath("$.primaryUnlockAction.communityId").value((int) schoolId))
+                .andExpect(jsonPath("$.primaryUnlockAction.specializationId").value((int) majorId));
     }
 
     @Test
@@ -298,7 +342,8 @@ class CommentsIntegrationTest extends PostgresTestBase {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"content\":\"should fail\"}"))
                 .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.error").value("community_not_verified"));
+                .andExpect(jsonPath("$.error").value("verification_expired"))
+                .andExpect(jsonPath("$.error_code").value("verification_expired"));
 
         mockMvc.perform(delete("/v1/comments/" + commentId)
                         .header("Authorization", commenterAuth))

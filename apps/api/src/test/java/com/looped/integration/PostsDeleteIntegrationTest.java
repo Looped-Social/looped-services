@@ -129,7 +129,8 @@ class PostsDeleteIntegrationTest extends PostgresTestBase {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"content\":\"should fail\",\"communityId\":" + communityId + "}"))
                 .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.error").value(equalTo("community_not_verified")));
+                .andExpect(jsonPath("$.error").value(equalTo("verification_expired")))
+                .andExpect(jsonPath("$.error_code").value(equalTo("verification_expired")));
 
         mockMvc.perform(delete("/v1/posts/" + postId)
                         .header("Authorization", authorAuth)

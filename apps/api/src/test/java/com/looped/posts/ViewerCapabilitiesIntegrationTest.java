@@ -100,6 +100,8 @@ class ViewerCapabilitiesIntegrationTest extends PostgresTestBase {
                 .andExpect(jsonPath("$.items[0].viewerCapabilities.canInteract", equalTo(false)))
                 .andExpect(jsonPath("$.items[0].viewerCapabilities.canSave", equalTo(true)))
                 .andExpect(jsonPath("$.items[0].viewerCapabilities.lockReason", equalTo("COMMUNITY_NOT_VERIFIED")))
+                .andExpect(jsonPath("$.items[0].viewerCapabilities.lockContext.communityId", equalTo((int) communityId)))
+                .andExpect(jsonPath("$.items[0].viewerCapabilities.primaryUnlockAction.type", equalTo("VERIFY_COMMUNITY")))
                 .andExpect(jsonPath("$.items[0].viewerCapabilities.requiresVerification", equalTo(true)));
 
         jdbc.update(
@@ -130,6 +132,10 @@ class ViewerCapabilitiesIntegrationTest extends PostgresTestBase {
         );
         long specializationId = jdbc.queryForObject(
                 "INSERT INTO communities(kind, specialization_type, name) VALUES ('specialization','field','Engineering') RETURNING id",
+                Long.class
+        );
+        long companyCommunityId = jdbc.queryForObject(
+                "INSERT INTO communities(kind, name) VALUES ('company', 'PollCapCo') RETURNING id",
                 Long.class
         );
         long authorId = jdbc.queryForObject("SELECT id FROM users WHERE firebase_uid='uid-poll-author'", Long.class);
@@ -166,7 +172,13 @@ class ViewerCapabilitiesIntegrationTest extends PostgresTestBase {
                 .andExpect(jsonPath("$.items[0].poll").exists())
                 .andExpect(jsonPath("$.items[0].viewerCapabilities.canVote", equalTo(false)))
                 .andExpect(jsonPath("$.items[0].viewerCapabilities.canLike", equalTo(false)))
-                .andExpect(jsonPath("$.items[0].viewerCapabilities.lockReason", equalTo("SPECIALIZATION_NOT_JOINED")))
+                .andExpect(jsonPath("$.items[0].viewerCapabilities.lockReason", equalTo("SPECIALIZATION_VERIFICATION_REQUIRED")))
+                .andExpect(jsonPath("$.items[0].viewerCapabilities.lockContext.requiredVerificationKind", equalTo("company")))
+                .andExpect(jsonPath("$.items[0].viewerCapabilities.lockContext.verifyTargetCommunityId", equalTo((int) companyCommunityId)))
+                .andExpect(jsonPath("$.items[0].viewerCapabilities.lockContext.verifyTargetCommunityName", equalTo("PollCapCo")))
+                .andExpect(jsonPath("$.items[0].viewerCapabilities.primaryUnlockAction.type", equalTo("VERIFY_PARENT_THEN_JOIN")))
+                .andExpect(jsonPath("$.items[0].viewerCapabilities.primaryUnlockAction.communityId", equalTo((int) companyCommunityId)))
+                .andExpect(jsonPath("$.items[0].viewerCapabilities.primaryUnlockAction.specializationId", equalTo((int) specializationId)))
                 .andExpect(jsonPath("$.items[0].viewerCapabilities.requiresJoin", equalTo(true)));
 
         jdbc.update(

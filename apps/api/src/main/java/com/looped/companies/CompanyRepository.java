@@ -38,6 +38,14 @@ public class CompanyRepository {
         return list.isEmpty() ? Optional.empty() : Optional.of(list.get(0));
     }
 
+    public Optional<CompanyRow> findById(long id) {
+        var list = jdbc.query(
+                "SELECT id, name, domain, created_at FROM companies WHERE id = ?",
+                MAPPER, id
+        );
+        return list.isEmpty() ? Optional.empty() : Optional.of(list.get(0));
+    }
+
     public static class CompanyRow {
         public long id;
         public String name;

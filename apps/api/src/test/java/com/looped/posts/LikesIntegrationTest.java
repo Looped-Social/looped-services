@@ -123,6 +123,48 @@ class LikesIntegrationTest extends PostgresTestBase {
         mockMvc.perform(post("/v1/posts/" + postId + "/like")
                         .header("Authorization", "Bearer " + token("uid-like4-viewer")))
                 .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.error", equalTo("community_not_verified")));
+                .andExpect(jsonPath("$.error", equalTo("community_not_verified")))
+                .andExpect(jsonPath("$.error_code", equalTo("community_not_verified")))
+                .andExpect(jsonPath("$.lockContext.communityId", equalTo((int) communityId)))
+                .andExpect(jsonPath("$.primaryUnlockAction.type", equalTo("VERIFY_COMMUNITY")));
+    }
+
+    @Test
+    void like_in_major_returns_verify_parent_then_join_context() throws Exception {
+        long companyId = jdbc.queryForObject("INSERT INTO companies(name, domain) VALUES ('MajorLikeCo','majorlike.co') RETURNING id", Long.class);
+        long authorId = jdbc.queryForObject(
+                "INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?) RETURNING id",
+                Long.class, "uid-like-major-author", "likemajorauthor", companyId
+        );
+        jdbc.queryForObject(
+                "INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?) RETURNING id",
+                Long.class, "uid-like-major-viewer", "likemajorviewer", companyId
+        );
+        long authorPrincipal = jdbc.queryForObject("INSERT INTO principals(kind, user_id) VALUES ('user', ?) RETURNING id", Long.class, authorId);
+        long majorId = jdbc.queryForObject(
+                "INSERT INTO communities(kind, specialization_type, name) VALUES ('specialization','major','Economics') RETURNING id",
+                Long.class
+        );
+        long schoolId = jdbc.queryForObject(
+                "INSERT INTO communities(kind, name) VALUES ('school', 'MajorLike University') RETURNING id",
+                Long.class
+        );
+        jdbc.update("INSERT INTO specialization_joins(user_id, specialization_id) VALUES (?,?)", authorId, majorId);
+        long postId = jdbc.queryForObject(
+                "INSERT INTO posts(author_id, author_principal_id, company_id, community_id, content) VALUES (?,?,?,?,?) RETURNING id",
+                Long.class, authorId, authorPrincipal, companyId, majorId, "major locked post"
+        );
+
+        mockMvc.perform(post("/v1/posts/" + postId + "/like")
+                        .header("Authorization", "Bearer " + token("uid-like-major-viewer")))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error", equalTo("specialization_verification_required")))
+                .andExpect(jsonPath("$.error_code", equalTo("specialization_verification_required")))
+                .andExpect(jsonPath("$.lockContext.requiredVerificationKind", equalTo("school")))
+                .andExpect(jsonPath("$.lockContext.verifyTargetCommunityId", equalTo((int) schoolId)))
+                .andExpect(jsonPath("$.lockContext.verifyTargetCommunityName", equalTo("MajorLike University")))
+                .andExpect(jsonPath("$.primaryUnlockAction.type", equalTo("VERIFY_PARENT_THEN_JOIN")))
+                .andExpect(jsonPath("$.primaryUnlockAction.communityId", equalTo((int) schoolId)))
+                .andExpect(jsonPath("$.primaryUnlockAction.specializationId", equalTo((int) majorId)));
     }
 }

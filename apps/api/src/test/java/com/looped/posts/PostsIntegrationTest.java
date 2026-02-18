@@ -190,7 +190,45 @@ class PostsIntegrationTest extends PostgresTestBase {
                         .header("Idempotency-Key", "k-3")
                         .content("{\"content\":\"need verify\", \"communityId\": " + communityId + "}"))
                 .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.error", equalTo("community_not_verified")));
+                .andExpect(jsonPath("$.error", equalTo("community_not_verified")))
+                .andExpect(jsonPath("$.error_code", equalTo("community_not_verified")))
+                .andExpect(jsonPath("$.lockContext.communityId", equalTo((int) communityId)))
+                .andExpect(jsonPath("$.primaryUnlockAction.type", equalTo("VERIFY_COMMUNITY")));
+    }
+
+    @Test
+    void create_in_major_returns_verify_parent_then_join_context() throws Exception {
+        long companyId = jdbc.queryForObject(
+                "INSERT INTO companies(name, domain) VALUES ('MajorPostCo', 'majorpost.co') RETURNING id",
+                Long.class
+        );
+        jdbc.update("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?)",
+                "uid-post-major", "majorposter", companyId);
+        long majorId = jdbc.queryForObject(
+                "INSERT INTO communities(kind, specialization_type, name) VALUES ('specialization','major','Computer Science') RETURNING id",
+                Long.class
+        );
+        long schoolId = jdbc.queryForObject(
+                "INSERT INTO communities(kind, name) VALUES ('school', 'MajorPost University') RETURNING id",
+                Long.class
+        );
+
+        String auth = "Bearer " + token("uid-post-major");
+
+        mockMvc.perform(post("/v1/posts")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", auth)
+                        .header("Idempotency-Key", "k-major-locked")
+                        .content("{\"content\":\"blocked\", \"communityId\": " + majorId + "}"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error", equalTo("specialization_verification_required")))
+                .andExpect(jsonPath("$.error_code", equalTo("specialization_verification_required")))
+                .andExpect(jsonPath("$.lockContext.requiredVerificationKind", equalTo("school")))
+                .andExpect(jsonPath("$.lockContext.verifyTargetCommunityId", equalTo((int) schoolId)))
+                .andExpect(jsonPath("$.lockContext.verifyTargetCommunityName", equalTo("MajorPost University")))
+                .andExpect(jsonPath("$.primaryUnlockAction.type", equalTo("VERIFY_PARENT_THEN_JOIN")))
+                .andExpect(jsonPath("$.primaryUnlockAction.communityId", equalTo((int) schoolId)))
+                .andExpect(jsonPath("$.primaryUnlockAction.specializationId", equalTo((int) majorId)));
     }
 
     @Test

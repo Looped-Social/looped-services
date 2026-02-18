@@ -9,6 +9,7 @@ import com.looped.moderation.ContentModerationService;
 import com.looped.moderation.QuarantineService;
 import com.looped.notifications.NotificationPublisher;
 import com.looped.principals.PrincipalRepository;
+import com.looped.posts.CommunityInteractionLockService;
 import com.looped.posts.PostRepository;
 import com.looped.shared.MentionParser;
 import com.looped.shared.Pagination;
@@ -35,6 +36,7 @@ public class CommentsService {
     private final MediaRepository media;
     private final ContentModerationService contentModeration;
     private final QuarantineService quarantine;
+    private final CommunityInteractionLockService interactionLocks;
 
     public CommentsService(CommentsRepository comments,
                            PostRepository posts,
@@ -48,7 +50,8 @@ public class CommentsService {
                            UserCommunityBanRepository communityBans,
                            MediaRepository media,
                            ContentModerationService contentModeration,
-                           QuarantineService quarantine) {
+                           QuarantineService quarantine,
+                           CommunityInteractionLockService interactionLocks) {
         this.comments = comments;
         this.posts = posts;
         this.users = users;
@@ -62,6 +65,7 @@ public class CommentsService {
         this.media = media;
         this.contentModeration = contentModeration;
         this.quarantine = quarantine;
+        this.interactionLocks = interactionLocks;
     }
 
     public ListResult list(String firebaseUid, long postId, String cursor, int limit, AnonProofService.AnonActionProof anonProof) {
@@ -161,12 +165,8 @@ public class CommentsService {
             if (firebaseUid == null) return CreateResult.userNotProvisioned();
             var actor = users.findByFirebaseUid(firebaseUid);
             if (actor.isEmpty() || actor.get().companyId == null) return CreateResult.userNotProvisioned();
-            if (communityBans.isBanned(actor.get().id, post.get().communityId)) {
-                return CreateResult.communityBanned();
-            }
-            AccessStatus access = checkAccess(actor.get().id, post.get().communityId);
-            if (access == AccessStatus.NOT_VERIFIED) return CreateResult.notVerified();
-            if (access == AccessStatus.SPECIALIZATION_NOT_JOINED) return CreateResult.specializationNotJoined();
+            var lock = interactionLocks.evaluate(actor.get().id, actor.get().companyId, post.get().communityId);
+            if (!lock.canInteract()) return CreateResult.fromLock(lock);
             actorPrincipalId = principals.createForUser(actor.get().id).id;
             actorUserId = actor.get().id;
             effectiveCompanyId = actor.get().companyId;
@@ -581,7 +581,9 @@ public class CommentsService {
         COMMUNITY_NOT_FOUND,
         COMMUNITY_BANNED,
         NOT_VERIFIED,
+        VERIFICATION_EXPIRED,
         SPECIALIZATION_NOT_JOINED,
+        SPECIALIZATION_VERIFICATION_REQUIRED,
         INVALID_ANON_PROOF,
         ANON_MEDIA_NOT_ALLOWED,
         CONTENT_UNDER_REVIEW,
@@ -596,20 +598,29 @@ public class CommentsService {
         static ListResult invalidAnonProof() { return new ListResult(Status.INVALID_ANON_PROOF, List.of(), null); }
     }
 
-    public record CreateResult(Status status, CommentsRepository.CommentViewRow comment) {
-        static CreateResult ok(CommentsRepository.CommentViewRow comment) { return new CreateResult(Status.OK, comment); }
-        static CreateResult userNotProvisioned() { return new CreateResult(Status.USER_NOT_PROVISIONED, null); }
-        static CreateResult postNotFound() { return new CreateResult(Status.POST_NOT_FOUND, null); }
-        static CreateResult parentNotFound() { return new CreateResult(Status.COMMENT_NOT_FOUND, null); }
-        static CreateResult invalidParent() { return new CreateResult(Status.INVALID_PARENT, null); }
-        static CreateResult communityNotFound() { return new CreateResult(Status.COMMUNITY_NOT_FOUND, null); }
-        static CreateResult communityBanned() { return new CreateResult(Status.COMMUNITY_BANNED, null); }
-        static CreateResult notVerified() { return new CreateResult(Status.NOT_VERIFIED, null); }
-        static CreateResult specializationNotJoined() { return new CreateResult(Status.SPECIALIZATION_NOT_JOINED, null); }
-        static CreateResult invalidAnonProof() { return new CreateResult(Status.INVALID_ANON_PROOF, null); }
-        static CreateResult anonMediaNotAllowed() { return new CreateResult(Status.ANON_MEDIA_NOT_ALLOWED, null); }
-        static CreateResult contentUnderReview() { return new CreateResult(Status.CONTENT_UNDER_REVIEW, null); }
-        static CreateResult mediaNotFound() { return new CreateResult(Status.MEDIA_NOT_FOUND, null); }
+    public record CreateResult(Status status,
+                               CommentsRepository.CommentViewRow comment,
+                               CommunityInteractionLockService.LockEvaluation lock) {
+        static CreateResult ok(CommentsRepository.CommentViewRow comment) { return new CreateResult(Status.OK, comment, null); }
+        static CreateResult userNotProvisioned() { return new CreateResult(Status.USER_NOT_PROVISIONED, null, null); }
+        static CreateResult postNotFound() { return new CreateResult(Status.POST_NOT_FOUND, null, null); }
+        static CreateResult parentNotFound() { return new CreateResult(Status.COMMENT_NOT_FOUND, null, null); }
+        static CreateResult invalidParent() { return new CreateResult(Status.INVALID_PARENT, null, null); }
+        static CreateResult communityNotFound() { return new CreateResult(Status.COMMUNITY_NOT_FOUND, null, null); }
+        static CreateResult invalidAnonProof() { return new CreateResult(Status.INVALID_ANON_PROOF, null, null); }
+        static CreateResult anonMediaNotAllowed() { return new CreateResult(Status.ANON_MEDIA_NOT_ALLOWED, null, null); }
+        static CreateResult contentUnderReview() { return new CreateResult(Status.CONTENT_UNDER_REVIEW, null, null); }
+        static CreateResult mediaNotFound() { return new CreateResult(Status.MEDIA_NOT_FOUND, null, null); }
+        static CreateResult fromLock(CommunityInteractionLockService.LockEvaluation lock) {
+            if (lock == null) return new CreateResult(Status.NOT_VERIFIED, null, null);
+            return switch (lock.errorCode()) {
+                case "community_banned" -> new CreateResult(Status.COMMUNITY_BANNED, null, lock);
+                case "verification_expired" -> new CreateResult(Status.VERIFICATION_EXPIRED, null, lock);
+                case "specialization_not_joined" -> new CreateResult(Status.SPECIALIZATION_NOT_JOINED, null, lock);
+                case "specialization_verification_required" -> new CreateResult(Status.SPECIALIZATION_VERIFICATION_REQUIRED, null, lock);
+                default -> new CreateResult(Status.NOT_VERIFIED, null, lock);
+            };
+        }
     }
 
     public record RepliesResult(Status status, List<CommentsRepository.CommentViewRow> comments, String nextCursor) {

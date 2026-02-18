@@ -347,6 +347,17 @@ public class CommunitiesRepository {
         return list.isEmpty() ? Optional.empty() : Optional.of(list.get(0));
     }
 
+    public Optional<CommunityRow> findTopByKind(String kind) {
+        if (kind == null || kind.isBlank()) return Optional.empty();
+        var list = jdbc.query(
+                "SELECT " + BASE_COLUMNS + " FROM communities WHERE lower(kind) = ? " +
+                        "ORDER BY member_count DESC, created_at DESC, id DESC LIMIT 1",
+                MAPPER,
+                kind.trim().toLowerCase(Locale.ROOT)
+        );
+        return list.isEmpty() ? Optional.empty() : Optional.of(list.get(0));
+    }
+
     public Map<Long, CommunityRow> findByIds(Collection<Long> ids) {
         if (ids == null || ids.isEmpty()) return Map.of();
         String placeholders = String.join(",", java.util.Collections.nCopies(ids.size(), "?"));

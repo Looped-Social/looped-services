@@ -1,12 +1,8 @@
 package com.looped.posts;
 
 import com.looped.anon.AnonProofService;
-import com.looped.communities.CommunitiesRepository;
-import com.looped.communities.CommunityVerificationsRepository;
-import com.looped.communities.SpecializationJoinsRepository;
 import com.looped.notifications.NotificationPublisher;
 import com.looped.principals.PrincipalRepository;
-import com.looped.users.UserCommunityBanRepository;
 import com.looped.users.UserRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -16,34 +12,25 @@ public class LikesService {
     private final LikesRepository likes;
     private final PostRepository posts;
     private final UserRepository users;
-    private final CommunitiesRepository communities;
-    private final CommunityVerificationsRepository communityVerifications;
-    private final SpecializationJoinsRepository specializationJoins;
     private final PrincipalRepository principals;
     private final AnonProofService anonProofs;
     private final NotificationPublisher notifications;
-    private final UserCommunityBanRepository communityBans;
+    private final CommunityInteractionLockService interactionLocks;
 
     public LikesService(LikesRepository likes,
                         PostRepository posts,
                         UserRepository users,
-                        CommunitiesRepository communities,
-                        CommunityVerificationsRepository communityVerifications,
-                        SpecializationJoinsRepository specializationJoins,
                         PrincipalRepository principals,
                         AnonProofService anonProofs,
                         NotificationPublisher notifications,
-                        UserCommunityBanRepository communityBans) {
+                        CommunityInteractionLockService interactionLocks) {
         this.likes = likes;
         this.posts = posts;
         this.users = users;
-        this.communities = communities;
-        this.communityVerifications = communityVerifications;
-        this.specializationJoins = specializationJoins;
         this.principals = principals;
         this.anonProofs = anonProofs;
         this.notifications = notifications;
-        this.communityBans = communityBans;
+        this.interactionLocks = interactionLocks;
     }
 
     @Transactional
@@ -60,12 +47,8 @@ public class LikesService {
             if (firebaseUid == null) return Result.userNotProvisioned();
             var u = users.findByFirebaseUid(firebaseUid);
             if (u.isEmpty()) return Result.userNotProvisioned();
-            if (p.get().communityId != null && communityBans.isBanned(u.get().id, p.get().communityId)) {
-                return Result.communityBanned();
-            }
-            AccessStatus access = checkAccess(u.get().id, p.get().communityId);
-            if (access == AccessStatus.NOT_VERIFIED) return Result.notVerified();
-            if (access == AccessStatus.SPECIALIZATION_NOT_JOINED) return Result.specializationNotJoined();
+            var lock = interactionLocks.evaluate(u.get().id, u.get().companyId, p.get().communityId);
+            if (!lock.canInteract()) return Result.fromLock(lock);
             var principal = principals.createForUser(u.get().id);
             actorPrincipalId = principal.id;
         }
@@ -99,12 +82,8 @@ public class LikesService {
             if (firebaseUid == null) return UnlikeResult.userNotProvisioned();
             var u = users.findByFirebaseUid(firebaseUid);
             if (u.isEmpty()) return UnlikeResult.userNotProvisioned();
-            if (p.get().communityId != null && communityBans.isBanned(u.get().id, p.get().communityId)) {
-                return UnlikeResult.communityBanned();
-            }
-            AccessStatus access = checkAccess(u.get().id, p.get().communityId);
-            if (access == AccessStatus.NOT_VERIFIED) return UnlikeResult.notVerified();
-            if (access == AccessStatus.SPECIALIZATION_NOT_JOINED) return UnlikeResult.specializationNotJoined();
+            var lock = interactionLocks.evaluate(u.get().id, u.get().companyId, p.get().communityId);
+            if (!lock.canInteract()) return UnlikeResult.fromLock(lock);
             var principal = principals.createForUser(u.get().id);
             actorPrincipalId = principal.id;
         }
@@ -121,43 +100,48 @@ public class LikesService {
         return UnlikeResult.ok(deleted, current.likesCount);
     }
 
-    private AccessStatus checkAccess(long userId, Long communityId) {
-        if (communityId == null) return AccessStatus.OK;
-        var community = communities.findById(communityId).orElse(null);
-        if (community == null || community.kind == null) return AccessStatus.OK;
-        if ("specialization".equalsIgnoreCase(community.kind)) {
-            if (!requiresSpecializationJoin(community.specializationType)) return AccessStatus.OK;
-            return specializationJoins.exists(userId, communityId) ? AccessStatus.OK : AccessStatus.SPECIALIZATION_NOT_JOINED;
+    public enum Status {
+        OK,
+        USER_NOT_PROVISIONED,
+        NOT_FOUND,
+        INVALID_SIGNATURE,
+        COMMUNITY_BANNED,
+        NOT_VERIFIED,
+        VERIFICATION_EXPIRED,
+        SPECIALIZATION_NOT_JOINED,
+        SPECIALIZATION_VERIFICATION_REQUIRED
+    }
+    public record Result(Status status, boolean created, int likesCount, CommunityInteractionLockService.LockEvaluation lock) {
+        static Result ok(boolean created, int count) { return new Result(Status.OK, created, count, null); }
+        static Result userNotProvisioned() { return new Result(Status.USER_NOT_PROVISIONED, false, 0, null); }
+        static Result notFound() { return new Result(Status.NOT_FOUND, false, 0, null); }
+        static Result invalidSignature() { return new Result(Status.INVALID_SIGNATURE, false, 0, null); }
+        static Result fromLock(CommunityInteractionLockService.LockEvaluation lock) {
+            if (lock == null) return notFound();
+            return switch (lock.errorCode()) {
+                case "community_banned" -> new Result(Status.COMMUNITY_BANNED, false, 0, lock);
+                case "verification_expired" -> new Result(Status.VERIFICATION_EXPIRED, false, 0, lock);
+                case "specialization_not_joined" -> new Result(Status.SPECIALIZATION_NOT_JOINED, false, 0, lock);
+                case "specialization_verification_required" -> new Result(Status.SPECIALIZATION_VERIFICATION_REQUIRED, false, 0, lock);
+                default -> new Result(Status.NOT_VERIFIED, false, 0, lock);
+            };
         }
-        return communityVerifications.isVerified(userId, communityId) ? AccessStatus.OK : AccessStatus.NOT_VERIFIED;
     }
 
-    private boolean requiresSpecializationJoin(String specializationType) {
-        if (specializationType == null) return false;
-        String t = specializationType.trim().toLowerCase(java.util.Locale.ROOT);
-        return t.equals("major") || t.equals("field");
-    }
-
-    private enum AccessStatus { OK, NOT_VERIFIED, SPECIALIZATION_NOT_JOINED }
-
-    public enum Status { OK, USER_NOT_PROVISIONED, NOT_FOUND, INVALID_SIGNATURE, COMMUNITY_BANNED, NOT_VERIFIED, SPECIALIZATION_NOT_JOINED }
-    public record Result(Status status, boolean created, int likesCount) {
-        static Result ok(boolean created, int count) { return new Result(Status.OK, created, count); }
-        static Result userNotProvisioned() { return new Result(Status.USER_NOT_PROVISIONED, false, 0); }
-        static Result notFound() { return new Result(Status.NOT_FOUND, false, 0); }
-        static Result invalidSignature() { return new Result(Status.INVALID_SIGNATURE, false, 0); }
-        static Result communityBanned() { return new Result(Status.COMMUNITY_BANNED, false, 0); }
-        static Result notVerified() { return new Result(Status.NOT_VERIFIED, false, 0); }
-        static Result specializationNotJoined() { return new Result(Status.SPECIALIZATION_NOT_JOINED, false, 0); }
-    }
-
-    public record UnlikeResult(Status status, boolean deleted, int likesCount) {
-        static UnlikeResult ok(boolean deleted, int count) { return new UnlikeResult(Status.OK, deleted, count); }
-        static UnlikeResult userNotProvisioned() { return new UnlikeResult(Status.USER_NOT_PROVISIONED, false, 0); }
-        static UnlikeResult notFound() { return new UnlikeResult(Status.NOT_FOUND, false, 0); }
-        static UnlikeResult invalidSignature() { return new UnlikeResult(Status.INVALID_SIGNATURE, false, 0); }
-        static UnlikeResult communityBanned() { return new UnlikeResult(Status.COMMUNITY_BANNED, false, 0); }
-        static UnlikeResult notVerified() { return new UnlikeResult(Status.NOT_VERIFIED, false, 0); }
-        static UnlikeResult specializationNotJoined() { return new UnlikeResult(Status.SPECIALIZATION_NOT_JOINED, false, 0); }
+    public record UnlikeResult(Status status, boolean deleted, int likesCount, CommunityInteractionLockService.LockEvaluation lock) {
+        static UnlikeResult ok(boolean deleted, int count) { return new UnlikeResult(Status.OK, deleted, count, null); }
+        static UnlikeResult userNotProvisioned() { return new UnlikeResult(Status.USER_NOT_PROVISIONED, false, 0, null); }
+        static UnlikeResult notFound() { return new UnlikeResult(Status.NOT_FOUND, false, 0, null); }
+        static UnlikeResult invalidSignature() { return new UnlikeResult(Status.INVALID_SIGNATURE, false, 0, null); }
+        static UnlikeResult fromLock(CommunityInteractionLockService.LockEvaluation lock) {
+            if (lock == null) return notFound();
+            return switch (lock.errorCode()) {
+                case "community_banned" -> new UnlikeResult(Status.COMMUNITY_BANNED, false, 0, lock);
+                case "verification_expired" -> new UnlikeResult(Status.VERIFICATION_EXPIRED, false, 0, lock);
+                case "specialization_not_joined" -> new UnlikeResult(Status.SPECIALIZATION_NOT_JOINED, false, 0, lock);
+                case "specialization_verification_required" -> new UnlikeResult(Status.SPECIALIZATION_VERIFICATION_REQUIRED, false, 0, lock);
+                default -> new UnlikeResult(Status.NOT_VERIFIED, false, 0, lock);
+            };
+        }
     }
 }

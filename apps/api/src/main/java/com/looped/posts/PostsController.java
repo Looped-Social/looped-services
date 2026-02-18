@@ -154,18 +154,21 @@ public class PostsController {
                     "error", "community_not_found",
                     "message", "Community not found"
             ));
-            case COMMUNITY_BANNED -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
-                    "error", "community_banned",
-                    "message", "You are banned from this community"
-            ));
-            case NOT_VERIFIED -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
-                    "error", "community_not_verified",
-                    "message", "You must be verified to post to this community"
-            ));
-            case SPECIALIZATION_NOT_JOINED -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
-                    "error", "specialization_not_joined",
-                    "message", "You must join this specialization to post"
-            ));
+            case COMMUNITY_BANNED -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(
+                    lockDeniedBody("community_banned", "You are banned from this community", res.lock())
+            );
+            case NOT_VERIFIED -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(
+                    lockDeniedBody("community_not_verified", "You must be verified to post to this community", res.lock())
+            );
+            case VERIFICATION_EXPIRED -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(
+                    lockDeniedBody("verification_expired", "Your verification for this community has expired", res.lock())
+            );
+            case SPECIALIZATION_NOT_JOINED -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(
+                    lockDeniedBody("specialization_not_joined", "You must join this specialization to post", res.lock())
+            );
+            case SPECIALIZATION_VERIFICATION_REQUIRED -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(
+                    lockDeniedBody("specialization_verification_required", "Verify the parent community before joining this specialization", res.lock())
+            );
             case IDEMPOTENCY_IN_FLIGHT -> ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
                     "error", "idempotency_in_flight",
                     "message", "A request with this Idempotency-Key is in flight"
@@ -408,5 +411,19 @@ public class PostsController {
                     && anonCertKid != null && !anonCertKid.isBlank()
                     && anonSig != null && !anonSig.isBlank();
         }
+    }
+
+    private Map<String, Object> lockDeniedBody(String errorCode,
+                                               String message,
+                                               CommunityInteractionLockService.LockEvaluation lock) {
+        Map<String, Object> body = new HashMap<>();
+        body.put("error", errorCode);
+        body.put("error_code", errorCode);
+        body.put("message", message);
+        if (lock != null) {
+            body.put("lockContext", lock.lockContext());
+            body.put("primaryUnlockAction", lock.primaryUnlockAction());
+        }
+        return body;
     }
 }
