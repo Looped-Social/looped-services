@@ -224,3 +224,6 @@ telemetry:
     batch-size: ${TELEMETRY_RETENTION_BATCH_SIZE:5000}
     max-batches-per-run: ${TELEMETRY_RETENTION_MAX_BATCHES_PER_RUN:20}
     cron: "${TELEMETRY_RETENTION_CRON:0 0 4 * * *}"
+
+widgets:
+  snapshot-ttl-seconds: ${WIDGET_SNAPSHOT_TTL_SECONDS:900}
