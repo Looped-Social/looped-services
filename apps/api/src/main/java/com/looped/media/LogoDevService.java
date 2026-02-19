@@ -10,20 +10,23 @@ import java.net.URI;
 public class LogoDevService {
     private final String token;
     private final boolean retina;
+    private final int size;
 
     public LogoDevService(
             @Value("${logoDev.token:}") String token,
-            @Value("${logoDev.retina:true}") boolean retina
+            @Value("${logoDev.retina:true}") boolean retina,
+            @Value("${logoDev.size:256}") int size
     ) {
         this.token = token;
         this.retina = retina;
+        this.size = Math.max(64, Math.min(1024, size));
     }
 
     public String urlForDomain(String domain) {
         String normalized = normalizeDomain(domain);
         if (normalized == null) return null;
         if (token == null || token.isBlank()) return null;
-        String url = "https://img.logo.dev/" + normalized + "?token=" + token;
+        String url = "https://img.logo.dev/" + normalized + "?token=" + token + "&size=" + size + "&format=png";
         if (retina) url += "&retina=true";
         return url;
     }

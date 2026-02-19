@@ -126,4 +126,22 @@ class MediaCallbackIntegrationTest extends PostgresTestBase {
                 .andExpect(jsonPath("$.cdnUrl", equalTo("https://cdn.example.com/" + key)))
                 .andExpect(jsonPath("$.cdn_url", equalTo("https://cdn.example.com/" + key)));
     }
+
+    @Test
+    void callback_rejects_pathological_image_dimensions() throws Exception {
+        long companyId = jdbc.queryForObject("INSERT INTO companies(name, domain) VALUES ('Acme3','acme3.com') RETURNING id", Long.class);
+        jdbc.update("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?)", "uid-image-limits", "ivy", companyId);
+
+        String key = "media/original/423e4567-e89b-12d3-a456-426614174000";
+        String sig = MediaService.hmacSha256Base64("secret123", key);
+        String body = "{\"key\":\"" + key + "\",\"mimeType\":\"image/jpeg\",\"width\":29011,\"height\":12501}";
+
+        mockMvc.perform(post("/v1/media/callback")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + token("uid-image-limits"))
+                        .header("X-Media-Signature", sig)
+                        .content(body))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.error", equalTo("invalid_image")));
+    }
 }

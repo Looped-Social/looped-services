@@ -45,12 +45,18 @@ cloudfront:
 logoDev:
   token: ${LOGO_DEV_TOKEN:}
   retina: ${LOGO_DEV_RETINA:true}
+  size: ${LOGO_DEV_SIZE:256}
 
 media:
   # Prefer the human-readable *_SIZE env vars (e.g., "20MB", "256MB"); *_BYTES are supported for backward compatibility.
   maxImageSize: ${MEDIA_MAX_IMAGE_SIZE:${MEDIA_MAX_IMAGE_BYTES:10MB}}
   maxVideoSize: ${MEDIA_MAX_VIDEO_SIZE:${MEDIA_MAX_VIDEO_BYTES:100MB}}
   callbackSecret: ${MEDIA_CALLBACK_SECRET:}
+  sanitizeImagesOnCallback: ${MEDIA_SANITIZE_IMAGES_ON_CALLBACK:true}
+  maxImageDimension: ${MEDIA_MAX_IMAGE_DIMENSION:8192}
+  maxImagePixels: ${MEDIA_MAX_IMAGE_PIXELS:40000000}
+  normalizedMaxImageDimension: ${MEDIA_NORMALIZED_MAX_IMAGE_DIMENSION:2048}
+  normalizedJpegQuality: ${MEDIA_NORMALIZED_JPEG_QUALITY:0.82}
 
 auth:
   # Firebase Auth defaults; override via env in each environment
@@ -136,6 +142,10 @@ communities:
     cron: "${COMMUNITIES_VERIFICATION_REMINDERS_CRON:0 10 * * * *}"
     batch-size: ${COMMUNITIES_VERIFICATION_REMINDERS_BATCH_SIZE:500}
     expired-lookback-days: ${COMMUNITIES_VERIFICATION_REMINDERS_EXPIRED_LOOKBACK_DAYS:14}
+
+community:
+  logos:
+    allowExternalCustomUrl: ${COMMUNITY_LOGOS_ALLOW_EXTERNAL_CUSTOM_URL:false}
 
 verification:
   echo-code: ${VERIFICATION_ECHO_CODE:false}

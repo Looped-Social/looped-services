@@ -426,6 +426,29 @@ public class CommunitiesRepository {
         );
     }
 
+    public List<CommunityRow> listByKindFilters(List<KindFilter> kindFilters,
+                                                 OffsetDateTime cursorTs,
+                                                 Long cursorId,
+                                                 int limit) {
+        if (kindFilters == null || kindFilters.isEmpty()) {
+            return list(cursorTs, cursorId, limit);
+        }
+        StringBuilder sql = new StringBuilder(
+                "SELECT " + BASE_COLUMNS + " FROM communities WHERE 1=1"
+        );
+        List<Object> args = new ArrayList<>();
+        appendKindFiltersClause(sql, args, kindFilters);
+        if (cursorTs != null && cursorId != null) {
+            sql.append(" AND (created_at < ? OR (created_at = ? AND id < ?))");
+            args.add(cursorTs);
+            args.add(cursorTs);
+            args.add(cursorId);
+        }
+        sql.append(" ORDER BY created_at DESC, id DESC LIMIT ?");
+        args.add(limit);
+        return jdbc.query(sql.toString(), MAPPER, args.toArray());
+    }
+
     public List<CommunityRow> searchByKindAndSpecializationType(String kind, String specializationType, String query,
                                                                 OffsetDateTime cursorTs, Long cursorId, int limit) {
         if (kind == null || kind.isBlank()) return List.of();
@@ -447,6 +470,98 @@ public class CommunitiesRepository {
                         "ORDER BY created_at DESC, id DESC LIMIT ?",
                 MAPPER, kind, specializationType, like, like, cursorTs, cursorTs, cursorId, limit
         );
+    }
+
+    public List<CommunityRow> searchByKindFilters(List<KindFilter> kindFilters,
+                                                   String query,
+                                                   OffsetDateTime cursorTs,
+                                                   Long cursorId,
+                                                   int limit) {
+        if (kindFilters == null || kindFilters.isEmpty()) {
+            return search(query, cursorTs, cursorId, limit);
+        }
+        String like = "%" + query.toLowerCase(Locale.ROOT) + "%";
+        StringBuilder sql = new StringBuilder(
+                "SELECT " + BASE_COLUMNS + " FROM communities " +
+                        "WHERE (LOWER(name) LIKE ? OR LOWER(COALESCE(description,'')) LIKE ?)"
+        );
+        List<Object> args = new ArrayList<>();
+        args.add(like);
+        args.add(like);
+        appendKindFiltersClause(sql, args, kindFilters);
+        if (cursorTs != null && cursorId != null) {
+            sql.append(" AND (created_at < ? OR (created_at = ? AND id < ?))");
+            args.add(cursorTs);
+            args.add(cursorTs);
+            args.add(cursorId);
+        }
+        sql.append(" ORDER BY created_at DESC, id DESC LIMIT ?");
+        args.add(limit);
+        return jdbc.query(sql.toString(), MAPPER, args.toArray());
+    }
+
+    public long countAll() {
+        Long count = jdbc.queryForObject("SELECT COUNT(*) FROM communities", Long.class);
+        return count == null ? 0L : count;
+    }
+
+    public long countSearch(String query) {
+        String like = "%" + query.toLowerCase(Locale.ROOT) + "%";
+        Long count = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM communities WHERE LOWER(name) LIKE ? OR LOWER(COALESCE(description,'')) LIKE ?",
+                Long.class,
+                like, like
+        );
+        return count == null ? 0L : count;
+    }
+
+    public long countByKindFilters(List<KindFilter> kindFilters) {
+        if (kindFilters == null || kindFilters.isEmpty()) return countAll();
+        StringBuilder sql = new StringBuilder("SELECT COUNT(*) FROM communities WHERE 1=1");
+        List<Object> args = new ArrayList<>();
+        appendKindFiltersClause(sql, args, kindFilters);
+        Long count = jdbc.queryForObject(sql.toString(), Long.class, args.toArray());
+        return count == null ? 0L : count;
+    }
+
+    public long countSearchByKindFilters(List<KindFilter> kindFilters, String query) {
+        if (kindFilters == null || kindFilters.isEmpty()) return countSearch(query);
+        String like = "%" + query.toLowerCase(Locale.ROOT) + "%";
+        StringBuilder sql = new StringBuilder(
+                "SELECT COUNT(*) FROM communities " +
+                        "WHERE (LOWER(name) LIKE ? OR LOWER(COALESCE(description,'')) LIKE ?)"
+        );
+        List<Object> args = new ArrayList<>();
+        args.add(like);
+        args.add(like);
+        appendKindFiltersClause(sql, args, kindFilters);
+        Long count = jdbc.queryForObject(sql.toString(), Long.class, args.toArray());
+        return count == null ? 0L : count;
+    }
+
+    private void appendKindFiltersClause(StringBuilder sql,
+                                         List<Object> args,
+                                         List<KindFilter> kindFilters) {
+        if (kindFilters == null || kindFilters.isEmpty()) return;
+        sql.append(" AND (");
+        boolean first = true;
+        for (KindFilter filter : kindFilters) {
+            if (filter == null || filter.kind() == null || filter.kind().isBlank()) continue;
+            if (!first) sql.append(" OR ");
+            if (filter.specializationType() != null && !filter.specializationType().isBlank()) {
+                sql.append("(kind = ? AND specialization_type = ?)");
+                args.add(filter.kind());
+                args.add(filter.specializationType());
+            } else {
+                sql.append("kind = ?");
+                args.add(filter.kind());
+            }
+            first = false;
+        }
+        if (first) {
+            sql.append("1=0");
+        }
+        sql.append(")");
     }
 
     public List<RecommendedRow> recommended(Long userId, String kind, String specializationType, int limit) {
@@ -570,6 +685,8 @@ public class CommunitiesRepository {
         public String iconValue;
         public OffsetDateTime iconUpdatedAt;
     }
+
+    public record KindFilter(String kind, String specializationType) {}
 
     public static class ScoredCommunityRow {
         public CommunityRow community;

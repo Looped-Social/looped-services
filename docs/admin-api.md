@@ -1286,9 +1286,9 @@ Response (200)
 {
   "community_id": 2,
   "kind": "company",
-  "logo_dev_url": "https://img.logo.dev/shopify.com?token=pk_123&retina=true",
+  "logo_dev_url": "https://img.logo.dev/shopify.com?token=pk_123&size=256&format=png&retina=true",
   "selected_source": "logo_dev",
-  "selected_image_url": "https://img.logo.dev/shopify.com?token=pk_123&retina=true",
+  "selected_image_url": "https://img.logo.dev/shopify.com?token=pk_123&size=256&format=png&retina=true",
   "selected_upload_id": 10,
   "uploads": [
     {
@@ -1352,6 +1352,29 @@ Response (201)
 }
 ```
 
+### DELETE /v1/admin/communities/{id}/logos/{uploadId}
+Delete one uploaded logo entry. Requires `create_community`.
+
+Behavior:
+- Removes the upload from the community's uploads list.
+- If that upload was currently selected as the community logo, the backend clears `image_url` and falls back to Logo.dev/none.
+
+Response (200)
+```json
+{
+  "status": "deleted",
+  "upload_id": 10,
+  "cleared_selected_logo": true,
+  "selected_source": "logo_dev",
+  "image_url": "https://img.logo.dev/shopify.com?token=pk_123&size=256&format=png&retina=true"
+}
+```
+
+Errors
+- `404 { "error": "not_found" }` when the community does not exist.
+- `404 { "error": "logo_not_found" }` when the upload id is not linked to that community.
+- `403 { "error": "forbidden" }` when caller lacks `create_community`.
+
 ### PATCH /v1/admin/communities/{id}/logo
 Select the community logo (upload, Logo.dev fallback, or custom URL). Requires `create_community`.
 
@@ -1385,6 +1408,13 @@ Response (200)
   "selected_upload_id": 10
 }
 ```
+
+Notes
+- Custom `imageUrl` must be `https://`.
+- By default, custom URLs are restricted to trusted sources:
+  - your CloudFront host under `/media/*`
+  - `https://img.logo.dev/...`
+- To allow arbitrary external custom URLs, set `COMMUNITY_LOGOS_ALLOW_EXTERNAL_CUSTOM_URL=true`.
 
 ## Analytics (Admin)
 

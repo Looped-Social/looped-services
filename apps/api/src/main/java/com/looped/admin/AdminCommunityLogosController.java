@@ -3,6 +3,7 @@ package com.looped.admin;
 import com.looped.communities.CommunitiesRepository;
 import com.looped.communities.CommunityLogoAssetsRepository;
 import com.looped.communities.CommunityLogoResolver;
+import com.looped.media.MediaImageSafetyService;
 import com.looped.media.MediaRepository;
 import com.looped.media.MediaService;
 import jakarta.validation.Valid;
@@ -22,9 +23,11 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.DeleteMapping;
 
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 @RestController
@@ -37,30 +40,36 @@ public class AdminCommunityLogosController {
     private final CommunitiesRepository communities;
     private final CommunityLogoAssetsRepository logoAssets;
     private final MediaService mediaService;
+    private final MediaImageSafetyService imageSafety;
     private final MediaRepository mediaRepository;
     private final CommunityLogoResolver logoResolver;
     private final AdminAuditRepository audit;
     private final String cloudfrontDomain;
     private final String callbackSecret;
+    private final boolean allowExternalCustomLogoUrl;
 
     public AdminCommunityLogosController(AdminAuthService auth,
                                          CommunitiesRepository communities,
                                          CommunityLogoAssetsRepository logoAssets,
                                          MediaService mediaService,
+                                         MediaImageSafetyService imageSafety,
                                          MediaRepository mediaRepository,
                                          CommunityLogoResolver logoResolver,
                                          AdminAuditRepository audit,
                                          @Value("${cloudfront.domain:}") String cloudfrontDomain,
-                                         @Value("${media.callbackSecret:}") String callbackSecret) {
+                                         @Value("${media.callbackSecret:}") String callbackSecret,
+                                         @Value("${community.logos.allowExternalCustomUrl:false}") boolean allowExternalCustomLogoUrl) {
         this.auth = auth;
         this.communities = communities;
         this.logoAssets = logoAssets;
         this.mediaService = mediaService;
+        this.imageSafety = imageSafety;
         this.mediaRepository = mediaRepository;
         this.logoResolver = logoResolver;
         this.audit = audit;
         this.cloudfrontDomain = cloudfrontDomain;
         this.callbackSecret = callbackSecret;
+        this.allowExternalCustomLogoUrl = allowExternalCustomLogoUrl;
     }
 
     @GetMapping("/{id}/logos")
@@ -171,19 +180,47 @@ public class AdminCommunityLogosController {
         if (key == null || !key.startsWith(LOGO_PREFIX)) {
             return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of("error", "invalid_key"));
         }
-        if (body.mimeType() == null || !body.mimeType().toLowerCase().startsWith("image/")) {
+        String normalizedMimeType = MediaService.normalizeMimeType(body.mimeType());
+        if (normalizedMimeType == null || !normalizedMimeType.startsWith("image/")) {
             return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of("error", "invalid_image"));
         }
 
         Long mediaAssetId;
+        String resolvedMimeType = normalizedMimeType;
         var existingMedia = mediaRepository.findByKey(key);
         if (existingMedia.isPresent()) {
+            if (imageSafety.isUnsafeForClient(existingMedia.get().mimeType, existingMedia.get().width, existingMedia.get().height)) {
+                return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of(
+                        "error", "invalid_image",
+                        "message", "Image dimensions exceed limits"
+                ));
+            }
             if (existingMedia.get().mimeType == null || !existingMedia.get().mimeType.toLowerCase().startsWith("image/")) {
                 return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of("error", "invalid_image"));
             }
             mediaAssetId = existingMedia.get().id;
+            resolvedMimeType = existingMedia.get().mimeType;
         } else {
-            mediaAssetId = mediaRepository.insert(null, key, body.mimeType(), body.width(), body.height(), body.durationSeconds(), null);
+            Integer persistedWidth = body.width();
+            Integer persistedHeight = body.height();
+            String persistedMimeType = normalizedMimeType;
+            try {
+                var normalized = imageSafety.validateAndNormalizeUploadedImage(key, normalizedMimeType, body.width(), body.height());
+                persistedMimeType = normalized.mimeType();
+                persistedWidth = normalized.width();
+                persistedHeight = normalized.height();
+            } catch (MediaImageSafetyService.InvalidImageException e) {
+                return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of(
+                        "error", "invalid_image",
+                        "message", e.getMessage()
+                ));
+            } catch (MediaImageSafetyService.MediaUnavailableException e) {
+                return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(Map.of(
+                        "error", "media_unavailable"
+                ));
+            }
+            mediaAssetId = mediaRepository.insert(null, key, persistedMimeType, persistedWidth, persistedHeight, body.durationSeconds(), null);
+            resolvedMimeType = persistedMimeType;
         }
 
         boolean linked = logoAssets.insert(id, mediaAssetId);
@@ -201,7 +238,7 @@ public class AdminCommunityLogosController {
         out.put("status", "created");
         out.put("media_asset_id", mediaAssetId);
         out.put("key", key);
-        out.put("mime_type", body.mimeType());
+        out.put("mime_type", resolvedMimeType);
         String cdnUrl = cdnUrl(key);
         if (cdnUrl != null) out.put("cdn_url", cdnUrl);
         return new ResponseEntity<>(out, HttpStatus.CREATED);
@@ -254,7 +291,13 @@ public class AdminCommunityLogosController {
             selectedSource = "upload";
             selectedUploadId = logoAsset.get().id;
         } else {
-            selectedUrl = body.imageUrl().trim();
+            selectedUrl = normalizeCustomLogoUrl(body.imageUrl());
+            if (selectedUrl == null) {
+                return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of(
+                        "error", "invalid_logo_url",
+                        "message", "Use an uploaded logo or Logo.dev fallback"
+                ));
+            }
             selectedSource = "custom";
         }
 
@@ -276,9 +319,113 @@ public class AdminCommunityLogosController {
         return ResponseEntity.ok(out);
     }
 
+    @DeleteMapping("/{id}/logos/{uploadId}")
+    public ResponseEntity<?> deleteLogoUpload(@AuthenticationPrincipal Jwt jwt,
+                                              @PathVariable("id") long id,
+                                              @PathVariable("uploadId") long uploadId) {
+        String email = jwt.getClaimAsString("email");
+        var authRes = auth.requirePermission(jwt.getSubject(), email, AdminPermissions.CREATE_COMMUNITY);
+        if (authRes.status() != AdminAuthService.Status.OK) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "forbidden"));
+        }
+        if (uploadId <= 0) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "logo_not_found"));
+        }
+
+        var communityOpt = communities.findById(id);
+        if (communityOpt.isEmpty()) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "not_found"));
+        }
+        var logoAsset = logoAssets.findByIdAndCommunity(uploadId, id);
+        if (logoAsset.isEmpty()) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "logo_not_found"));
+        }
+
+        boolean deleted = logoAssets.deleteByIdAndCommunity(uploadId, id);
+        if (!deleted) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "logo_not_found"));
+        }
+
+        boolean clearedSelectedLogo = false;
+        String selectedImageUrl = communityOpt.get().imageUrl;
+        String deletedUploadCdn = cdnUrl(logoAsset.get().s3Key);
+        if (selectedImageUrl != null && deletedUploadCdn != null && selectedImageUrl.equals(deletedUploadCdn)) {
+            communities.updateImageUrl(id, null);
+            clearedSelectedLogo = true;
+        }
+
+        audit.log(authRes.admin().id, "community.logo.delete", "community", id, "upload_id=" + uploadId);
+
+        String resolved = communities.findById(id)
+                .map(row -> row.imageUrl)
+                .orElse(null);
+        String selectedSource = "none";
+        Long selectedUploadId = null;
+        if (resolved == null || resolved.isBlank()) {
+            resolved = logoResolver.resolve(id, communityOpt.get().kind, null);
+            if (resolved != null && !resolved.isBlank()) {
+                selectedSource = "logo_dev";
+            }
+        } else {
+            selectedSource = "custom";
+            for (var upload : logoAssets.listByCommunity(id)) {
+                String uploadCdn = cdnUrl(upload.s3Key);
+                if (uploadCdn != null && uploadCdn.equals(resolved)) {
+                    selectedSource = "upload";
+                    selectedUploadId = upload.id;
+                    break;
+                }
+            }
+        }
+
+        Map<String, Object> out = new HashMap<>();
+        out.put("status", "deleted");
+        out.put("upload_id", uploadId);
+        out.put("cleared_selected_logo", clearedSelectedLogo);
+        out.put("selected_source", selectedSource);
+        if (selectedUploadId != null) {
+            out.put("selected_upload_id", selectedUploadId);
+        }
+        if (resolved != null && !resolved.isBlank()) {
+            out.put("image_url", resolved);
+        }
+        return ResponseEntity.ok(out);
+    }
+
     private String cdnUrl(String key) {
         if (cloudfrontDomain == null || cloudfrontDomain.isBlank()) return null;
         return "https://" + cloudfrontDomain + "/" + key;
+    }
+
+    private String normalizeCustomLogoUrl(String raw) {
+        if (raw == null) return null;
+        String trimmed = raw.trim();
+        if (trimmed.isBlank()) return null;
+        java.net.URI uri;
+        try {
+            uri = java.net.URI.create(trimmed);
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
+        String scheme = uri.getScheme();
+        String host = uri.getHost();
+        if (scheme == null || host == null) return null;
+        if (!scheme.equalsIgnoreCase("https")) return null;
+        String normalizedHost = host.toLowerCase(Locale.ROOT);
+        String normalizedPath = uri.getPath() == null ? "" : uri.getPath();
+        if (allowExternalCustomLogoUrl) {
+            return trimmed;
+        }
+        if (cloudfrontDomain != null && !cloudfrontDomain.isBlank()) {
+            String cfHost = cloudfrontDomain.trim().toLowerCase(Locale.ROOT);
+            if (normalizedHost.equals(cfHost) && normalizedPath.startsWith("/media/")) {
+                return trimmed;
+            }
+        }
+        if (normalizedHost.equals("img.logo.dev")) {
+            return trimmed;
+        }
+        return null;
     }
 
     public record PresignRequest(@NotBlank String contentType, @NotNull Long sizeBytes) {}

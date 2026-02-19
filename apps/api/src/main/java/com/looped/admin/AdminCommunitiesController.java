@@ -73,6 +73,7 @@ public class AdminCommunitiesController {
     public ResponseEntity<?> list(@AuthenticationPrincipal Jwt jwt,
                                   @RequestParam(value = "query", required = false) String query,
                                   @RequestParam(value = "kind", required = false) String kind,
+                                  @RequestParam(value = "kinds", required = false) String kinds,
                                   @RequestParam(value = "cursor", required = false) String cursor,
                                   @RequestParam(value = "limit", required = false, defaultValue = "50") int limit) {
         String email = jwt.getClaimAsString("email");
@@ -90,26 +91,18 @@ public class AdminCommunitiesController {
                 cursorId = decoded.id();
             } catch (IllegalArgumentException ignored) {}
         }
-        List<CommunitiesRepository.CommunityRow> rows;
-        String normalizedKind = kind != null ? normalizeKind(kind) : null;
-        String specializationType = kind != null ? normalizeSpecializationTypeFromKind(kind) : null;
-        if (kind != null && normalizedKind == null) {
+        List<CommunitiesRepository.KindFilter> kindFilters = parseKindFilters(kind, kinds);
+        if (kindFilters == null) {
             return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of("error", "invalid_kind"));
         }
         boolean hasQuery = query != null && !query.isBlank();
-        if (normalizedKind != null) {
-            rows = hasQuery
-                    ? (specializationType == null
-                        ? communities.searchByKind(normalizedKind, query.trim(), cursorTs, cursorId, lim)
-                        : communities.searchByKindAndSpecializationType(normalizedKind, specializationType, query.trim(), cursorTs, cursorId, lim))
-                    : (specializationType == null
-                        ? communities.listByKind(normalizedKind, cursorTs, cursorId, lim)
-                        : communities.listByKindAndSpecializationType(normalizedKind, specializationType, cursorTs, cursorId, lim));
-        } else {
-            rows = hasQuery
-                    ? communities.search(query.trim(), cursorTs, cursorId, lim)
-                    : communities.list(cursorTs, cursorId, lim);
-        }
+        String normalizedQuery = hasQuery ? query.trim() : null;
+        List<CommunitiesRepository.CommunityRow> rows = hasQuery
+                ? communities.searchByKindFilters(kindFilters, normalizedQuery, cursorTs, cursorId, lim)
+                : communities.listByKindFilters(kindFilters, cursorTs, cursorId, lim);
+        long totalCount = hasQuery
+                ? communities.countSearchByKindFilters(kindFilters, normalizedQuery)
+                : communities.countByKindFilters(kindFilters);
         String next = null;
         if (rows.size() == lim) {
             var last = rows.get(rows.size() - 1);
@@ -125,6 +118,7 @@ public class AdminCommunitiesController {
                 .toList();
         Map<String, Object> body = new HashMap<>();
         body.put("items", items);
+        body.put("total_count", totalCount);
         if (next != null) body.put("next_cursor", next);
         return ResponseEntity.ok(body);
     }
@@ -548,6 +542,48 @@ public class AdminCommunitiesController {
         String normalized = raw.trim().toLowerCase(Locale.ROOT);
         if (normalized.equals("major") || normalized.equals("field")) return normalized;
         return null;
+    }
+
+    private List<CommunitiesRepository.KindFilter> parseKindFilters(String singleKind, String kindsCsv) {
+        Map<String, CommunitiesRepository.KindFilter> deduped = new java.util.LinkedHashMap<>();
+
+        if (singleKind != null && singleKind.isBlank()) return null;
+        if (singleKind != null && !singleKind.isBlank()) {
+            CommunitiesRepository.KindFilter parsed = parseKindFilter(singleKind);
+            if (parsed == null) return null;
+            deduped.put(kindFilterKey(parsed), parsed);
+        }
+
+        if (kindsCsv != null && !kindsCsv.isBlank()) {
+            boolean sawToken = false;
+            for (String raw : kindsCsv.split(",")) {
+                if (raw == null) continue;
+                String token = raw.trim();
+                if (token.isBlank()) continue;
+                sawToken = true;
+                CommunitiesRepository.KindFilter parsed = parseKindFilter(token);
+                if (parsed == null) return null;
+                deduped.put(kindFilterKey(parsed), parsed);
+            }
+            if (!sawToken) return null;
+        }
+
+        if (deduped.isEmpty()) return List.of();
+        return List.copyOf(deduped.values());
+    }
+
+    private CommunitiesRepository.KindFilter parseKindFilter(String raw) {
+        String normalizedKind = normalizeKind(raw);
+        if (normalizedKind == null) return null;
+        String specializationType = normalizeSpecializationTypeFromKind(raw);
+        return new CommunitiesRepository.KindFilter(normalizedKind, specializationType);
+    }
+
+    private String kindFilterKey(CommunitiesRepository.KindFilter filter) {
+        if (filter == null) return "";
+        String kind = filter.kind() == null ? "" : filter.kind();
+        String spec = filter.specializationType() == null ? "" : filter.specializationType();
+        return kind + ":" + spec;
     }
 
     public record CreateCommunityRequest(@NotBlank String kind, @NotBlank String name, String description, String imageUrl,

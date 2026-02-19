@@ -4,3 +4,6 @@ rate-limit:
 notifications:
   celebrations:
     enabled: false
+
+media:
+  sanitizeImagesOnCallback: false

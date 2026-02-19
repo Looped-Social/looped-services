@@ -23,17 +23,22 @@ import java.util.Map;
 @RequestMapping("/v1/media")
 public class MediaController {
     private final MediaService mediaService;
+    private final MediaImageSafetyService imageSafety;
     private final MediaRepository mediaRepository;
     private final UserRepository users;
     private final MediaModerationService mediaModeration;
     private final String cloudfrontDomain;
     private final String callbackSecret;
 
-    public MediaController(MediaService mediaService, MediaRepository mediaRepository, UserRepository users,
+    public MediaController(MediaService mediaService,
+                           MediaImageSafetyService imageSafety,
+                           MediaRepository mediaRepository,
+                           UserRepository users,
                            MediaModerationService mediaModeration,
                            @Value("${cloudfront.domain:}") String cloudfrontDomain,
                            @Value("${media.callbackSecret:}") String callbackSecret) {
         this.mediaService = mediaService;
+        this.imageSafety = imageSafety;
         this.mediaRepository = mediaRepository;
         this.users = users;
         this.mediaModeration = mediaModeration;
@@ -151,15 +156,42 @@ public class MediaController {
 
         var existing = mediaRepository.findByKey(key);
         if (existing.isPresent()) {
+            if (imageSafety.isUnsafeForClient(existing.get().mimeType, existing.get().width, existing.get().height)) {
+                return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of(
+                        "error", "invalid_image",
+                        "message", "Image dimensions exceed limits"
+                ));
+            }
             return ResponseEntity.ok(mediaPayload(existing.get(), cdnUrlFor(key), "exists"));
         }
 
-        Long id = mediaRepository.insert(ownerId, key, normalizedMimeType, body.width(), body.height(), body.durationSeconds(), thumbnailMediaAssetId);
+        String persistedMimeType = normalizedMimeType;
+        Integer persistedWidth = body.width();
+        Integer persistedHeight = body.height();
+        if (normalizedMimeType.startsWith("image/")) {
+            try {
+                var normalized = imageSafety.validateAndNormalizeUploadedImage(key, normalizedMimeType, body.width(), body.height());
+                persistedMimeType = normalized.mimeType();
+                persistedWidth = normalized.width();
+                persistedHeight = normalized.height();
+            } catch (MediaImageSafetyService.InvalidImageException e) {
+                return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of(
+                        "error", "invalid_image",
+                        "message", e.getMessage()
+                ));
+            } catch (MediaImageSafetyService.MediaUnavailableException e) {
+                return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(Map.of(
+                        "error", "media_unavailable"
+                ));
+            }
+        }
+
+        Long id = mediaRepository.insert(ownerId, key, persistedMimeType, persistedWidth, persistedHeight, body.durationSeconds(), thumbnailMediaAssetId);
         String cdnUrl = cdnUrlFor(key);
         try {
-            mediaModeration.moderateOnUpload(id, key, normalizedMimeType, cdnUrl);
+            mediaModeration.moderateOnUpload(id, key, persistedMimeType, cdnUrl);
         } catch (RuntimeException ignored) {}
-        Map<String,Object> out = new HashMap<>(mediaPayload(id, key, normalizedMimeType, body.width(), body.height(), body.durationSeconds(), thumbnailMediaAssetId, cdnUrl, "created"));
+        Map<String,Object> out = new HashMap<>(mediaPayload(id, key, persistedMimeType, persistedWidth, persistedHeight, body.durationSeconds(), thumbnailMediaAssetId, cdnUrl, "created"));
         return new ResponseEntity<>(out, HttpStatus.CREATED);
     }
 
@@ -194,6 +226,7 @@ public class MediaController {
                 boolean visible = (t.visibility != null && t.visibility.equalsIgnoreCase("public"))
                         || (requesterUserId != null && t.ownerId != null && t.ownerId.equals(requesterUserId));
                 if (!visible) continue;
+                if (imageSafety.isUnsafeForClient(t.mimeType, t.width, t.height)) continue;
                 tmp.put(t.id, t);
             }
             thumbnailsById = tmp;
@@ -202,6 +235,7 @@ public class MediaController {
         List<Map<String, Object>> items = rows.stream()
                 .filter(r -> r.s3Key != null && r.s3Key.startsWith("media/"))
                 .filter(r -> r.removedAt == null)
+                .filter(r -> !imageSafety.isUnsafeForClient(r.mimeType, r.width, r.height))
                 .filter(r -> (r.visibility != null && r.visibility.equalsIgnoreCase("public"))
                         || (requesterUserId != null && r.ownerId != null && r.ownerId.equals(requesterUserId)))
                 .map(r -> {
