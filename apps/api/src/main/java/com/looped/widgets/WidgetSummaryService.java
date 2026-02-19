@@ -4,6 +4,8 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import com.looped.media.MediaRepository;
 import com.looped.posts.FeedService;
 import com.looped.posts.PostRepository;
+import com.looped.settings.AppConfigService;
+import com.looped.users.ProfileImageUrls;
 import com.looped.users.UserRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -25,6 +27,7 @@ public class WidgetSummaryService {
     private final UserRepository users;
     private final WidgetSummaryRepository repo;
     private final FeedService feedService;
+    private final AppConfigService appConfig;
     private final MediaRepository media;
     private final String cloudfrontDomain;
     private final int snapshotTtlSeconds;
@@ -32,12 +35,14 @@ public class WidgetSummaryService {
     public WidgetSummaryService(UserRepository users,
                                 WidgetSummaryRepository repo,
                                 FeedService feedService,
+                                AppConfigService appConfig,
                                 MediaRepository media,
                                 @Value("${cloudfront.domain:}") String cloudfrontDomain,
                                 @Value("${widgets.snapshot-ttl-seconds:900}") int snapshotTtlSeconds) {
         this.users = users;
         this.repo = repo;
         this.feedService = feedService;
+        this.appConfig = appConfig;
         this.media = media;
         this.cloudfrontDomain = cloudfrontDomain == null ? "" : cloudfrontDomain.trim();
         this.snapshotTtlSeconds = Math.max(60, snapshotTtlSeconds);
@@ -88,6 +93,10 @@ public class WidgetSummaryService {
         }
 
         Long defaultCommunityId = resolveDefaultCommunityId(actor.get().displayCommunityId, verified);
+        String primaryCommunityName = resolvePrimaryCommunityName(defaultCommunityId, verified);
+        String specialization = resolveSpecialization(actor.get().id);
+        String avatarThumbnailUrl = resolveAvatarThumbnailUrl(actor.get());
+        String displayName = resolveDisplayName(actor.get());
 
         WidgetSummaryResponse response = new WidgetSummaryResponse(
                 OffsetDateTime.now(ZoneOffset.UTC),
@@ -96,6 +105,12 @@ public class WidgetSummaryService {
                         inboxCounts.unreadMessages(),
                         inboxCounts.messageRequests(),
                         inboxCounts.unreadMentions()
+                ),
+                new ProfileSummary(
+                        displayName,
+                        avatarThumbnailUrl,
+                        specialization,
+                        primaryCommunityName
                 ),
                 new ProfileStats(
                         profileStats.followers(),
@@ -138,6 +153,37 @@ public class WidgetSummaryService {
             return displayCommunityId;
         }
         return verified.get(0).id();
+    }
+
+    private String resolvePrimaryCommunityName(Long communityId, List<VerifiedCommunity> verified) {
+        if (communityId == null || verified == null || verified.isEmpty()) return null;
+        for (var community : verified) {
+            if (community != null && community.id() == communityId) return community.name();
+        }
+        return null;
+    }
+
+    private String resolveSpecialization(long userId) {
+        return users.findDisplaySpecializationForUser(userId)
+                .map(row -> row.name)
+                .filter(name -> name != null && !name.isBlank())
+                .orElse(null);
+    }
+
+    private String resolveAvatarThumbnailUrl(UserRepository.UserRow actor) {
+        String defaultProfileImageUrl = appConfig.defaultProfileImageUrl();
+        return ProfileImageUrls.resolve(actor.profileImageUrl, defaultProfileImageUrl);
+    }
+
+    private String resolveDisplayName(UserRepository.UserRow actor) {
+        if (actor.displayName != null && !actor.displayName.isBlank()) return actor.displayName;
+        if (actor.firstName != null && !actor.firstName.isBlank() && actor.lastName != null && !actor.lastName.isBlank()) {
+            return actor.firstName + " " + actor.lastName;
+        }
+        if (actor.firstName != null && !actor.firstName.isBlank()) return actor.firstName;
+        if (actor.lastName != null && !actor.lastName.isBlank()) return actor.lastName;
+        if (actor.handle != null && !actor.handle.isBlank()) return actor.handle;
+        return null;
     }
 
     private TrendingPost toTrendingPost(PostRepository.TrendingRow row) {
@@ -231,6 +277,7 @@ public class WidgetSummaryService {
             @JsonProperty("server_time") OffsetDateTime serverTime,
             @JsonProperty("snapshot_ttl_seconds") int snapshotTtlSeconds,
             Inbox inbox,
+            @JsonProperty("profile_summary") ProfileSummary profileSummary,
             @JsonProperty("profile_stats") ProfileStats profileStats,
             @JsonProperty("verified_communities") List<VerifiedCommunity> verifiedCommunities,
             @JsonProperty("default_community_id") Long defaultCommunityId,
@@ -247,6 +294,13 @@ public class WidgetSummaryService {
             int followers,
             int following,
             @JsonProperty("likes_received") long likesReceived
+    ) {}
+
+    public record ProfileSummary(
+            @JsonProperty("display_name") String displayName,
+            @JsonProperty("avatar_thumbnail_url") String avatarThumbnailUrl,
+            String specialization,
+            @JsonProperty("primary_community_name") String primaryCommunityName
     ) {}
 
     public record VerifiedCommunity(

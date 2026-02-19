@@ -77,11 +77,54 @@ class WidgetSummaryIntegrationTest extends PostgresTestBase {
                 .andExpect(jsonPath("$.inbox.unread_messages").value(0))
                 .andExpect(jsonPath("$.inbox.message_requests").value(0))
                 .andExpect(jsonPath("$.inbox.unread_mentions").value(0))
+                .andExpect(jsonPath("$.profile_summary.display_name").value("widgetempty"))
+                .andExpect(jsonPath("$.profile_summary.avatar_thumbnail_url").value(nullValue()))
+                .andExpect(jsonPath("$.profile_summary.specialization").value(nullValue()))
+                .andExpect(jsonPath("$.profile_summary.primary_community_name").value(nullValue()))
                 .andExpect(jsonPath("$.profile_stats.followers").value(0))
                 .andExpect(jsonPath("$.profile_stats.following").value(0))
                 .andExpect(jsonPath("$.profile_stats.likes_received").value(0))
                 .andExpect(jsonPath("$.verified_communities", hasSize(0)))
                 .andExpect(jsonPath("$.trending_post").value(nullValue()));
+    }
+
+    @Test
+    void widget_summary_includes_profile_summary() throws Exception {
+        OffsetDateTime now = OffsetDateTime.now();
+        long companyId = jdbc.queryForObject(
+                "INSERT INTO companies(name, domain) VALUES ('Widgets Profile Co', 'widgets-profile.co') RETURNING id",
+                Long.class
+        );
+        jdbc.update(
+                "INSERT INTO users(firebase_uid, handle, company_id, display_name, profile_image_url, onboarding_completed_at) VALUES (?,?,?,?,?, now())",
+                "uid-widget-profile",
+                "widgetprofile",
+                companyId,
+                "Jane Doe",
+                "https://cdn.test.local/media/original/avatar-thumb.jpg"
+        );
+        long userId = jdbc.queryForObject("SELECT id FROM users WHERE firebase_uid = ?", Long.class, "uid-widget-profile");
+        long communityId = jdbc.queryForObject(
+                "INSERT INTO communities(kind, name, short_name, member_count) VALUES ('company', 'Engineering', 'Eng', 125) RETURNING id",
+                Long.class
+        );
+        long specializationId = jdbc.queryForObject(
+                "INSERT INTO communities(kind, name, specialization_type) VALUES ('specialization', 'iOS Engineer', 'major') RETURNING id",
+                Long.class
+        );
+        jdbc.update("UPDATE users SET display_community_id = ?, display_specialization_id = ? WHERE id = ?", communityId, specializationId, userId);
+        jdbc.update(
+                "INSERT INTO community_verifications(user_id, community_id, method, verified, verified_at) VALUES (?,?,?,?,?)",
+                userId, communityId, "manual", true, now.minusHours(1)
+        );
+
+        mockMvc.perform(get("/v1/widget-summary")
+                        .header("Authorization", "Bearer " + token("uid-widget-profile")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.profile_summary.display_name").value("Jane Doe"))
+                .andExpect(jsonPath("$.profile_summary.avatar_thumbnail_url").value("https://cdn.test.local/media/original/avatar-thumb.jpg"))
+                .andExpect(jsonPath("$.profile_summary.specialization").value("iOS Engineer"))
+                .andExpect(jsonPath("$.profile_summary.primary_community_name").value("Engineering"));
     }
 
     @Test
@@ -281,6 +324,10 @@ class WidgetSummaryIntegrationTest extends PostgresTestBase {
                 .andExpect(jsonPath("$.inbox.unread_messages").value(2))
                 .andExpect(jsonPath("$.inbox.message_requests").value(1))
                 .andExpect(jsonPath("$.inbox.unread_mentions").value(1))
+                .andExpect(jsonPath("$.profile_summary.display_name").value("widgetagg"))
+                .andExpect(jsonPath("$.profile_summary.primary_community_name").value("Engineering"))
+                .andExpect(jsonPath("$.profile_summary.specialization").value(nullValue()))
+                .andExpect(jsonPath("$.profile_summary.avatar_thumbnail_url").value(nullValue()))
                 .andExpect(jsonPath("$.profile_stats.followers").value(1))
                 .andExpect(jsonPath("$.profile_stats.following").value(1))
                 .andExpect(jsonPath("$.profile_stats.likes_received").value(8))

@@ -33,6 +33,11 @@
       - `followers` (int)
       - `following` (int)
       - `likes_received` (long): sum of user post likes + comment likes
+    - `profile_summary`:
+      - `display_name` (string|null): preferred display name for widget header
+      - `avatar_thumbnail_url` (string|null): profile image URL (or default profile image URL if configured)
+      - `specialization` (string|null): display specialization name when set
+      - `primary_community_name` (string|null): name for the selected/default verified community
     - `verified_communities` (array):
       - `id` (long)
       - `name` (string)
