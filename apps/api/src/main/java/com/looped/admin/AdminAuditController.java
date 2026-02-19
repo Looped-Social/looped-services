@@ -56,6 +56,7 @@ public class AdminAuditController {
             Map<String, Object> map = new HashMap<>();
             map.put("id", r.id);
             map.put("actor_admin_id", r.actorAdminId);
+            map.put("actor_email", r.actorEmail);
             map.put("action", r.action);
             map.put("target_type", r.targetType);
             map.put("target_id", r.targetId);

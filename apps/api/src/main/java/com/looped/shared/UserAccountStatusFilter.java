@@ -86,7 +86,10 @@ public class UserAccountStatusFilter extends OncePerRequestFilter {
             filterChain.doFilter(request, response);
             return;
         }
-        if (status.onboardingCompletedAt == null && !isOnboardingBootstrapRoute(request) && !isMeRoute(path)) {
+        if (status.onboardingCompletedAt == null
+                && isOnboardingRestrictedRoute(request)
+                && !isOnboardingBootstrapRoute(request)
+                && !isMeRoute(path)) {
             respondOnboardingIncomplete(response, status.id, status.onboardingStep, status.onboardingCompletedAt);
             return;
         }
@@ -141,6 +144,13 @@ public class UserAccountStatusFilter extends OncePerRequestFilter {
                 || allowRoute(method, path, HttpMethod.GET, "/v1/communities/*/verification/photo-id/status")
                 || allowRoute(method, path, HttpMethod.POST, "/v1/verification/start")
                 || allowRoute(method, path, HttpMethod.POST, "/v1/verification/finish");
+    }
+
+    private boolean isOnboardingRestrictedRoute(HttpServletRequest request) {
+        String path = request.getRequestURI();
+        String method = request.getMethod();
+        return allowRoute(method, path, HttpMethod.GET, "/v1/feed")
+                || allowRoute(method, path, HttpMethod.GET, "/v1/feed/**");
     }
 
     private boolean allowRoute(String method, String path, HttpMethod expectedMethod, String pattern) {

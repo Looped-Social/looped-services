@@ -30,6 +30,7 @@ public class AdminAuditRepository {
             row.targetId = rs.wasNull() ? null : targetId;
             row.meta = rs.getString("meta");
             row.createdAt = rs.getObject("created_at", OffsetDateTime.class);
+            row.actorEmail = rs.getString("actor_email");
             return row;
         }
     };
@@ -42,15 +43,20 @@ public class AdminAuditRepository {
     }
 
     public List<Row> list(OffsetDateTime cursorTs, Long cursorId, int limit) {
+        String select = "SELECT aal.id, aal.actor_admin_id, aal.action, aal.target_type, aal.target_id, aal.meta, aal.created_at, " +
+                "au.email AS actor_email " +
+                "FROM admin_audit_log aal " +
+                "LEFT JOIN admin_users au ON au.id = aal.actor_admin_id ";
         if (cursorTs == null || cursorId == null) {
             return jdbc.query(
-                    "SELECT * FROM admin_audit_log ORDER BY created_at DESC, id DESC LIMIT ?",
+                    select + "ORDER BY aal.created_at DESC, aal.id DESC LIMIT ?",
                     MAPPER, limit
             );
         }
         return jdbc.query(
-                "SELECT * FROM admin_audit_log WHERE (created_at < ? OR (created_at = ? AND id < ?)) " +
-                        "ORDER BY created_at DESC, id DESC LIMIT ?",
+                select +
+                        "WHERE (aal.created_at < ? OR (aal.created_at = ? AND aal.id < ?)) " +
+                        "ORDER BY aal.created_at DESC, aal.id DESC LIMIT ?",
                 MAPPER, cursorTs, cursorTs, cursorId, limit
         );
     }
@@ -63,5 +69,6 @@ public class AdminAuditRepository {
         public Long targetId;
         public String meta;
         public OffsetDateTime createdAt;
+        public String actorEmail;
     }
 }
