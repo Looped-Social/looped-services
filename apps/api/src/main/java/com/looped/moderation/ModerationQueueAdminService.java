@@ -21,19 +21,22 @@ public class ModerationQueueAdminService {
     private final MediaRepository media;
     private final HashtagsRepository hashtags;
     private final HashtagPostsRepository hashtagPosts;
+    private final ReportRepository reports;
 
     public ModerationQueueAdminService(ModerationQueueRepository queue,
                                        PostRepository posts,
                                        CommentsRepository comments,
                                        MediaRepository media,
                                        HashtagsRepository hashtags,
-                                       HashtagPostsRepository hashtagPosts) {
+                                       HashtagPostsRepository hashtagPosts,
+                                       ReportRepository reports) {
         this.queue = queue;
         this.posts = posts;
         this.comments = comments;
         this.media = media;
         this.hashtags = hashtags;
         this.hashtagPosts = hashtagPosts;
+        this.reports = reports;
     }
 
     public ListResult list(String status, String targetType, OffsetDateTime cursorTs, Long cursorId, int limit) {
@@ -105,6 +108,9 @@ public class ModerationQueueAdminService {
             long postId = item.get().targetId;
             boolean removed = posts.remove(postId, adminId, normalizedReason);
             hashtagPosts.deleteByPostId(postId);
+            if (removed) {
+                reports.resolveOpenByTarget("post", postId, adminId, normalizedReason);
+            }
             boolean updated = queue.review(queueId, "removed", adminId, note);
             if (!updated) return ResolveResult.alreadyReviewed("not_open");
             return removed ? ResolveResult.ok("removed") : ResolveResult.targetNotFound();
@@ -123,6 +129,9 @@ public class ModerationQueueAdminService {
                 if (comment.get().parentId != null) {
                     comments.decrementReplyCount(comment.get().parentId);
                 }
+            }
+            if (removed) {
+                reports.resolveOpenByTarget("comment", commentId, adminId, normalizedReason);
             }
             boolean updated = queue.review(queueId, "removed", adminId, note);
             if (!updated) return ResolveResult.alreadyReviewed("not_open");

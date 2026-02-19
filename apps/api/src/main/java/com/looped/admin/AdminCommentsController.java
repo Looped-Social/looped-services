@@ -3,6 +3,7 @@ package com.looped.admin;
 import com.looped.comments.CommentsRepository;
 import com.looped.media.MediaRepository;
 import com.looped.media.MediaService;
+import com.looped.moderation.ReportRepository;
 import com.looped.posts.PostRepository;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
@@ -28,6 +29,7 @@ public class AdminCommentsController {
     private final AdminCommentsRepository comments;
     private final CommentsRepository commentWrites;
     private final PostRepository posts;
+    private final ReportRepository reports;
     private final MediaRepository media;
     private final MediaService mediaService;
     private final AdminAuditRepository audit;
@@ -37,6 +39,7 @@ public class AdminCommentsController {
                                    AdminCommentsRepository comments,
                                    CommentsRepository commentWrites,
                                    PostRepository posts,
+                                   ReportRepository reports,
                                    MediaRepository media,
                                    MediaService mediaService,
                                    AdminAuditRepository audit,
@@ -45,6 +48,7 @@ public class AdminCommentsController {
         this.comments = comments;
         this.commentWrites = commentWrites;
         this.posts = posts;
+        this.reports = reports;
         this.media = media;
         this.mediaService = mediaService;
         this.audit = audit;
@@ -82,9 +86,9 @@ public class AdminCommentsController {
         if (c.visibility != null) body.put("visibility", c.visibility);
         if (c.quarantinedAt != null) body.put("quarantined_at", c.quarantinedAt);
         if (c.quarantineReason != null) body.put("quarantine_reason", c.quarantineReason);
-        if (c.removedAt != null) body.put("removed_at", c.removedAt);
-        if (c.removedBy != null) body.put("removed_by", c.removedBy);
-        if (c.removedReason != null) body.put("removed_reason", c.removedReason);
+        body.put("removed_at", c.removedAt);
+        body.put("removed_by", c.removedBy);
+        body.put("removed_reason", c.removedReason);
 
         if (c.mediaAssetId != null && c.mediaAssetId > 0) {
             var mediaOpt = media.findById(c.mediaAssetId);
@@ -148,6 +152,7 @@ public class AdminCommentsController {
                         commentWrites.decrementReplyCount(comment.parentId);
                     }
                 }
+                reports.resolveOpenByTarget("comment", id, authRes.admin().id, reason);
                 audit.log(authRes.admin().id, "comment.remove", "comment", id, null);
             }
         }

@@ -2,6 +2,7 @@ package com.looped.admin;
 
 import com.looped.media.MediaRepository;
 import com.looped.media.MediaService;
+import com.looped.moderation.ReportRepository;
 import com.looped.posts.PostRepository;
 import com.looped.posts.PostSearchQuery;
 import com.looped.shared.RankPagination;
@@ -37,6 +38,7 @@ public class AdminPostsController {
     private final PostRepository posts;
     private final AdminPostSearchRepository postSearch;
     private final AdminAuditRepository audit;
+    private final ReportRepository reports;
     private final MediaRepository media;
     private final MediaService mediaService;
     private final String cloudfrontDomain;
@@ -45,6 +47,7 @@ public class AdminPostsController {
                                 PostRepository posts,
                                 AdminPostSearchRepository postSearch,
                                 AdminAuditRepository audit,
+                                ReportRepository reports,
                                 MediaRepository media,
                                 MediaService mediaService,
                                 @Value("${cloudfront.domain:}") String cloudfrontDomain) {
@@ -52,6 +55,7 @@ public class AdminPostsController {
         this.posts = posts;
         this.postSearch = postSearch;
         this.audit = audit;
+        this.reports = reports;
         this.media = media;
         this.mediaService = mediaService;
         this.cloudfrontDomain = cloudfrontDomain;
@@ -316,8 +320,11 @@ public class AdminPostsController {
         }
         if (postOpt.get().removedAt == null) {
             String reason = body != null ? body.reason() : null;
-            posts.remove(id, authRes.admin().id, reason);
-            audit.log(authRes.admin().id, "post.remove", "post", id, null);
+            boolean removed = posts.remove(id, authRes.admin().id, reason);
+            if (removed) {
+                reports.resolveOpenByTarget("post", id, authRes.admin().id, reason);
+                audit.log(authRes.admin().id, "post.remove", "post", id, null);
+            }
         }
         return ResponseEntity.ok(Map.of("status", "removed"));
     }

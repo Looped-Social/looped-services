@@ -171,7 +171,7 @@ public class PostRepository {
 
     public Optional<PostRow> findByIdIncludingRemoved(Long id) {
         var list = jdbc.query(
-                BASE_SELECT + "WHERE p.id = ? AND (p.author_id IS NULL OR u.id IS NOT NULL)",
+                BASE_SELECT + "WHERE p.id = ?",
                 MAPPER, id
         );
         return list.isEmpty() ? Optional.empty() : Optional.of(list.get(0));

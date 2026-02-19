@@ -101,6 +101,15 @@ public class ReportRepository {
         return rows > 0;
     }
 
+    public int resolveOpenByTarget(String targetType, long targetId, Long resolvedBy, String resolvedReason) {
+        return jdbc.update(
+                "UPDATE reports SET status = 'resolved', resolved_at = now(), resolved_by = ?, " +
+                        "resolved_reason = ?, updated_at = now() " +
+                        "WHERE target_type = ? AND target_id = ? AND status = 'open'",
+                resolvedBy, resolvedReason, targetType, targetId
+        );
+    }
+
     public List<ReportRow> listAll(String status, String targetType, OffsetDateTime fromTs, OffsetDateTime toTs,
                                    OffsetDateTime cursorTs, Long cursorId, int limit, boolean ascending) {
         String base = "SELECT r.*, u.handle AS reporter_handle FROM reports r " +
