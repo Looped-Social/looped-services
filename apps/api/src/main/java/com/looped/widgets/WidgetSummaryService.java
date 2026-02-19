@@ -1,6 +1,9 @@
 package com.looped.widgets;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.looped.media.MediaRepository;
+import com.looped.posts.FeedService;
+import com.looped.posts.PostRepository;
 import com.looped.users.UserRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -12,20 +15,31 @@ import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.Locale;
 
 @Service
 public class WidgetSummaryService {
     private static final Logger log = LoggerFactory.getLogger(WidgetSummaryService.class);
+    private static final int CONTENT_PREVIEW_MAX_CHARS = 120;
 
     private final UserRepository users;
     private final WidgetSummaryRepository repo;
+    private final FeedService feedService;
+    private final MediaRepository media;
+    private final String cloudfrontDomain;
     private final int snapshotTtlSeconds;
 
     public WidgetSummaryService(UserRepository users,
                                 WidgetSummaryRepository repo,
+                                FeedService feedService,
+                                MediaRepository media,
+                                @Value("${cloudfront.domain:}") String cloudfrontDomain,
                                 @Value("${widgets.snapshot-ttl-seconds:900}") int snapshotTtlSeconds) {
         this.users = users;
         this.repo = repo;
+        this.feedService = feedService;
+        this.media = media;
+        this.cloudfrontDomain = cloudfrontDomain == null ? "" : cloudfrontDomain.trim();
         this.snapshotTtlSeconds = Math.max(60, snapshotTtlSeconds);
     }
 
@@ -63,6 +77,16 @@ public class WidgetSummaryService {
                 ))
                 .toList();
 
+        TrendingPost trendingPost = null;
+        try {
+            var trending = feedService.trending(firebaseUid, 1, null);
+            if (trending.status() == FeedService.Status.OK && trending.items() != null && !trending.items().isEmpty()) {
+                trendingPost = toTrendingPost(trending.items().get(0));
+            }
+        } catch (RuntimeException e) {
+            log.warn("widget_summary_trending_query_failed user_id={}", actor.get().id, e);
+        }
+
         Long defaultCommunityId = resolveDefaultCommunityId(actor.get().displayCommunityId, verified);
 
         WidgetSummaryResponse response = new WidgetSummaryResponse(
@@ -79,7 +103,8 @@ public class WidgetSummaryService {
                         profileStats.likesReceived()
                 ),
                 verified,
-                defaultCommunityId
+                defaultCommunityId,
+                trendingPost
         );
         return SummaryResult.ok(response);
     }
@@ -113,6 +138,62 @@ public class WidgetSummaryService {
             return displayCommunityId;
         }
         return verified.get(0).id();
+    }
+
+    private TrendingPost toTrendingPost(PostRepository.TrendingRow row) {
+        if (row == null) return null;
+        return new TrendingPost(
+                row.id,
+                row.communityName,
+                sanitizePreview(row.content),
+                Math.max(0, row.likesCount),
+                Math.max(0, row.commentsCount),
+                resolveMediaThumbnailUrl(row)
+        );
+    }
+
+    private String sanitizePreview(String content) {
+        if (content == null) return "";
+        String normalized = content
+                .replace('\n', ' ')
+                .replace('\r', ' ')
+                .replace('\t', ' ')
+                .replaceAll("\\s+", " ")
+                .trim();
+        normalized = normalized.replaceAll("[\\p{Cntrl}]", "");
+        if (normalized.length() <= CONTENT_PREVIEW_MAX_CHARS) return normalized;
+        return normalized.substring(0, CONTENT_PREVIEW_MAX_CHARS - 3).trim() + "...";
+    }
+
+    private String resolveMediaThumbnailUrl(PostRepository.TrendingRow row) {
+        if (row == null || cloudfrontDomain.isBlank()) return null;
+        Long mediaAssetId = row.mediaAssetId;
+        if (mediaAssetId == null || mediaAssetId <= 0) return null;
+
+        var mediaRow = media.findById(mediaAssetId).orElse(null);
+        if (mediaRow == null || mediaRow.s3Key == null || mediaRow.s3Key.isBlank()) return null;
+        if (mediaRow.removedAt != null) return null;
+        if (mediaRow.visibility != null && !"public".equalsIgnoreCase(mediaRow.visibility)) return null;
+
+        String mime = normalizeMime(mediaRow.mimeType);
+        if (mime.startsWith("video/")) {
+            if (mediaRow.thumbnailMediaAssetId == null || mediaRow.thumbnailMediaAssetId <= 0) return null;
+            var thumb = media.findById(mediaRow.thumbnailMediaAssetId).orElse(null);
+            if (thumb == null || thumb.s3Key == null || thumb.s3Key.isBlank()) return null;
+            if (thumb.removedAt != null) return null;
+            if (thumb.visibility != null && !"public".equalsIgnoreCase(thumb.visibility)) return null;
+            if (!normalizeMime(thumb.mimeType).startsWith("image/")) return null;
+            return "https://" + cloudfrontDomain + "/" + thumb.s3Key;
+        }
+        if (mime.startsWith("image/")) {
+            return "https://" + cloudfrontDomain + "/" + mediaRow.s3Key;
+        }
+        return null;
+    }
+
+    private String normalizeMime(String mime) {
+        if (mime == null) return "";
+        return mime.trim().toLowerCase(Locale.ROOT);
     }
 
     public enum SummaryStatus { OK, USER_NOT_PROVISIONED }
@@ -152,7 +233,8 @@ public class WidgetSummaryService {
             Inbox inbox,
             @JsonProperty("profile_stats") ProfileStats profileStats,
             @JsonProperty("verified_communities") List<VerifiedCommunity> verifiedCommunities,
-            @JsonProperty("default_community_id") Long defaultCommunityId
+            @JsonProperty("default_community_id") Long defaultCommunityId,
+            @JsonProperty("trending_post") TrendingPost trendingPost
     ) {}
 
     public record Inbox(
@@ -173,6 +255,15 @@ public class WidgetSummaryService {
             @JsonProperty("short_name") String shortName,
             @JsonProperty("member_count") int memberCount,
             @JsonProperty("new_activity_count") int newActivityCount
+    ) {}
+
+    public record TrendingPost(
+            @JsonProperty("post_id") long postId,
+            @JsonProperty("community_name") String communityName,
+            @JsonProperty("content_preview") String contentPreview,
+            @JsonProperty("like_count") int likeCount,
+            @JsonProperty("comment_count") int commentCount,
+            @JsonProperty("media_thumbnail_url") String mediaThumbnailUrl
     ) {}
 
     public record CommunitySeenResponse(

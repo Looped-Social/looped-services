@@ -40,8 +40,16 @@
       - `member_count` (int)
       - `new_activity_count` (int): count of new public, non-removed posts in that community since the user's last seen marker
     - `default_community_id` (long|null): user's verified display community if active; otherwise first verified community
+    - `trending_post` (object|null):
+      - `post_id` (long): deep-linkable post id (`looped://post/{id}`)
+      - `community_name` (string|null)
+      - `content_preview` (string): sanitized, widget-length preview text
+      - `like_count` (int, non-negative)
+      - `comment_count` (int, non-negative)
+      - `media_thumbnail_url` (string|null): absolute URL when media is available and safe
   - Semantics:
     - Safe defaults are returned when data is absent (`0` counts, empty arrays, nullable `default_community_id`).
+    - `trending_post` may be `null` when no eligible trending content is available.
     - `new_activity_count` baseline is:
       - `widget_community_state.last_seen_at` when present, else
       - `community_follows.created_at`, else

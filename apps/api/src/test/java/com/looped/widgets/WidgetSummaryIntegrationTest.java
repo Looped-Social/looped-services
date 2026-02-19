@@ -21,6 +21,7 @@ import java.util.List;
 import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.notNullValue;
+import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -28,7 +29,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 @SpringBootTest(properties = {
         "auth.issuer=http://test-issuer",
-        "auth.audience=test-app"
+        "auth.audience=test-app",
+        "cloudfront.domain=cdn.test.local"
 })
 @AutoConfigureMockMvc
 @org.springframework.context.annotation.Import(TestSecurityConfig.class)
@@ -78,7 +80,8 @@ class WidgetSummaryIntegrationTest extends PostgresTestBase {
                 .andExpect(jsonPath("$.profile_stats.followers").value(0))
                 .andExpect(jsonPath("$.profile_stats.following").value(0))
                 .andExpect(jsonPath("$.profile_stats.likes_received").value(0))
-                .andExpect(jsonPath("$.verified_communities", hasSize(0)));
+                .andExpect(jsonPath("$.verified_communities", hasSize(0)))
+                .andExpect(jsonPath("$.trending_post").value(nullValue()));
     }
 
     @Test
@@ -296,6 +299,56 @@ class WidgetSummaryIntegrationTest extends PostgresTestBase {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.verified_communities[?(@.id==" + communityOneId + ")].new_activity_count").value(contains(1)))
                 .andExpect(jsonPath("$.verified_communities[?(@.id==" + communityTwoId + ")].new_activity_count").value(contains(0)));
+    }
+
+    @Test
+    void widget_summary_includes_trending_post_when_available() throws Exception {
+        OffsetDateTime now = OffsetDateTime.now();
+        long companyId = jdbc.queryForObject(
+                "INSERT INTO companies(name, domain) VALUES ('Widgets Trending Co', 'widgets-trending.co') RETURNING id",
+                Long.class
+        );
+        jdbc.update(
+                "INSERT INTO users(firebase_uid, handle, company_id, onboarding_completed_at) VALUES (?,?,?, now())",
+                "uid-widget-trending",
+                "widgettrending",
+                companyId
+        );
+        long userId = jdbc.queryForObject("SELECT id FROM users WHERE firebase_uid = ?", Long.class, "uid-widget-trending");
+        long principalId = jdbc.queryForObject(
+                "INSERT INTO principals(kind, user_id) VALUES ('user', ?) RETURNING id",
+                Long.class,
+                userId
+        );
+        long communityId = jdbc.queryForObject(
+                "INSERT INTO communities(kind, name) VALUES ('company', 'Engineering') RETURNING id",
+                Long.class
+        );
+        long mediaId = jdbc.queryForObject(
+                "INSERT INTO media_assets(owner_id, s3_key, mime_type) VALUES (?,?,?) RETURNING id",
+                Long.class,
+                userId,
+                "media/original/widget-trending-image.jpg",
+                "image/jpeg"
+        );
+        long postId = jdbc.queryForObject(
+                "INSERT INTO posts(author_id, author_principal_id, company_id, community_id, content, media_asset_id, likes_count, comments_count, share_count, visibility, created_at) " +
+                        "VALUES (?,?,?,?,?,?,?,?,?, 'public', ?) RETURNING id",
+                Long.class,
+                userId, principalId, companyId, communityId,
+                "   Widget   trending   preview   post   ", mediaId, 44, 12, 3, now.minusMinutes(20)
+        );
+
+        mockMvc.perform(get("/v1/widget-summary")
+                        .header("Authorization", "Bearer " + token("uid-widget-trending")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.trending_post.post_id").value(postId))
+                .andExpect(jsonPath("$.trending_post.community_name").value("Engineering"))
+                .andExpect(jsonPath("$.trending_post.content_preview").value("Widget trending preview post"))
+                .andExpect(jsonPath("$.trending_post.like_count").value(44))
+                .andExpect(jsonPath("$.trending_post.comment_count").value(12))
+                .andExpect(jsonPath("$.trending_post.media_thumbnail_url")
+                        .value("https://cdn.test.local/media/original/widget-trending-image.jpg"));
     }
 
     @Test
