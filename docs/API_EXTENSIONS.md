@@ -19,6 +19,49 @@
   - Semantics:
     - When `default_profile_image_url` is set (via admin settings), API payloads that include a profile image URL will return that default when the underlying user has not set `profile_image_url`.
     - When unset, profile image URL fields may be `null` as before.
+- **Widgets summary**
+  - `GET /v1/widget-summary` (auth required: `Authorization: Bearer <firebase_jwt>`)
+  - Purpose: single lightweight payload for WidgetKit timelines (Inbox Pulse, Verified Communities, Profile Stats).
+  - Response (200):
+    - `server_time` (RFC3339 UTC timestamp)
+    - `snapshot_ttl_seconds` (int; default `900`)
+    - `inbox`:
+      - `unread_messages` (int): unread DM messages for visible conversations
+      - `message_requests` (int): pending DM requests not blocked/approved
+      - `unread_mentions` (int): unread notification rows with `type="mention"`
+    - `profile_stats`:
+      - `followers` (int)
+      - `following` (int)
+      - `likes_received` (long): sum of user post likes + comment likes
+    - `verified_communities` (array):
+      - `id` (long)
+      - `name` (string)
+      - `short_name` (string|null)
+      - `member_count` (int)
+      - `new_activity_count` (int): count of new public, non-removed posts in that community since the user's last seen marker
+    - `default_community_id` (long|null): user's verified display community if active; otherwise first verified community
+  - Semantics:
+    - Safe defaults are returned when data is absent (`0` counts, empty arrays, nullable `default_community_id`).
+    - `new_activity_count` baseline is:
+      - `widget_community_state.last_seen_at` when present, else
+      - `community_follows.created_at`, else
+      - `community_verifications.verified_at`.
+  - Errors:
+    - `401` unauthorized (missing/invalid JWT)
+    - `409 { "error": "user_not_provisioned" }`
+    - `429 { "error": "rate_limited" }`
+- **Widget community seen state**
+  - `POST /v1/widget-state/community/{id}/seen` (auth required: `Authorization: Bearer <firebase_jwt>`)
+  - Purpose: advance per-user community activity cursor used by `new_activity_count`.
+  - Path params:
+    - `id` (long): community id
+  - Response (200): `{ "community_id": <id>, "seen_at": "<RFC3339 UTC>" }`
+  - Errors:
+    - `401` unauthorized
+    - `403 { "error": "community_not_verified" }` (user is not actively verified in that community)
+    - `404 { "error": "community_not_found" }`
+    - `409 { "error": "user_not_provisioned" }`
+    - `429 { "error": "rate_limited" }`
 - **Account management**
   - Deactivate (soft delete): `POST /v1/users/me/deactivate` → `204`
   - Delete (hard delete): `POST /v1/users/me/delete` → `200`
