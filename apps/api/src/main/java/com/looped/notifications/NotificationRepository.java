@@ -17,11 +17,12 @@ import java.util.Optional;
 @Repository
 public class NotificationRepository {
     private final JdbcTemplate jdbc;
-    private final ObjectMapper mapper = new ObjectMapper();
+    private final ObjectMapper mapper;
     private static final TypeReference<Map<String, Object>> MAP_TYPE = new TypeReference<>() {};
 
-    public NotificationRepository(JdbcTemplate jdbc) {
+    public NotificationRepository(JdbcTemplate jdbc, ObjectMapper mapper) {
         this.jdbc = jdbc;
+        this.mapper = mapper.copy();
     }
 
     private final RowMapper<NotificationRow> mapperRow = new RowMapper<>() {
