@@ -282,4 +282,58 @@ class PublicCommentsIntegrationTest extends PostgresTestBase {
                 .andExpect(jsonPath("$.items[0].id", equalTo((int) replyId)))
                 .andExpect(jsonPath("$.items[0].parent_id", equalTo((int) tombstoneId)));
     }
+
+    @Test
+    void public_comments_compute_visible_reply_counts_from_rows_not_stored_counter() throws Exception {
+        long companyId = jdbc.queryForObject(
+                "INSERT INTO companies(name, domain) VALUES ('PubReplyDriftCo', 'pub-reply-drift.co') RETURNING id",
+                Long.class
+        );
+        long authorId = jdbc.queryForObject(
+                "INSERT INTO users(firebase_uid, handle, company_id, display_name) VALUES (?,?,?,?) RETURNING id",
+                Long.class,
+                "uid-public-reply-drift-author",
+                "prdauthor",
+                companyId,
+                "Public Reply Drift Author"
+        );
+        long authorPrincipalId = jdbc.queryForObject(
+                "INSERT INTO principals(kind, user_id) VALUES ('user', ?) RETURNING id",
+                Long.class,
+                authorId
+        );
+        long communityId = jdbc.queryForObject(
+                "INSERT INTO communities(kind, name) VALUES ('company', 'Public Reply Drift Community') RETURNING id",
+                Long.class
+        );
+        long postId = jdbc.queryForObject(
+                "INSERT INTO posts(author_id, author_principal_id, company_id, community_id, content, visibility) VALUES (?,?,?,?,?,'public') RETURNING id",
+                Long.class,
+                authorId,
+                authorPrincipalId,
+                companyId,
+                communityId,
+                "Public reply drift post"
+        );
+        long parentCommentId = jdbc.queryForObject(
+                "INSERT INTO comments(post_id, user_id, author_principal_id, company_id, content, reply_count, visibility) VALUES (?,?,?,?,?,7,'public') RETURNING id",
+                Long.class,
+                postId,
+                authorId,
+                authorPrincipalId,
+                companyId,
+                "Parent with stale reply_count"
+        );
+
+        mockMvc.perform(get("/v1/public/posts/" + postId + "/comments"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items.length()", equalTo(1)))
+                .andExpect(jsonPath("$.items[0].id", equalTo((int) parentCommentId)))
+                .andExpect(jsonPath("$.items[0].reply_count", equalTo(0)))
+                .andExpect(jsonPath("$.items[0].totalReplyCount", equalTo(0)));
+
+        mockMvc.perform(get("/v1/public/comments/" + parentCommentId + "/replies"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items.length()", equalTo(0)));
+    }
 }

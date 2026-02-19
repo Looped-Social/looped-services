@@ -140,7 +140,7 @@ public class CommentsRepository {
 
     public List<CommentViewRow> findByPost(long postId, long viewerPrincipalId, Long postAuthorPrincipalId, OffsetDateTime cursorTs, Long cursorId, int limit) {
         String base = """
-                SELECT c.id, c.post_id, c.user_id, c.author_principal_id, c.company_id, c.content, c.media_asset_id, c.parent_id, c.likes_count, c.reply_count, c.created_at, c.deleted_at,
+                SELECT c.id, c.post_id, c.user_id, c.author_principal_id, c.company_id, c.content, c.media_asset_id, c.parent_id, c.likes_count, c.reply_count AS stored_reply_count, c.created_at, c.deleted_at,
                        c.visibility, c.quarantined_at, c.quarantine_reason, c.removed_at, c.removed_by, c.removed_reason,
                        p.kind AS author_kind, p.user_id AS author_user_id, p.anon_profile_id AS author_anon_profile_id,
                        COALESCE(u.handle, ap.handle) AS author_handle,
@@ -174,7 +174,7 @@ public class CommentsRepository {
                 """ + base + """
                 ),
                 visible_desc AS (
-                    SELECT b.id AS root_id, c.id AS comment_id, c.post_id AS post_id
+                    SELECT b.id AS root_id, c.id AS comment_id, c.post_id AS post_id, 1 AS depth
                     FROM base b
                     JOIN comments c ON c.parent_id = b.id AND c.post_id = b.post_id
                     JOIN principals p ON p.id = c.author_principal_id
@@ -183,7 +183,7 @@ public class CommentsRepository {
                     AND (p.kind = 'anon' OR u.id IS NOT NULL)
                     AND (c.visibility = 'public' OR c.author_principal_id = ?)
                     UNION ALL
-                    SELECT vd.root_id, c.id AS comment_id, c.post_id AS post_id
+                    SELECT vd.root_id, c.id AS comment_id, c.post_id AS post_id, vd.depth + 1 AS depth
                     FROM visible_desc vd
                     JOIN comments c ON c.parent_id = vd.comment_id AND c.post_id = vd.post_id
                     JOIN principals p ON p.id = c.author_principal_id
@@ -193,11 +193,18 @@ public class CommentsRepository {
                     AND (c.visibility = 'public' OR c.author_principal_id = ?)
                 ),
                 counts AS (
-                    SELECT root_id, COUNT(*)::int AS total_reply_count
+                    SELECT root_id,
+                           COUNT(*) FILTER (WHERE depth = 1)::int AS visible_direct_reply_count,
+                           COUNT(*)::int AS total_reply_count
                     FROM visible_desc
                     GROUP BY root_id
                 )
-                SELECT base.*, COALESCE(counts.total_reply_count, 0) AS total_reply_count
+                SELECT base.id, base.post_id, base.user_id, base.author_principal_id, base.company_id, base.content, base.media_asset_id, base.parent_id,
+                       base.likes_count, COALESCE(counts.visible_direct_reply_count, 0) AS reply_count, base.created_at, base.deleted_at,
+                       base.visibility, base.quarantined_at, base.quarantine_reason, base.removed_at, base.removed_by, base.removed_reason,
+                       base.author_kind, base.author_user_id, base.author_anon_profile_id, base.author_handle, base.author_display_name,
+                       base.author_profile_image_url, base.author_company_id, base.author_is_anonymous, base.viewer_liked, base.liked_by_creator,
+                       COALESCE(counts.total_reply_count, 0) AS total_reply_count
                 FROM base
                 LEFT JOIN counts ON counts.root_id = base.id
                 ORDER BY base.created_at ASC, base.id ASC
@@ -207,7 +214,7 @@ public class CommentsRepository {
 
     public List<CommentViewRow> findReplies(long postId, long parentCommentId, long viewerPrincipalId, Long postAuthorPrincipalId, OffsetDateTime cursorTs, Long cursorId, int limit) {
         String base = """
-                SELECT c.id, c.post_id, c.user_id, c.author_principal_id, c.company_id, c.content, c.media_asset_id, c.parent_id, c.likes_count, c.reply_count, c.created_at, c.deleted_at,
+                SELECT c.id, c.post_id, c.user_id, c.author_principal_id, c.company_id, c.content, c.media_asset_id, c.parent_id, c.likes_count, c.reply_count AS stored_reply_count, c.created_at, c.deleted_at,
                        c.visibility, c.quarantined_at, c.quarantine_reason, c.removed_at, c.removed_by, c.removed_reason,
                        p.kind AS author_kind, p.user_id AS author_user_id, p.anon_profile_id AS author_anon_profile_id,
                        COALESCE(u.handle, ap.handle) AS author_handle,
@@ -240,7 +247,7 @@ public class CommentsRepository {
                 """ + base + """
                 ),
                 visible_desc AS (
-                    SELECT b.id AS root_id, c.id AS comment_id, c.post_id AS post_id
+                    SELECT b.id AS root_id, c.id AS comment_id, c.post_id AS post_id, 1 AS depth
                     FROM base b
                     JOIN comments c ON c.parent_id = b.id AND c.post_id = b.post_id
                     JOIN principals p ON p.id = c.author_principal_id
@@ -249,7 +256,7 @@ public class CommentsRepository {
                     AND (p.kind = 'anon' OR u.id IS NOT NULL)
                     AND (c.visibility = 'public' OR c.author_principal_id = ?)
                     UNION ALL
-                    SELECT vd.root_id, c.id AS comment_id, c.post_id AS post_id
+                    SELECT vd.root_id, c.id AS comment_id, c.post_id AS post_id, vd.depth + 1 AS depth
                     FROM visible_desc vd
                     JOIN comments c ON c.parent_id = vd.comment_id AND c.post_id = vd.post_id
                     JOIN principals p ON p.id = c.author_principal_id
@@ -259,11 +266,18 @@ public class CommentsRepository {
                     AND (c.visibility = 'public' OR c.author_principal_id = ?)
                 ),
                 counts AS (
-                    SELECT root_id, COUNT(*)::int AS total_reply_count
+                    SELECT root_id,
+                           COUNT(*) FILTER (WHERE depth = 1)::int AS visible_direct_reply_count,
+                           COUNT(*)::int AS total_reply_count
                     FROM visible_desc
                     GROUP BY root_id
                 )
-                SELECT base.*, COALESCE(counts.total_reply_count, 0) AS total_reply_count
+                SELECT base.id, base.post_id, base.user_id, base.author_principal_id, base.company_id, base.content, base.media_asset_id, base.parent_id,
+                       base.likes_count, COALESCE(counts.visible_direct_reply_count, 0) AS reply_count, base.created_at, base.deleted_at,
+                       base.visibility, base.quarantined_at, base.quarantine_reason, base.removed_at, base.removed_by, base.removed_reason,
+                       base.author_kind, base.author_user_id, base.author_anon_profile_id, base.author_handle, base.author_display_name,
+                       base.author_profile_image_url, base.author_company_id, base.author_is_anonymous, base.viewer_liked, base.liked_by_creator,
+                       COALESCE(counts.total_reply_count, 0) AS total_reply_count
                 FROM base
                 LEFT JOIN counts ON counts.root_id = base.id
                 ORDER BY base.created_at ASC, base.id ASC
