@@ -40,6 +40,12 @@ public class CommentsRepository {
         row.parentId = rs.wasNull() ? null : parent;
         row.likesCount = rs.getInt("likes_count");
         row.replyCount = rs.getInt("reply_count");
+        try {
+            int total = rs.getInt("total_reply_count");
+            row.totalReplyCount = rs.wasNull() ? null : total;
+        } catch (SQLException ignored) {
+            row.totalReplyCount = null;
+        }
         row.createdAt = rs.getObject("created_at", OffsetDateTime.class);
         row.deletedAt = rs.getObject("deleted_at", OffsetDateTime.class);
         row.visibility = rs.getString("visibility");
@@ -133,7 +139,7 @@ public class CommentsRepository {
     }
 
     public List<CommentViewRow> findByPost(long postId, long viewerPrincipalId, Long postAuthorPrincipalId, OffsetDateTime cursorTs, Long cursorId, int limit) {
-        String sql = """
+        String base = """
                 SELECT c.id, c.post_id, c.user_id, c.author_principal_id, c.company_id, c.content, c.media_asset_id, c.parent_id, c.likes_count, c.reply_count, c.created_at, c.deleted_at,
                        c.visibility, c.quarantined_at, c.quarantine_reason, c.removed_at, c.removed_by, c.removed_reason,
                        p.kind AS author_kind, p.user_id AS author_user_id, p.anon_profile_id AS author_anon_profile_id,
@@ -157,17 +163,50 @@ public class CommentsRepository {
                 """;
         Object[] params;
         if (cursorTs == null || cursorId == null) {
-            sql += "ORDER BY c.created_at ASC, c.id ASC LIMIT ?";
-            params = new Object[]{viewerPrincipalId, postAuthorPrincipalId, postId, viewerPrincipalId, limit};
+            base += "ORDER BY c.created_at ASC, c.id ASC LIMIT ?";
+            params = new Object[]{viewerPrincipalId, postAuthorPrincipalId, postId, viewerPrincipalId, limit, viewerPrincipalId, viewerPrincipalId};
         } else {
-            sql += "AND (c.created_at > ? OR (c.created_at = ? AND c.id > ?)) ORDER BY c.created_at ASC, c.id ASC LIMIT ?";
-            params = new Object[]{viewerPrincipalId, postAuthorPrincipalId, postId, viewerPrincipalId, cursorTs, cursorTs, cursorId, limit};
+            base += "AND (c.created_at > ? OR (c.created_at = ? AND c.id > ?)) ORDER BY c.created_at ASC, c.id ASC LIMIT ?";
+            params = new Object[]{viewerPrincipalId, postAuthorPrincipalId, postId, viewerPrincipalId, cursorTs, cursorTs, cursorId, limit, viewerPrincipalId, viewerPrincipalId};
         }
+        String sql = """
+                WITH RECURSIVE base AS (
+                """ + base + """
+                ),
+                visible_desc AS (
+                    SELECT b.id AS root_id, c.id AS comment_id, c.post_id AS post_id
+                    FROM base b
+                    JOIN comments c ON c.parent_id = b.id AND c.post_id = b.post_id
+                    JOIN principals p ON p.id = c.author_principal_id
+                    LEFT JOIN users u ON u.id = p.user_id AND u.deleted_at IS NULL
+                    WHERE (c.deleted_at IS NULL OR c.reply_count > 0)
+                    AND (p.kind = 'anon' OR u.id IS NOT NULL)
+                    AND (c.visibility = 'public' OR c.author_principal_id = ?)
+                    UNION ALL
+                    SELECT vd.root_id, c.id AS comment_id, c.post_id AS post_id
+                    FROM visible_desc vd
+                    JOIN comments c ON c.parent_id = vd.comment_id AND c.post_id = vd.post_id
+                    JOIN principals p ON p.id = c.author_principal_id
+                    LEFT JOIN users u ON u.id = p.user_id AND u.deleted_at IS NULL
+                    WHERE (c.deleted_at IS NULL OR c.reply_count > 0)
+                    AND (p.kind = 'anon' OR u.id IS NOT NULL)
+                    AND (c.visibility = 'public' OR c.author_principal_id = ?)
+                ),
+                counts AS (
+                    SELECT root_id, COUNT(*)::int AS total_reply_count
+                    FROM visible_desc
+                    GROUP BY root_id
+                )
+                SELECT base.*, COALESCE(counts.total_reply_count, 0) AS total_reply_count
+                FROM base
+                LEFT JOIN counts ON counts.root_id = base.id
+                ORDER BY base.created_at ASC, base.id ASC
+                """;
         return jdbc.query(sql, this::mapViewRow, params);
     }
 
     public List<CommentViewRow> findReplies(long postId, long parentCommentId, long viewerPrincipalId, Long postAuthorPrincipalId, OffsetDateTime cursorTs, Long cursorId, int limit) {
-        String sql = """
+        String base = """
                 SELECT c.id, c.post_id, c.user_id, c.author_principal_id, c.company_id, c.content, c.media_asset_id, c.parent_id, c.likes_count, c.reply_count, c.created_at, c.deleted_at,
                        c.visibility, c.quarantined_at, c.quarantine_reason, c.removed_at, c.removed_by, c.removed_reason,
                        p.kind AS author_kind, p.user_id AS author_user_id, p.anon_profile_id AS author_anon_profile_id,
@@ -190,12 +229,45 @@ public class CommentsRepository {
                 """;
         Object[] params;
         if (cursorTs == null || cursorId == null) {
-            sql += "ORDER BY c.created_at ASC, c.id ASC LIMIT ?";
-            params = new Object[]{viewerPrincipalId, postAuthorPrincipalId, parentCommentId, postId, viewerPrincipalId, limit};
+            base += "ORDER BY c.created_at ASC, c.id ASC LIMIT ?";
+            params = new Object[]{viewerPrincipalId, postAuthorPrincipalId, parentCommentId, postId, viewerPrincipalId, limit, viewerPrincipalId, viewerPrincipalId};
         } else {
-            sql += "AND (c.created_at > ? OR (c.created_at = ? AND c.id > ?)) ORDER BY c.created_at ASC, c.id ASC LIMIT ?";
-            params = new Object[]{viewerPrincipalId, postAuthorPrincipalId, parentCommentId, postId, viewerPrincipalId, cursorTs, cursorTs, cursorId, limit};
+            base += "AND (c.created_at > ? OR (c.created_at = ? AND c.id > ?)) ORDER BY c.created_at ASC, c.id ASC LIMIT ?";
+            params = new Object[]{viewerPrincipalId, postAuthorPrincipalId, parentCommentId, postId, viewerPrincipalId, cursorTs, cursorTs, cursorId, limit, viewerPrincipalId, viewerPrincipalId};
         }
+        String sql = """
+                WITH RECURSIVE base AS (
+                """ + base + """
+                ),
+                visible_desc AS (
+                    SELECT b.id AS root_id, c.id AS comment_id, c.post_id AS post_id
+                    FROM base b
+                    JOIN comments c ON c.parent_id = b.id AND c.post_id = b.post_id
+                    JOIN principals p ON p.id = c.author_principal_id
+                    LEFT JOIN users u ON u.id = p.user_id AND u.deleted_at IS NULL
+                    WHERE (c.deleted_at IS NULL OR c.reply_count > 0)
+                    AND (p.kind = 'anon' OR u.id IS NOT NULL)
+                    AND (c.visibility = 'public' OR c.author_principal_id = ?)
+                    UNION ALL
+                    SELECT vd.root_id, c.id AS comment_id, c.post_id AS post_id
+                    FROM visible_desc vd
+                    JOIN comments c ON c.parent_id = vd.comment_id AND c.post_id = vd.post_id
+                    JOIN principals p ON p.id = c.author_principal_id
+                    LEFT JOIN users u ON u.id = p.user_id AND u.deleted_at IS NULL
+                    WHERE (c.deleted_at IS NULL OR c.reply_count > 0)
+                    AND (p.kind = 'anon' OR u.id IS NOT NULL)
+                    AND (c.visibility = 'public' OR c.author_principal_id = ?)
+                ),
+                counts AS (
+                    SELECT root_id, COUNT(*)::int AS total_reply_count
+                    FROM visible_desc
+                    GROUP BY root_id
+                )
+                SELECT base.*, COALESCE(counts.total_reply_count, 0) AS total_reply_count
+                FROM base
+                LEFT JOIN counts ON counts.root_id = base.id
+                ORDER BY base.created_at ASC, base.id ASC
+                """;
         return jdbc.query(sql, this::mapViewRow, params);
     }
 
@@ -410,6 +482,7 @@ public class CommentsRepository {
         public Long parentId;
         public int likesCount;
         public int replyCount;
+        public Integer totalReplyCount;
         public OffsetDateTime createdAt;
         public OffsetDateTime deletedAt;
         public String visibility;

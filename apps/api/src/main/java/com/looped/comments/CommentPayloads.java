@@ -20,6 +20,10 @@ public final class CommentPayloads {
         out.put("created_at", row.comment.createdAt);
         out.put("likes_count", row.comment.likesCount);
         out.put("reply_count", row.comment.replyCount);
+        if (row.comment.totalReplyCount != null) {
+            out.put("total_reply_count", row.comment.totalReplyCount);
+            out.put("totalReplyCount", row.comment.totalReplyCount);
+        }
         out.put("user_liked", row.viewerLiked);
         out.put("liked_by_creator", row.likedByCreator);
         out.put("is_deleted", isDeleted);
@@ -55,6 +59,10 @@ public final class CommentPayloads {
         out.put("created_at", row.comment.createdAt);
         out.put("likes_count", row.comment.likesCount);
         out.put("reply_count", row.comment.replyCount);
+        if (row.comment.totalReplyCount != null) {
+            out.put("total_reply_count", row.comment.totalReplyCount);
+            out.put("totalReplyCount", row.comment.totalReplyCount);
+        }
         out.put("liked_by_creator", row.likedByCreator);
         out.put("is_deleted", isDeleted);
         boolean isUnderReview = row.comment.visibility != null && row.comment.visibility.equalsIgnoreCase("quarantined");

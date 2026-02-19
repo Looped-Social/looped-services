@@ -84,7 +84,7 @@ class PublicCommentsIntegrationTest extends PostgresTestBase {
                 "Top-level comment"
         );
         long replyId = jdbc.queryForObject(
-                "INSERT INTO comments(post_id, user_id, author_principal_id, company_id, content, parent_id, visibility) VALUES (?,?,?,?,?,?,'public') RETURNING id",
+                "INSERT INTO comments(post_id, user_id, author_principal_id, company_id, content, parent_id, reply_count, visibility) VALUES (?,?,?,?,?,?,1,'public') RETURNING id",
                 Long.class,
                 postId,
                 authorId,
@@ -93,11 +93,23 @@ class PublicCommentsIntegrationTest extends PostgresTestBase {
                 "Reply comment",
                 topCommentId
         );
+        jdbc.queryForObject(
+                "INSERT INTO comments(post_id, user_id, author_principal_id, company_id, content, parent_id, visibility) VALUES (?,?,?,?,?,?,'public') RETURNING id",
+                Long.class,
+                postId,
+                commenterId,
+                commenterPrincipalId,
+                companyId,
+                "Nested reply comment",
+                replyId
+        );
 
         mockMvc.perform(get("/v1/public/posts/" + postId + "/comments"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items.length()", equalTo(1)))
                 .andExpect(jsonPath("$.items[0].id", equalTo((int) topCommentId)))
+                .andExpect(jsonPath("$.items[0].reply_count", equalTo(1)))
+                .andExpect(jsonPath("$.items[0].totalReplyCount", equalTo(2)))
                 .andExpect(jsonPath("$.items[0].author.username", equalTo("pubcommenter")))
                 .andExpect(jsonPath("$.items[0].parent_id").doesNotExist())
                 .andExpect(jsonPath("$.items[0].author_principal_id").doesNotExist())
@@ -109,6 +121,8 @@ class PublicCommentsIntegrationTest extends PostgresTestBase {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items.length()", equalTo(1)))
                 .andExpect(jsonPath("$.items[0].id", equalTo((int) replyId)))
+                .andExpect(jsonPath("$.items[0].reply_count", equalTo(1)))
+                .andExpect(jsonPath("$.items[0].totalReplyCount", equalTo(1)))
                 .andExpect(jsonPath("$.items[0].parent_id", equalTo((int) topCommentId)));
     }
 
