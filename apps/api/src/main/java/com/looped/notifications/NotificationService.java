@@ -46,7 +46,9 @@ public class NotificationService {
         NotificationRepository.NotificationRow lastIncluded = null;
         int lastBatchSize = 0;
         while (filtered.size() < limit) {
-            var rows = repo.findByUser(actor.get().id, cTs, cId, limit, includeDismissed);
+            var rows = includeDismissed
+                    ? repo.findByUser(actor.get().id, cTs, cId, limit, true)
+                    : repo.findByUser(actor.get().id, cTs, cId, limit);
             lastBatchSize = rows.size();
             if (rows.isEmpty()) break;
             var activeActorUserIds = activeActorUserIds(rows);
