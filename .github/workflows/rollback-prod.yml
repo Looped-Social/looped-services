@@ -1,7 +1,17 @@
-name: Deploy API to Production (Promote + ECS)
+name: Rollback API Production (ECS)
 
 on:
   workflow_dispatch:
+    inputs:
+      source_tag:
+        description: "ECR tag to roll back from"
+        required: false
+        default: "prod-prev"
+        type: string
+      reason:
+        description: "Reason for rollback (for run notes)"
+        required: false
+        type: string
 
 permissions:
   id-token: write
@@ -16,13 +26,29 @@ env:
   API_BASE_URL: ${{ vars.API_BASE_URL_PROD }}
 
 jobs:
-  promote_and_deploy:
-    name: Promote selected ref to prod
+  rollback:
+    name: Roll back prod API from selected tag
     runs-on: ubuntu-latest
     environment: production
     steps:
-      - name: Checkout (selected ref)
-        uses: actions/checkout@v4
+      - name: Validate rollback variables
+        shell: bash
+        run: |
+          set -euo pipefail
+          : "${AWS_REGION:?missing AWS_REGION (GitHub Actions var)}"
+          : "${ECR_REPO:?missing ECR_REPO (GitHub Actions var)}"
+          : "${ECS_CLUSTER:?missing ECS_CLUSTER_PROD (GitHub Actions var)}"
+          : "${ECS_SERVICE:?missing ECS_SERVICE_PROD (GitHub Actions var)}"
+
+          SOURCE_TAG="${{ github.event.inputs.source_tag }}"
+          if [[ -z "${SOURCE_TAG}" ]]; then
+            echo "source_tag cannot be empty"
+            exit 1
+          fi
+
+          if [[ -n "${{ github.event.inputs.reason }}" ]]; then
+            echo "Rollback reason: ${{ github.event.inputs.reason }}"
+          fi
 
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
@@ -33,8 +59,8 @@ jobs:
       - name: Login to Amazon ECR
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Capture current prod image manifest (for rollback)
-        id: prev
+      - name: Capture current prod image manifest (for rollback safety)
+        id: current
         shell: bash
         run: |
           set -euo pipefail
@@ -47,46 +73,33 @@ jobs:
             --output text)"
 
           if [[ -z "${MANIFEST}" || "${MANIFEST}" == "None" ]]; then
-            echo "No existing :prod tag found; rollback will be skipped if deploy fails."
-            echo "prev_manifest_b64=" >> "${GITHUB_OUTPUT}"
+            echo "curr_manifest_b64=" >> "${GITHUB_OUTPUT}"
             exit 0
           fi
 
-          prev_manifest_b64="$(printf '%s' "${MANIFEST}" | base64 -w0 2>/dev/null || printf '%s' "${MANIFEST}" | base64 | tr -d '\n')"
-          echo "prev_manifest_b64=${prev_manifest_b64}" >> "${GITHUB_OUTPUT}"
+          curr_manifest_b64="$(printf '%s' "${MANIFEST}" | base64 -w0 2>/dev/null || printf '%s' "${MANIFEST}" | base64 | tr -d '\n')"
+          echo "curr_manifest_b64=${curr_manifest_b64}" >> "${GITHUB_OUTPUT}"
 
-      - name: Preserve previous prod image tag (prod-prev)
-        if: steps.prev.outputs.prev_manifest_b64 != ''
-        shell: bash
-        run: |
-          set -euo pipefail
-          prev_manifest="$(printf '%s' "${{ steps.prev.outputs.prev_manifest_b64 }}" | base64 -d)"
-
-          aws ecr put-image \
-            --region "${AWS_REGION}" \
-            --repository-name "${ECR_REPO}" \
-            --image-tag prod-prev \
-            --image-manifest "${prev_manifest}" >/dev/null
-
-      - name: Promote ECR image tag (SHA -> prod)
+      - name: Promote rollback source tag to prod
         shell: bash
         run: |
           set -euo pipefail
 
-          SHA="${GITHUB_SHA}"
+          SOURCE_TAG="${{ github.event.inputs.source_tag }}"
+          [[ -z "${SOURCE_TAG}" ]] && SOURCE_TAG="prod-prev"
 
-          echo "Promoting ${ECR_REPO}:${SHA} -> ${ECR_REPO}:prod"
+          echo "Rolling back ${ECR_REPO}:prod <= ${ECR_REPO}:${SOURCE_TAG}"
 
           MANIFEST="$(aws ecr batch-get-image \
             --region "${AWS_REGION}" \
             --repository-name "${ECR_REPO}" \
-            --image-ids "imageTag=${SHA}" \
+            --image-ids "imageTag=${SOURCE_TAG}" \
             --query 'images[0].imageManifest' \
             --output text)"
 
           if [[ -z "${MANIFEST}" || "${MANIFEST}" == "None" ]]; then
-            echo "ERROR: Could not find ECR image tag '${SHA}' in '${ECR_REPO}'."
-            echo "Make sure staging deploy has run for this commit (it pushes :${SHA})."
+            echo "ERROR: Could not find rollback source tag '${SOURCE_TAG}' in '${ECR_REPO}'."
+            echo "Try running deploy-prod once with the new workflow (it saves :prod-prev)."
             exit 1
           fi
 
@@ -96,7 +109,7 @@ jobs:
             --image-tag prod \
             --image-manifest "${MANIFEST}" >/dev/null
 
-      - name: Force new ECS deployment (prod)
+      - name: Force new ECS deployment (prod rollback)
         run: |
           aws ecs update-service \
             --cluster "${ECS_CLUSTER}" \
@@ -104,7 +117,7 @@ jobs:
             --force-new-deployment \
             --region "${AWS_REGION}"
 
-      - name: Wait for service stability (prod)
+      - name: Wait for service stability (prod rollback)
         shell: bash
         run: |
           set -euo pipefail
@@ -161,53 +174,23 @@ jobs:
           echo "ERROR: health check did not return UP"
           exit 1
 
-      - name: Roll back prod tag + redeploy (on failure)
-        if: failure() && steps.prev.outputs.prev_manifest_b64 != ''
+      - name: Restore pre-rollback prod image (if rollback fails)
+        if: failure() && steps.current.outputs.curr_manifest_b64 != ''
         shell: bash
         run: |
           set -euo pipefail
 
-          echo "Rolling back :prod to previous image digest..."
-          prev_manifest="$(printf '%s' "${{ steps.prev.outputs.prev_manifest_b64 }}" | base64 -d)"
+          echo "Rollback deployment failed; restoring previous :prod manifest."
+          curr_manifest="$(printf '%s' "${{ steps.current.outputs.curr_manifest_b64 }}" | base64 -d)"
 
           aws ecr put-image \
             --region "${AWS_REGION}" \
             --repository-name "${ECR_REPO}" \
             --image-tag prod \
-            --image-manifest "${prev_manifest}" >/dev/null
+            --image-manifest "${curr_manifest}" >/dev/null
 
           aws ecs update-service \
             --cluster "${ECS_CLUSTER}" \
             --service "${ECS_SERVICE}" \
             --force-new-deployment \
             --region "${AWS_REGION}"
-
-          deadline=$((SECONDS + 1800)) # 30 minutes
-          echo "Waiting for rollback stability (timeout: 30m)..."
-
-          while (( SECONDS < deadline )); do
-            status_json="$(aws ecs describe-services \
-              --cluster "${ECS_CLUSTER}" \
-              --services "${ECS_SERVICE}" \
-              --region "${AWS_REGION}" \
-              --query 'services[0].{desired:desiredCount,running:runningCount,pending:pendingCount,primary:deployments[?status==`PRIMARY`]|[0],events:events[0:5]}' \
-              --output json)"
-
-            desired="$(echo "${status_json}" | jq -r '.desired')"
-            running="$(echo "${status_json}" | jq -r '.running')"
-            pending="$(echo "${status_json}" | jq -r '.pending')"
-            rollout_state="$(echo "${status_json}" | jq -r '.primary.rolloutState // ""')"
-
-            echo "desired=${desired} running=${running} pending=${pending} rollout=${rollout_state}"
-
-            if [[ "${desired}" == "${running}" && "${pending}" == "0" && "${rollout_state}" == "COMPLETED" ]]; then
-              echo "Rollback stable."
-              exit 0
-            fi
-
-            sleep 15
-          done
-
-          echo "ERROR: rollback did not become stable within 30 minutes."
-          echo "${status_json}" | jq .
-          exit 1
