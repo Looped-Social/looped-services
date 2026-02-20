@@ -185,7 +185,7 @@ public class WidgetSummaryService {
 
     private String resolveAvatarThumbnailUrl(UserRepository.UserRow actor) {
         String defaultProfileImageUrl = appConfig.defaultProfileImageUrl();
-        return ProfileImageUrls.resolve(actor.profileImageUrl, defaultProfileImageUrl);
+        return resolveWidgetProfileImage(actor.profileImageUrl, defaultProfileImageUrl);
     }
 
     private String resolveDisplayName(UserRepository.UserRow actor) {
@@ -215,7 +215,7 @@ public class WidgetSummaryService {
                 .map(row -> new RecentChat(
                         row.id,
                         conversationTitle(row),
-                        ProfileImageUrls.resolve(row.otherUserProfileImageUrl, defaultProfileImageUrl),
+                        resolveWidgetProfileImage(row.otherUserProfileImageUrl, defaultProfileImageUrl),
                         sanitizeRecentChatPreview(row.lastMessage),
                         Math.max(0, row.unreadCount)
                 ))
@@ -243,7 +243,7 @@ public class WidgetSummaryService {
                 sanitizePreview(row.content),
                 Math.max(0, row.likesCount),
                 Math.max(0, row.commentsCount),
-                resolveMediaThumbnailUrl(row)
+                resolveWidgetImageUrl(resolveMediaThumbnailUrl(row))
         );
     }
 
@@ -294,6 +294,218 @@ public class WidgetSummaryService {
     private String normalizeMime(String mime) {
         if (mime == null) return "";
         return mime.trim().toLowerCase(Locale.ROOT);
+    }
+
+    private String resolveWidgetImageUrl(String rawUrl) {
+        if (rawUrl == null) return null;
+        String trimmed = rawUrl.trim();
+        if (trimmed.isBlank()) return null;
+
+        String normalized = trimmed;
+        if (!normalized.startsWith("http://") && !normalized.startsWith("https://")) {
+            String cdn = buildCdnUrlFromKey(normalized);
+            if (cdn == null) {
+                log.warn("widget_summary_image_rejected reason=relative_or_missing_cdn url={}", rawUrl);
+            }
+            return cdn;
+        }
+
+        java.net.URI uri;
+        try {
+            uri = java.net.URI.create(normalized);
+        } catch (IllegalArgumentException e) {
+            log.warn("widget_summary_image_rejected reason=invalid_uri url={}", rawUrl);
+            return null;
+        }
+
+        String scheme = uri.getScheme();
+        String host = uri.getHost();
+        if (scheme == null || host == null) {
+            String cdn = buildCdnUrlFromKey(normalized);
+            if (cdn == null) {
+                log.warn("widget_summary_image_rejected reason=missing_host url={}", rawUrl);
+            }
+            return cdn;
+        }
+
+        if (!scheme.equalsIgnoreCase("https")) {
+            if (scheme.equalsIgnoreCase("http")) {
+                normalized = "https://" + host + uri.getRawPath() +
+                        (uri.getRawQuery() == null ? "" : "?" + uri.getRawQuery());
+                try {
+                    uri = java.net.URI.create(normalized);
+                } catch (IllegalArgumentException e) {
+                    log.warn("widget_summary_image_rejected reason=invalid_https_upgrade url={}", rawUrl);
+                    return null;
+                }
+            } else {
+                log.warn("widget_summary_image_rejected reason=non_https url={}", rawUrl);
+                return null;
+            }
+        }
+
+        boolean isCdnHost = !cloudfrontDomain.isBlank() && host.equalsIgnoreCase(cloudfrontDomain);
+        if (!isCdnHost && isPrivateHost(host)) {
+            log.warn("widget_summary_image_rejected reason=private_host host={}", host);
+            return null;
+        }
+
+        if (looksLikeS3Host(host) && !cloudfrontDomain.isBlank()) {
+            String key = extractObjectKey(uri, host);
+            String cdn = buildCdnUrlFromKey(key);
+            if (cdn != null) return cdn;
+        }
+
+        if (isSignedUrl(uri)) {
+            long minExpirySeconds = Math.max(86_400L, (long) snapshotTtlSeconds * 2L);
+            Long expirySeconds = signedUrlExpirySeconds(uri);
+            if (expirySeconds != null && expirySeconds < minExpirySeconds) {
+                log.warn("widget_summary_image_rejected reason=signed_url_short_expiry expiry_seconds={} url={}",
+                        expirySeconds, rawUrl);
+                return null;
+            }
+        }
+
+        return normalized;
+    }
+
+    private String resolveWidgetProfileImage(String profileImageUrl, String defaultProfileImageUrl) {
+        String resolved = resolveWidgetImageUrl(profileImageUrl);
+        if (resolved != null) return resolved;
+        return resolveWidgetImageUrl(defaultProfileImageUrl);
+    }
+
+    private boolean looksLikeS3Host(String host) {
+        String h = host.toLowerCase(Locale.ROOT);
+        return h.equals("s3.amazonaws.com")
+                || h.endsWith(".s3.amazonaws.com")
+                || h.contains(".s3-")
+                || h.endsWith(".amazonaws.com") && h.contains("s3");
+    }
+
+    private String extractObjectKey(java.net.URI uri, String host) {
+        String path = uri.getRawPath();
+        if (path == null) return null;
+        String key = path.startsWith("/") ? path.substring(1) : path;
+        if (host.equalsIgnoreCase("s3.amazonaws.com")) {
+            int slash = key.indexOf('/');
+            if (slash >= 0 && slash + 1 < key.length()) {
+                key = key.substring(slash + 1);
+            } else {
+                key = "";
+            }
+        }
+        return key;
+    }
+
+    private String buildCdnUrlFromKey(String key) {
+        if (key == null) return null;
+        String normalized = key.trim();
+        if (normalized.isBlank()) return null;
+        if (normalized.startsWith("https://")) return normalized;
+        if (cloudfrontDomain.isBlank()) return null;
+        if (normalized.startsWith("/")) normalized = normalized.substring(1);
+        if (normalized.isBlank()) return null;
+        return "https://" + cloudfrontDomain + "/" + normalized;
+    }
+
+    private boolean isPrivateHost(String host) {
+        String h = host.toLowerCase(Locale.ROOT);
+        if (h.equals("localhost") || h.endsWith(".local") || h.endsWith(".localdomain") || h.endsWith(".internal")) {
+            return true;
+        }
+        if (isIpLiteral(h)) {
+            try {
+                java.net.InetAddress addr = java.net.InetAddress.getByName(h);
+                return addr.isAnyLocalAddress()
+                        || addr.isLoopbackAddress()
+                        || addr.isLinkLocalAddress()
+                        || addr.isSiteLocalAddress();
+            } catch (Exception ignored) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean isIpLiteral(String host) {
+        if (host == null || host.isBlank()) return false;
+        if (host.contains(":")) return true;
+        return host.matches("\\d{1,3}(?:\\.\\d{1,3}){3}");
+    }
+
+    private boolean isSignedUrl(java.net.URI uri) {
+        String query = uri.getRawQuery();
+        if (query == null || query.isBlank()) return false;
+        String q = query.toLowerCase(Locale.ROOT);
+        return q.contains("x-amz-signature")
+                || q.contains("x-amz-credential")
+                || q.contains("x-amz-expires")
+                || q.contains("expires=")
+                || q.contains("signature=")
+                || q.contains("policy=");
+    }
+
+    private Long signedUrlExpirySeconds(java.net.URI uri) {
+        String query = uri.getRawQuery();
+        if (query == null || query.isBlank()) return null;
+        java.util.Map<String, String> params = parseQueryParams(query);
+
+        String expires = firstParam(params, "X-Amz-Expires", "x-amz-expires");
+        String amzDate = firstParam(params, "X-Amz-Date", "x-amz-date");
+        String cfExpires = firstParam(params, "Expires", "expires");
+
+        if (expires != null && amzDate != null) {
+            try {
+                java.time.OffsetDateTime start = java.time.OffsetDateTime.parse(
+                        amzDate,
+                        java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmssX")
+                );
+                long seconds = Long.parseLong(expires);
+                long diff = java.time.Duration.between(java.time.OffsetDateTime.now(ZoneOffset.UTC), start.plusSeconds(seconds)).toSeconds();
+                return Math.max(0, diff);
+            } catch (RuntimeException ignored) {
+                // fall through
+            }
+        }
+
+        if (cfExpires != null) {
+            try {
+                long epochSeconds = Long.parseLong(cfExpires);
+                long now = java.time.Instant.now().getEpochSecond();
+                return Math.max(0, epochSeconds - now);
+            } catch (NumberFormatException ignored) {
+                return null;
+            }
+        }
+
+        return null;
+    }
+
+    private java.util.Map<String, String> parseQueryParams(String rawQuery) {
+        java.util.Map<String, String> out = new java.util.HashMap<>();
+        String[] pairs = rawQuery.split("&");
+        for (String pair : pairs) {
+            if (pair.isBlank()) continue;
+            int idx = pair.indexOf('=');
+            String key = idx >= 0 ? pair.substring(0, idx) : pair;
+            String val = idx >= 0 ? pair.substring(idx + 1) : "";
+            try {
+                key = java.net.URLDecoder.decode(key, java.nio.charset.StandardCharsets.UTF_8);
+                val = java.net.URLDecoder.decode(val, java.nio.charset.StandardCharsets.UTF_8);
+            } catch (IllegalArgumentException ignored) {
+                // keep raw
+            }
+            out.put(key, val);
+        }
+        return out;
+    }
+
+    private String firstParam(java.util.Map<String, String> params, String... keys) {
+        for (String key : keys) {
+            if (params.containsKey(key)) return params.get(key);
+        }
+        return null;
     }
 
     public enum SummaryStatus { OK, USER_NOT_PROVISIONED }
