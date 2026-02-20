@@ -23,10 +23,11 @@ public class NotificationsController {
     public ResponseEntity<?> list(
             @AuthenticationPrincipal Jwt jwt,
             @RequestParam(value = "cursor", required = false) String cursor,
-            @RequestParam(value = "limit", required = false, defaultValue = "20") int limit
+            @RequestParam(value = "limit", required = false, defaultValue = "20") int limit,
+            @RequestParam(value = "includeDismissed", required = false, defaultValue = "false") boolean includeDismissed
     ) {
         int lim = Math.max(1, Math.min(limit, 100));
-        var res = service.list(jwt.getSubject(), cursor, lim);
+        var res = service.list(jwt.getSubject(), cursor, lim, includeDismissed);
         if (res.status() == NotificationService.Status.USER_NOT_PROVISIONED) {
             return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "user_not_provisioned"));
         }
@@ -52,12 +53,33 @@ public class NotificationsController {
         return ResponseEntity.ok(Map.of("read", true));
     }
 
+    @PostMapping("/{id}/dismiss")
+    public ResponseEntity<?> dismiss(@AuthenticationPrincipal Jwt jwt, @PathVariable("id") long id) {
+        var res = service.dismiss(jwt.getSubject(), id);
+        if (res.status() == NotificationService.Status.USER_NOT_PROVISIONED) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "user_not_provisioned"));
+        }
+        if (res.status() == NotificationService.Status.NOT_FOUND) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "not_found"));
+        }
+        return ResponseEntity.ok(Map.of("dismissed", true));
+    }
+
+    @PostMapping("/dismiss-all")
+    public ResponseEntity<?> dismissAll(@AuthenticationPrincipal Jwt jwt) {
+        var res = service.dismissAll(jwt.getSubject());
+        if (res.status() == NotificationService.Status.USER_NOT_PROVISIONED) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "user_not_provisioned"));
+        }
+        return ResponseEntity.ok(Map.of("dismissedCount", res.dismissedCount()));
+    }
+
     private Map<String, Object> toPayload(NotificationRepository.NotificationRow row) {
         Map<String, Object> map = new HashMap<>();
         map.put("id", row.id);
         map.put("type", row.type);
         map.put("created_at", row.createdAt);
-        map.put("unread", row.readAt == null);
+        map.put("unread", row.readAt == null && row.dismissedAt == null);
         if (row.payload != null && !row.payload.isEmpty()) {
             Map<String, Object> payload = new HashMap<>(row.payload);
             String deeplink = payload.get("deeplink") instanceof String s ? s : null;

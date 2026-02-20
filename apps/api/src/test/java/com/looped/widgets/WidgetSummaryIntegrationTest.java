@@ -129,6 +129,42 @@ class WidgetSummaryIntegrationTest extends PostgresTestBase {
     }
 
     @Test
+    void widget_summary_unread_mentions_excludes_dismissed_notifications() throws Exception {
+        long companyId = jdbc.queryForObject(
+                "INSERT INTO companies(name, domain) VALUES ('Widgets Dismiss Co', 'widgets-dismiss.co') RETURNING id",
+                Long.class
+        );
+        jdbc.update(
+                "INSERT INTO users(firebase_uid, handle, company_id, onboarding_completed_at) VALUES (?,?,?, now())",
+                "uid-widget-dismissed-mentions",
+                "widgetdismiss",
+                companyId
+        );
+        long userId = jdbc.queryForObject("SELECT id FROM users WHERE firebase_uid = ?", Long.class, "uid-widget-dismissed-mentions");
+
+        jdbc.update(
+                "INSERT INTO notifications(user_id, type, payload, created_at) VALUES (?, 'mention', ?::jsonb, now() - interval '2 minutes')",
+                userId,
+                "{}"
+        );
+        jdbc.update(
+                "INSERT INTO notifications(user_id, type, payload, created_at, dismissed_at) VALUES (?, 'mention', ?::jsonb, now() - interval '1 minutes', now())",
+                userId,
+                "{}"
+        );
+        jdbc.update(
+                "INSERT INTO notifications(user_id, type, payload, created_at, read_at) VALUES (?, 'mention', ?::jsonb, now(), now())",
+                userId,
+                "{}"
+        );
+
+        mockMvc.perform(get("/v1/widget-summary")
+                        .header("Authorization", "Bearer " + token("uid-widget-dismissed-mentions")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.inbox.unread_mentions").value(1));
+    }
+
+    @Test
     void widget_summary_aggregates_counts_and_mark_seen_updates_activity() throws Exception {
         OffsetDateTime now = OffsetDateTime.now();
 

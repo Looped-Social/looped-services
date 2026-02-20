@@ -27,6 +27,10 @@ public class NotificationService {
     }
 
     public ListResult list(String firebaseUid, String cursor, int limit) {
+        return list(firebaseUid, cursor, limit, false);
+    }
+
+    public ListResult list(String firebaseUid, String cursor, int limit, boolean includeDismissed) {
         var actor = requireProvisionedUser(firebaseUid);
         if (actor.isEmpty()) return ListResult.userNotProvisioned();
         OffsetDateTime cTs = null; Long cId = null;
@@ -42,22 +46,17 @@ public class NotificationService {
         NotificationRepository.NotificationRow lastIncluded = null;
         int lastBatchSize = 0;
         while (filtered.size() < limit) {
-            var rows = repo.findByUser(actor.get().id, cTs, cId, limit);
+            var rows = repo.findByUser(actor.get().id, cTs, cId, limit, includeDismissed);
             lastBatchSize = rows.size();
             if (rows.isEmpty()) break;
             var activeActorUserIds = activeActorUserIds(rows);
             var mutedByChannelId = mutedChannelsForUser(actor.get().id, rows);
             for (var row : rows) {
+                if (!isVisibleInApp(row, prefs, mutedByChannelId)) continue;
                 tombstoneDeletedActor(row, activeActorUserIds);
-                var type = NotificationType.fromValue(row.type).orElse(null);
-                if (isMutedChannelNotification(row, mutedByChannelId)) {
-                    continue;
-                }
-                if (type == null || prefs.allows(NotificationChannel.IN_APP, type)) {
-                    filtered.add(row);
-                    lastIncluded = row;
-                    if (filtered.size() == limit) break;
-                }
+                filtered.add(row);
+                lastIncluded = row;
+                if (filtered.size() == limit) break;
             }
             if (filtered.size() == limit) break;
             if (rows.size() < limit) break;
@@ -86,13 +85,51 @@ public class NotificationService {
         return MarkReadResult.ok();
     }
 
+    public DismissResult dismiss(String firebaseUid, long notificationId) {
+        var actor = requireProvisionedUser(firebaseUid);
+        if (actor.isEmpty()) return DismissResult.userNotProvisioned();
+        if (repo.markDismissed(notificationId, actor.get().id, OffsetDateTime.now())) {
+            return DismissResult.ok();
+        }
+        return DismissResult.notFound();
+    }
+
+    public DismissAllResult dismissAll(String firebaseUid) {
+        var actor = requireProvisionedUser(firebaseUid);
+        if (actor.isEmpty()) return DismissAllResult.userNotProvisioned();
+        NotificationPreferences prefs = preferences.preferencesForUserId(actor.get().id);
+        int dismissedCount = 0;
+        OffsetDateTime cTs = null;
+        Long cId = null;
+        OffsetDateTime now = OffsetDateTime.now();
+
+        while (true) {
+            var rows = repo.findByUser(actor.get().id, cTs, cId, 200, false);
+            if (rows.isEmpty()) break;
+
+            var mutedByChannelId = mutedChannelsForUser(actor.get().id, rows);
+            List<Long> visibleIds = rows.stream()
+                    .filter(row -> isVisibleInApp(row, prefs, mutedByChannelId))
+                    .map(row -> row.id)
+                    .toList();
+            dismissedCount += repo.markDismissedByIds(actor.get().id, visibleIds, now);
+
+            if (rows.size() < 200) break;
+            var last = rows.get(rows.size() - 1);
+            cTs = last.createdAt;
+            cId = last.id;
+        }
+
+        return DismissAllResult.ok(dismissedCount);
+    }
+
     private Optional<UserRepository.UserRow> requireProvisionedUser(String firebaseUid) {
         var user = users.findByFirebaseUid(firebaseUid);
         if (user.isEmpty() || user.get().companyId == null) return Optional.empty();
         return user;
     }
 
-    public enum Status { OK, USER_NOT_PROVISIONED, FORBIDDEN }
+    public enum Status { OK, USER_NOT_PROVISIONED, FORBIDDEN, NOT_FOUND }
 
     public record ListResult(Status status, List<NotificationRepository.NotificationRow> notifications, String nextCursor) {
         static ListResult ok(List<NotificationRepository.NotificationRow> notifications, String next) { return new ListResult(Status.OK, notifications, next); }
@@ -103,6 +140,17 @@ public class NotificationService {
         static MarkReadResult ok() { return new MarkReadResult(Status.OK); }
         static MarkReadResult userNotProvisioned() { return new MarkReadResult(Status.USER_NOT_PROVISIONED); }
         static MarkReadResult forbidden() { return new MarkReadResult(Status.FORBIDDEN); }
+    }
+
+    public record DismissResult(Status status) {
+        static DismissResult ok() { return new DismissResult(Status.OK); }
+        static DismissResult userNotProvisioned() { return new DismissResult(Status.USER_NOT_PROVISIONED); }
+        static DismissResult notFound() { return new DismissResult(Status.NOT_FOUND); }
+    }
+
+    public record DismissAllResult(Status status, int dismissedCount) {
+        static DismissAllResult ok(int dismissedCount) { return new DismissAllResult(Status.OK, dismissedCount); }
+        static DismissAllResult userNotProvisioned() { return new DismissAllResult(Status.USER_NOT_PROVISIONED, 0); }
     }
 
     private java.util.Map<Long, Boolean> mutedChannelsForUser(long userId, List<NotificationRepository.NotificationRow> rows) {
@@ -123,6 +171,14 @@ public class NotificationService {
         Long channelId = channelIdFromPayload(row);
         if (channelId == null || channelId <= 0) return false;
         return mutedByChannelId.getOrDefault(channelId, false);
+    }
+
+    private boolean isVisibleInApp(NotificationRepository.NotificationRow row,
+                                   NotificationPreferences preferences,
+                                   java.util.Map<Long, Boolean> mutedByChannelId) {
+        if (isMutedChannelNotification(row, mutedByChannelId)) return false;
+        var type = NotificationType.fromValue(row.type).orElse(null);
+        return type == null || preferences.allows(NotificationChannel.IN_APP, type);
     }
 
     private Long channelIdFromPayload(NotificationRepository.NotificationRow row) {

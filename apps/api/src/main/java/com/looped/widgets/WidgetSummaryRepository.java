@@ -80,6 +80,7 @@ public class WidgetSummaryRepository {
                     WHERE n.user_id = ?
                     AND n.type = 'mention'
                     AND n.read_at IS NULL
+                    AND n.dismissed_at IS NULL
                 )
                 SELECT
                     COALESCE(um.cnt, 0) AS unread_messages,

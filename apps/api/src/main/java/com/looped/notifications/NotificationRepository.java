@@ -40,34 +40,65 @@ public class NotificationRepository {
             }
             row.createdAt = rs.getObject("created_at", OffsetDateTime.class);
             row.readAt = rs.getObject("read_at", OffsetDateTime.class);
+            row.dismissedAt = rs.getObject("dismissed_at", OffsetDateTime.class);
             return row;
         }
     };
 
-    public List<NotificationRow> findByUser(long userId, OffsetDateTime cursorTs, Long cursorId, int limit) {
+    public List<NotificationRow> findByUser(long userId, OffsetDateTime cursorTs, Long cursorId, int limit, boolean includeDismissed) {
+        String dismissedFilter = includeDismissed ? "" : " AND dismissed_at IS NULL";
         if (cursorTs == null || cursorId == null) {
             return jdbc.query(
-                    "SELECT id, user_id, type, payload, created_at, read_at FROM notifications " +
-                            "WHERE user_id = ? ORDER BY created_at DESC, id DESC LIMIT ?",
+                    "SELECT id, user_id, type, payload, created_at, read_at, dismissed_at FROM notifications " +
+                            "WHERE user_id = ?" + dismissedFilter + " ORDER BY created_at DESC, id DESC LIMIT ?",
                     mapperRow, userId, limit
             );
         }
         return jdbc.query(
-                "SELECT id, user_id, type, payload, created_at, read_at FROM notifications " +
+                "SELECT id, user_id, type, payload, created_at, read_at, dismissed_at FROM notifications " +
                         "WHERE user_id = ? AND (created_at < ? OR (created_at = ? AND id < ?)) " +
-                        "ORDER BY created_at DESC, id DESC LIMIT ?",
+                        dismissedFilter +
+                        " ORDER BY created_at DESC, id DESC LIMIT ?",
                 mapperRow, userId, cursorTs, cursorTs, cursorId, limit
         );
     }
 
+    public List<NotificationRow> findByUser(long userId, OffsetDateTime cursorTs, Long cursorId, int limit) {
+        return findByUser(userId, cursorTs, cursorId, limit, false);
+    }
+
     public Optional<NotificationRow> findById(long id) {
-        var list = jdbc.query("SELECT id, user_id, type, payload, created_at, read_at FROM notifications WHERE id = ?", mapperRow, id);
+        var list = jdbc.query("SELECT id, user_id, type, payload, created_at, read_at, dismissed_at FROM notifications WHERE id = ?", mapperRow, id);
         return list.isEmpty() ? Optional.empty() : Optional.of(list.get(0));
     }
 
     public boolean markRead(long notificationId, long userId, OffsetDateTime ts) {
         int updated = jdbc.update("UPDATE notifications SET read_at = ? WHERE id = ? AND user_id = ?", ts, notificationId, userId);
         return updated > 0;
+    }
+
+    public boolean markDismissed(long notificationId, long userId, OffsetDateTime ts) {
+        int updated = jdbc.update(
+                "UPDATE notifications SET dismissed_at = COALESCE(dismissed_at, ?) WHERE id = ? AND user_id = ?",
+                ts,
+                notificationId,
+                userId
+        );
+        return updated > 0;
+    }
+
+    public int markDismissedByIds(long userId, List<Long> notificationIds, OffsetDateTime ts) {
+        if (notificationIds == null || notificationIds.isEmpty()) return 0;
+        return jdbc.update(connection -> {
+            var ps = connection.prepareStatement(
+                    "UPDATE notifications SET dismissed_at = ? " +
+                            "WHERE user_id = ? AND dismissed_at IS NULL AND id = ANY (?::bigint[])"
+            );
+            ps.setObject(1, ts);
+            ps.setLong(2, userId);
+            ps.setArray(3, connection.createArrayOf("bigint", notificationIds.toArray()));
+            return ps;
+        });
     }
 
     public long insert(long userId, String type, Map<String, Object> payload) {
@@ -139,5 +170,6 @@ public class NotificationRepository {
         public Map<String, Object> payload = Map.of();
         public OffsetDateTime createdAt;
         public OffsetDateTime readAt;
+        public OffsetDateTime dismissedAt;
     }
 }

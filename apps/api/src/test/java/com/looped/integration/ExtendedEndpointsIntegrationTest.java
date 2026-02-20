@@ -936,6 +936,93 @@ class ExtendedEndpointsIntegrationTest extends PostgresTestBase {
     }
 
     @Test
+    void notifications_support_single_dismiss_and_dismiss_all() throws Exception {
+        long companyId = jdbc.queryForObject("INSERT INTO companies(name, domain) VALUES ('NotifDismissCo','notifdismiss.co') RETURNING id", Long.class);
+        long userId = jdbc.queryForObject("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?) RETURNING id",
+                Long.class, "uid-notif-dismiss", "notifierdismiss", companyId);
+        long otherUserId = jdbc.queryForObject("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?) RETURNING id",
+                Long.class, "uid-notif-dismiss-other", "notifierdismissother", companyId);
+
+        long firstId = jdbc.queryForObject(
+                "INSERT INTO notifications(user_id, type, payload, created_at) VALUES (?,?, ?::jsonb, now() - interval '3 minutes') RETURNING id",
+                Long.class,
+                userId,
+                "mention",
+                "{}"
+        );
+        long secondId = jdbc.queryForObject(
+                "INSERT INTO notifications(user_id, type, payload, created_at) VALUES (?,?, ?::jsonb, now() - interval '2 minutes') RETURNING id",
+                Long.class,
+                userId,
+                "like",
+                "{}"
+        );
+        jdbc.queryForObject(
+                "INSERT INTO notifications(user_id, type, payload, created_at) VALUES (?,?, ?::jsonb, now() - interval '1 minutes') RETURNING id",
+                Long.class,
+                userId,
+                "comment",
+                "{}"
+        );
+        long otherUserNotificationId = jdbc.queryForObject(
+                "INSERT INTO notifications(user_id, type, payload) VALUES (?,?, ?::jsonb) RETURNING id",
+                Long.class,
+                otherUserId,
+                "mention",
+                "{}"
+        );
+
+        String auth = "Bearer " + token("uid-notif-dismiss");
+
+        mockMvc.perform(get("/v1/notifications")
+                        .header("Authorization", auth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items", hasSize(3)));
+
+        mockMvc.perform(post("/v1/notifications/" + secondId + "/dismiss")
+                        .header("Authorization", auth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.dismissed", equalTo(true)));
+
+        mockMvc.perform(get("/v1/notifications")
+                        .header("Authorization", auth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items", hasSize(2)))
+                .andExpect(jsonPath("$.items[*].id", not(hasItem((int) secondId))));
+
+        mockMvc.perform(get("/v1/notifications?includeDismissed=true")
+                        .header("Authorization", auth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items", hasSize(3)))
+                .andExpect(jsonPath("$.items[?(@.id==" + secondId + ")].unread", contains(false)));
+
+        mockMvc.perform(post("/v1/notifications/" + otherUserNotificationId + "/dismiss")
+                        .header("Authorization", auth))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error", equalTo("not_found")));
+
+        mockMvc.perform(post("/v1/notifications/dismiss-all")
+                        .header("Authorization", auth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.dismissedCount", equalTo(2)));
+
+        mockMvc.perform(get("/v1/notifications")
+                        .header("Authorization", auth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items", hasSize(0)));
+
+        mockMvc.perform(post("/v1/notifications/dismiss-all")
+                        .header("Authorization", auth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.dismissedCount", equalTo(0)));
+
+        mockMvc.perform(post("/v1/notifications/" + firstId + "/dismiss")
+                        .header("Authorization", auth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.dismissed", equalTo(true)));
+    }
+
+    @Test
     void me_analytics_returns_total_and_window_counts() throws Exception {
         long companyId = jdbc.queryForObject("INSERT INTO companies(name, domain) VALUES ('AnalyticCo','ana.co') RETURNING id", Long.class);
         long userId = jdbc.queryForObject("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?) RETURNING id",
