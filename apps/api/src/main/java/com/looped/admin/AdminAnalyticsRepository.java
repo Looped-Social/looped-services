@@ -1331,6 +1331,74 @@ public class AdminAnalyticsRepository {
         }, from, to, communityId, communityKind == null ? "" : communityKind, audience.wireValue());
     }
 
+    public DashboardSessionsSummaryRow dashboardSessionsSummary(OffsetDateTime from,
+                                                               OffsetDateTime to,
+                                                               Long communityId,
+                                                               AdminDashboardAudience audience) {
+        if (from == null || to == null) throw new IllegalArgumentException("from/to required");
+        String sql = """
+                WITH params AS (
+                    SELECT ?::timestamptz AS from_ts,
+                           ?::timestamptz AS to_ts,
+                           ?::bigint AS community_id_param,
+                           ?::text AS audience
+                ),
+                events AS (
+                    SELECT
+                        te.user_id,
+                        te.session_id,
+                        te.occurred_at,
+                        COALESCE(te.community_id, p.community_id, te.feed_community_id) AS resolved_community_id,
+                        p.is_anon AS post_is_anon,
+                        params.community_id_param AS community_id_param,
+                        params.audience AS audience
+                    FROM telemetry_events te
+                    LEFT JOIN posts p ON p.id = te.post_id
+                    CROSS JOIN params
+                    WHERE te.occurred_at >= from_ts AND te.occurred_at < to_ts
+                      AND te.type IN (
+                          'feed_impression',
+                          'post_open',
+                          'comments_open',
+                          'video_watch',
+                          'interaction_blocked',
+                          'community_join_intent',
+                          'community_verify_intent'
+                      )
+                ),
+                filtered AS (
+                    SELECT *
+                    FROM events
+                    WHERE (community_id_param IS NULL OR resolved_community_id = community_id_param)
+                      AND (
+                          audience = 'both'
+                          OR (audience = 'public' AND (post_is_anon = false OR post_is_anon IS NULL))
+                          OR (audience = 'anon' AND post_is_anon = true)
+                      )
+                ),
+                sessions AS (
+                    SELECT user_id,
+                           session_id,
+                           MIN(occurred_at) AS session_start,
+                           MAX(occurred_at) AS session_end
+                    FROM filtered
+                    GROUP BY user_id, session_id
+                )
+                SELECT
+                    COUNT(*) AS sessions_total,
+                    COUNT(DISTINCT user_id) AS active_users,
+                    COALESCE(AVG(EXTRACT(EPOCH FROM (session_end - session_start))), 0) AS avg_session_seconds
+                FROM sessions
+                """;
+        return jdbc.queryForObject(sql, (rs, rowNum) -> {
+            DashboardSessionsSummaryRow row = new DashboardSessionsSummaryRow();
+            row.sessionsTotal = rs.getLong("sessions_total");
+            row.activeUsers = rs.getLong("active_users");
+            row.avgSessionSeconds = rs.getDouble("avg_session_seconds");
+            return row;
+        }, from, to, communityId, audience.wireValue());
+    }
+
     public UniqueParticipantsSummaryRow uniqueParticipantsPerPostOptional(Long communityId,
                                                                           OffsetDateTime from,
                                                                           OffsetDateTime to,
@@ -3359,6 +3427,12 @@ public class AdminAnalyticsRepository {
     public static class DashboardActiveUsersSummaryRow {
         public long dau;
         public long mau30d;
+    }
+
+    public static class DashboardSessionsSummaryRow {
+        public long sessionsTotal;
+        public long activeUsers;
+        public double avgSessionSeconds;
     }
 
     public static class DashboardContentVolumeSummaryRow {

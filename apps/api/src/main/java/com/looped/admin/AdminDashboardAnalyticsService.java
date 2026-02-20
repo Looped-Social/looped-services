@@ -33,6 +33,7 @@ public class AdminDashboardAnalyticsService {
         var newUsers = analytics.dashboardNewUsersSummary(dayFrom, weekFrom, toExclusive, communityId, communityKind);
         var retention = analytics.dashboardRetentionSummary(retentionCohortFrom, toExclusive, communityId, communityKind, audience);
         var verified = analytics.dashboardVerifiedActiveUsersSummary(monthFrom, toExclusive, communityId, communityKind, audience);
+        var sessions = analytics.dashboardSessionsSummary(monthFrom, toExclusive, communityId, audience);
         var uniqueParticipants = analytics.uniqueParticipantsPerPostOptional(communityId, monthFrom, toExclusive, audience);
         var antiGrowth = analytics.dashboardAntiGrowthSummary(weekFrom, monthFrom, toExclusive, communityId, communityKind, audience);
 
@@ -43,10 +44,17 @@ public class AdminDashboardAnalyticsService {
                 "dau_mau_ratio", activeUsers.mau30d <= 0 ? 0.0 : (double) activeUsers.dau / (double) activeUsers.mau30d
         ));
 
-        Map<String, Object> sessions = new HashMap<>();
-        sessions.put("sessions_per_user", null);
-        sessions.put("avg_session_length_seconds", null);
-        growth.put("sessions", sessions);
+        long sessionWindowDays = Math.max(1L, java.time.Duration.between(monthFrom, toExclusive).toDays());
+        double sessionsPerUserPerDay = sessions.activeUsers <= 0
+                ? 0.0
+                : (double) sessions.sessionsTotal / (double) sessions.activeUsers / (double) sessionWindowDays;
+        Map<String, Object> sessionsMap = new HashMap<>();
+        sessionsMap.put("sessions_per_user_per_day", sessionsPerUserPerDay);
+        sessionsMap.put("avg_session_length_seconds", sessions.avgSessionSeconds);
+        sessionsMap.put("sessions_total", sessions.sessionsTotal);
+        sessionsMap.put("active_users", sessions.activeUsers);
+        sessionsMap.put("window_days", sessionWindowDays);
+        growth.put("sessions", sessionsMap);
 
         var timeTo = communityId == null
                 ? analytics.timeToFirstActions(monthFrom, toExclusive)
@@ -199,7 +207,6 @@ public class AdminDashboardAnalyticsService {
                 "retention_cohorts", Map.of("from", toUtcDayInclusive.minusDays(89), "to", toUtcDayInclusive)
         ));
         meta.put("unavailable_metrics", List.of(
-                "growth.sessions",
                 "growth.virality_coefficient_month",
                 "growth.sentiment_per_100_posts_per_day",
                 "both.invites_by_source",
@@ -225,4 +232,3 @@ public class AdminDashboardAnalyticsService {
         );
     }
 }
-
