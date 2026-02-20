@@ -38,6 +38,12 @@
       - `avatar_thumbnail_url` (string|null): profile image URL (or default profile image URL if configured)
       - `specialization` (string|null): display specialization name when set
       - `primary_community_name` (string|null): name for the selected/default verified community
+    - `recent_chats` (array, max 3, most-recent first):
+      - `conversation_id` (long): deep-link id for `looped://conversations/{id}`
+      - `title` (string): other participant display name/handle fallback
+      - `avatar_thumbnail_url` (string|null): other participant profile image
+      - `last_message_preview` (string): sanitized/truncated text safe for widget rendering
+      - `unread_count` (int): unread messages in that conversation
     - `verified_communities` (array):
       - `id` (long)
       - `name` (string)

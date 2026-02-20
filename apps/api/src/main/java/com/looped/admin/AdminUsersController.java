@@ -9,6 +9,8 @@ import com.looped.auth.FirebaseAdminService;
 import com.looped.users.ProfileImageUrls;
 import com.looped.users.UserBanRepository;
 import com.looped.users.UserRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -32,6 +34,7 @@ import java.util.Map;
 @RequestMapping("/v1/admin")
 public class AdminUsersController {
     private static final ObjectMapper JSON = new ObjectMapper();
+    private static final Logger log = LoggerFactory.getLogger(AdminUsersController.class);
 
     private final AdminAuthService auth;
     private final UserRepository users;
@@ -164,17 +167,30 @@ public class AdminUsersController {
         body.put("disabled_reason", user.disabledReason);
         body.put("deleted_at", user.deletedAt);
         body.put("deleted_by", user.deletedBy);
-        var ban = bans.findActiveByUserId(user.id);
-        ban.ifPresent(b -> {
-            Map<String, Object> banMap = new HashMap<>();
-            banMap.put("status", "banned");
-            banMap.put("reason", b.reason);
-            banMap.put("created_at", b.createdAt);
-            banMap.put("expires_at", b.expiresAt);
-            banMap.put("created_by", b.createdBy);
-            body.put("ban", banMap);
-        });
+        Map<String, Object> banMap = new HashMap<>();
+        banMap.put("status", "none");
+        banMap.put("reason", null);
+        banMap.put("created_at", null);
+        banMap.put("expires_at", null);
+        banMap.put("created_by", null);
+        try {
+            var ban = bans.findActiveByUserId(user.id);
+            ban.ifPresent(b -> {
+                banMap.put("status", "banned");
+                banMap.put("reason", b.reason);
+                banMap.put("created_at", b.createdAt);
+                banMap.put("expires_at", b.expiresAt);
+                banMap.put("created_by", b.createdBy);
+            });
+        } catch (RuntimeException ex) {
+            log.warn("Failed to load active ban for admin user detail userId={}", user.id, ex);
+        }
+        body.put("ban", banMap);
+
         var moderationStats = stats.forUser(user.id);
+        if (moderationStats == null) {
+            moderationStats = stats.emptyStats();
+        }
         Map<String, Object> statsMap = new HashMap<>();
         statsMap.put("posts_total", moderationStats.postsTotal);
         statsMap.put("posts_removed_total", moderationStats.postsRemovedTotal);

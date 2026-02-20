@@ -2,6 +2,7 @@ package com.looped.widgets;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.looped.media.MediaRepository;
+import com.looped.messaging.ConversationRepository;
 import com.looped.posts.FeedService;
 import com.looped.posts.PostRepository;
 import com.looped.settings.AppConfigService;
@@ -23,10 +24,13 @@ import java.util.Locale;
 public class WidgetSummaryService {
     private static final Logger log = LoggerFactory.getLogger(WidgetSummaryService.class);
     private static final int CONTENT_PREVIEW_MAX_CHARS = 120;
+    private static final int RECENT_CHATS_LIMIT = 3;
+    private static final int RECENT_CHAT_PREVIEW_MAX_CHARS = 80;
 
     private final UserRepository users;
     private final WidgetSummaryRepository repo;
     private final FeedService feedService;
+    private final ConversationRepository conversations;
     private final AppConfigService appConfig;
     private final MediaRepository media;
     private final String cloudfrontDomain;
@@ -35,6 +39,7 @@ public class WidgetSummaryService {
     public WidgetSummaryService(UserRepository users,
                                 WidgetSummaryRepository repo,
                                 FeedService feedService,
+                                ConversationRepository conversations,
                                 AppConfigService appConfig,
                                 MediaRepository media,
                                 @Value("${cloudfront.domain:}") String cloudfrontDomain,
@@ -42,6 +47,7 @@ public class WidgetSummaryService {
         this.users = users;
         this.repo = repo;
         this.feedService = feedService;
+        this.conversations = conversations;
         this.appConfig = appConfig;
         this.media = media;
         this.cloudfrontDomain = cloudfrontDomain == null ? "" : cloudfrontDomain.trim();
@@ -55,6 +61,7 @@ public class WidgetSummaryService {
         WidgetSummaryRepository.InboxCounts inboxCounts = WidgetSummaryRepository.InboxCounts.zero();
         WidgetSummaryRepository.ProfileStats profileStats = WidgetSummaryRepository.ProfileStats.zero();
         List<WidgetSummaryRepository.VerifiedCommunityRow> communityRows = List.of();
+        List<RecentChat> recentChats = List.of();
 
         try {
             inboxCounts = repo.loadInboxCounts(actor.get().id);
@@ -70,6 +77,11 @@ public class WidgetSummaryService {
             communityRows = repo.loadVerifiedCommunities(actor.get().id);
         } catch (RuntimeException e) {
             log.warn("widget_summary_verified_communities_query_failed user_id={}", actor.get().id, e);
+        }
+        try {
+            recentChats = loadRecentChats(actor.get().id);
+        } catch (RuntimeException e) {
+            log.warn("widget_summary_recent_chats_query_failed user_id={}", actor.get().id, e);
         }
 
         List<VerifiedCommunity> verified = communityRows.stream()
@@ -117,6 +129,7 @@ public class WidgetSummaryService {
                         profileStats.following(),
                         profileStats.likesReceived()
                 ),
+                recentChats,
                 verified,
                 defaultCommunityId,
                 trendingPost
@@ -186,6 +199,32 @@ public class WidgetSummaryService {
         return null;
     }
 
+    private List<RecentChat> loadRecentChats(long userId) {
+        String defaultProfileImageUrl = appConfig.defaultProfileImageUrl();
+        return conversations.listForUser(userId, null, null, RECENT_CHATS_LIMIT).stream()
+                .map(row -> new RecentChat(
+                        row.id,
+                        conversationTitle(row),
+                        ProfileImageUrls.resolve(row.otherUserProfileImageUrl, defaultProfileImageUrl),
+                        sanitizeRecentChatPreview(row.lastMessage),
+                        Math.max(0, row.unreadCount)
+                ))
+                .toList();
+    }
+
+    private String conversationTitle(ConversationRepository.ConversationSummary row) {
+        if (row == null) return null;
+        if (row.otherUserDisplayName != null && !row.otherUserDisplayName.isBlank()) return row.otherUserDisplayName;
+        if (row.otherUserHandle != null && !row.otherUserHandle.isBlank()) return row.otherUserHandle;
+        return "Chat";
+    }
+
+    private String sanitizeRecentChatPreview(String content) {
+        String normalized = sanitizeText(content, RECENT_CHAT_PREVIEW_MAX_CHARS);
+        if (normalized == null || normalized.isBlank()) return "";
+        return normalized;
+    }
+
     private TrendingPost toTrendingPost(PostRepository.TrendingRow row) {
         if (row == null) return null;
         return new TrendingPost(
@@ -199,7 +238,12 @@ public class WidgetSummaryService {
     }
 
     private String sanitizePreview(String content) {
-        if (content == null) return "";
+        String normalized = sanitizeText(content, CONTENT_PREVIEW_MAX_CHARS);
+        return normalized == null ? "" : normalized;
+    }
+
+    private String sanitizeText(String content, int maxChars) {
+        if (content == null) return null;
         String normalized = content
                 .replace('\n', ' ')
                 .replace('\r', ' ')
@@ -207,8 +251,8 @@ public class WidgetSummaryService {
                 .replaceAll("\\s+", " ")
                 .trim();
         normalized = normalized.replaceAll("[\\p{Cntrl}]", "");
-        if (normalized.length() <= CONTENT_PREVIEW_MAX_CHARS) return normalized;
-        return normalized.substring(0, CONTENT_PREVIEW_MAX_CHARS - 3).trim() + "...";
+        if (normalized.length() <= maxChars) return normalized;
+        return normalized.substring(0, maxChars - 3).trim() + "...";
     }
 
     private String resolveMediaThumbnailUrl(PostRepository.TrendingRow row) {
@@ -279,6 +323,7 @@ public class WidgetSummaryService {
             Inbox inbox,
             @JsonProperty("profile_summary") ProfileSummary profileSummary,
             @JsonProperty("profile_stats") ProfileStats profileStats,
+            @JsonProperty("recent_chats") List<RecentChat> recentChats,
             @JsonProperty("verified_communities") List<VerifiedCommunity> verifiedCommunities,
             @JsonProperty("default_community_id") Long defaultCommunityId,
             @JsonProperty("trending_post") TrendingPost trendingPost
@@ -301,6 +346,14 @@ public class WidgetSummaryService {
             @JsonProperty("avatar_thumbnail_url") String avatarThumbnailUrl,
             String specialization,
             @JsonProperty("primary_community_name") String primaryCommunityName
+    ) {}
+
+    public record RecentChat(
+            @JsonProperty("conversation_id") long conversationId,
+            String title,
+            @JsonProperty("avatar_thumbnail_url") String avatarThumbnailUrl,
+            @JsonProperty("last_message_preview") String lastMessagePreview,
+            @JsonProperty("unread_count") int unreadCount
     ) {}
 
     public record VerifiedCommunity(

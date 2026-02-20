@@ -84,6 +84,7 @@ class WidgetSummaryIntegrationTest extends PostgresTestBase {
                 .andExpect(jsonPath("$.profile_stats.followers").value(0))
                 .andExpect(jsonPath("$.profile_stats.following").value(0))
                 .andExpect(jsonPath("$.profile_stats.likes_received").value(0))
+                .andExpect(jsonPath("$.recent_chats", hasSize(0)))
                 .andExpect(jsonPath("$.verified_communities", hasSize(0)))
                 .andExpect(jsonPath("$.trending_post").value(nullValue()));
     }
@@ -331,6 +332,12 @@ class WidgetSummaryIntegrationTest extends PostgresTestBase {
                 .andExpect(jsonPath("$.profile_stats.followers").value(1))
                 .andExpect(jsonPath("$.profile_stats.following").value(1))
                 .andExpect(jsonPath("$.profile_stats.likes_received").value(8))
+                .andExpect(jsonPath("$.recent_chats", hasSize(1)))
+                .andExpect(jsonPath("$.recent_chats[0].conversation_id").value(conversationId))
+                .andExpect(jsonPath("$.recent_chats[0].title").value("widgetother"))
+                .andExpect(jsonPath("$.recent_chats[0].avatar_thumbnail_url").value(nullValue()))
+                .andExpect(jsonPath("$.recent_chats[0].last_message_preview").value("unread two"))
+                .andExpect(jsonPath("$.recent_chats[0].unread_count").value(2))
                 .andExpect(jsonPath("$.default_community_id").value(communityOneId))
                 .andExpect(jsonPath("$.verified_communities", hasSize(2)))
                 .andExpect(jsonPath("$.verified_communities[?(@.id==" + communityOneId + ")].new_activity_count").value(contains(1)))

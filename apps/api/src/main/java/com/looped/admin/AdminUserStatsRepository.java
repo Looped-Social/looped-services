@@ -1,5 +1,8 @@
 package com.looped.admin;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
@@ -9,6 +12,7 @@ import java.sql.SQLException;
 
 @Repository
 public class AdminUserStatsRepository {
+    private static final Logger log = LoggerFactory.getLogger(AdminUserStatsRepository.class);
     private final JdbcTemplate jdbc;
 
     public AdminUserStatsRepository(JdbcTemplate jdbc) {
@@ -38,12 +42,12 @@ public class AdminUserStatsRepository {
     };
 
     public UserModerationStats forUser(long userId) {
-        String sql = "WITH user_principal AS (SELECT id FROM principals WHERE user_id = ?) " +
+        String sql = "WITH user_principals AS (SELECT id FROM principals WHERE user_id = ?) " +
                 "SELECT " +
                 "(SELECT COUNT(*) FROM posts p " +
-                "WHERE p.author_principal_id = (SELECT id FROM user_principal)) AS posts_total, " +
+                "WHERE p.author_principal_id IN (SELECT id FROM user_principals)) AS posts_total, " +
                 "(SELECT COUNT(*) FROM posts p " +
-                "WHERE p.author_principal_id = (SELECT id FROM user_principal) AND p.removed_at IS NOT NULL) AS posts_removed_total, " +
+                "WHERE p.author_principal_id IN (SELECT id FROM user_principals) AND p.removed_at IS NOT NULL) AS posts_removed_total, " +
                 "(SELECT COUNT(*) FROM reports r WHERE r.target_type = 'user' AND r.target_id = ?) AS reports_against_user_total, " +
                 "(SELECT COUNT(*) FROM reports r WHERE r.target_type = 'user' AND r.target_id = ? AND r.status = 'open') AS reports_against_user_open, " +
                 "(SELECT COUNT(*) FROM reports r WHERE r.target_type = 'user' AND r.target_id = ? AND r.status = 'resolved') AS reports_against_user_resolved, " +
@@ -53,27 +57,37 @@ public class AdminUserStatsRepository {
                 "(SELECT COUNT(*) FROM reports r WHERE r.reporter_id = ? AND r.status = 'resolved') AS reports_filed_resolved, " +
                 "(SELECT COUNT(*) FROM reports r WHERE r.reporter_id = ? AND r.status = 'dismissed') AS reports_filed_dismissed, " +
                 "(SELECT COUNT(*) FROM reports r JOIN posts p ON p.id = r.target_id " +
-                "WHERE r.target_type = 'post' AND p.author_principal_id = (SELECT id FROM user_principal)) AS reports_against_posts_total, " +
+                "WHERE r.target_type = 'post' AND p.author_principal_id IN (SELECT id FROM user_principals)) AS reports_against_posts_total, " +
                 "(SELECT COUNT(*) FROM reports r JOIN posts p ON p.id = r.target_id " +
-                "WHERE r.target_type = 'post' AND p.author_principal_id = (SELECT id FROM user_principal) AND r.status = 'open') AS reports_against_posts_open, " +
+                "WHERE r.target_type = 'post' AND p.author_principal_id IN (SELECT id FROM user_principals) AND r.status = 'open') AS reports_against_posts_open, " +
                 "(SELECT COUNT(*) FROM reports r JOIN posts p ON p.id = r.target_id " +
-                "WHERE r.target_type = 'post' AND p.author_principal_id = (SELECT id FROM user_principal) AND r.status = 'resolved') AS reports_against_posts_resolved, " +
+                "WHERE r.target_type = 'post' AND p.author_principal_id IN (SELECT id FROM user_principals) AND r.status = 'resolved') AS reports_against_posts_resolved, " +
                 "(SELECT COUNT(*) FROM reports r JOIN posts p ON p.id = r.target_id " +
-                "WHERE r.target_type = 'post' AND p.author_principal_id = (SELECT id FROM user_principal) AND r.status = 'dismissed') AS reports_against_posts_dismissed";
-        return jdbc.queryForObject(
-                sql,
-                MAPPER,
-                userId,
-                userId,
-                userId,
-                userId,
-                userId,
-                userId,
-                userId,
-                userId,
-                userId,
-                userId
-        );
+                "WHERE r.target_type = 'post' AND p.author_principal_id IN (SELECT id FROM user_principals) AND r.status = 'dismissed') AS reports_against_posts_dismissed";
+        try {
+            var rows = jdbc.query(
+                    sql,
+                    MAPPER,
+                    userId,
+                    userId,
+                    userId,
+                    userId,
+                    userId,
+                    userId,
+                    userId,
+                    userId,
+                    userId,
+                    userId
+            );
+            return rows.isEmpty() ? emptyStats() : rows.get(0);
+        } catch (DataAccessException ex) {
+            log.warn("Failed to build moderation stats for userId={}, returning zero stats", userId, ex);
+            return emptyStats();
+        }
+    }
+
+    public UserModerationStats emptyStats() {
+        return new UserModerationStats();
     }
 
     public static class UserModerationStats {
