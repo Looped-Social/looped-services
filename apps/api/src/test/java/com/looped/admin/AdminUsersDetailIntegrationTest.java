@@ -222,6 +222,11 @@ class AdminUsersDetailIntegrationTest extends PostgresTestBase {
                     .andExpect(jsonPath("$.moderation_stats.posts_total", equalTo(1)))
                     .andExpect(jsonPath("$.ban.status", equalTo("none")));
         } finally {
+            // Move post FKs to the retained principal before deduplicating principals.
+            jdbc.update(
+                    "UPDATE posts SET author_principal_id = ? WHERE author_id = ? AND author_principal_id <> ?",
+                    firstPrincipal, userId, firstPrincipal
+            );
             jdbc.update(
                     "DELETE FROM principals p USING principals p2 " +
                             "WHERE p.user_id = p2.user_id AND p.user_id IS NOT NULL AND p.id > p2.id"
@@ -252,11 +257,6 @@ class AdminUsersDetailIntegrationTest extends PostgresTestBase {
                         userId
                 );
             }
-            // Ensure the post in this test remains valid until transaction end.
-            jdbc.update(
-                    "UPDATE posts SET author_principal_id = ? WHERE author_id = ? AND author_principal_id <> ?",
-                    firstPrincipal, userId, firstPrincipal
-            );
         }
     }
 }

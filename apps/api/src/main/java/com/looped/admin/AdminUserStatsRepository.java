@@ -76,7 +76,6 @@ public class AdminUserStatsRepository {
                     userId,
                     userId,
                     userId,
-                    userId,
                     userId
             );
             return rows.isEmpty() ? emptyStats() : rows.get(0);
