@@ -22,6 +22,10 @@ class ContentModerationServiceTest {
         var d = svc.evaluateText("this has BADWORD in it");
         assertThat(d.action()).isEqualTo(ContentModerationService.Action.QUARANTINE);
         assertThat(d.source()).isEqualTo("blocklist");
+        assertThat(d.reason()).isEqualTo("policy:blocklist");
+        assertThat(d.blocklistMatch()).isNotNull();
+        assertThat(d.blocklistMatch().matchedTerm()).isEqualTo("badword");
+        assertThat(d.blocklistMatch().method()).isEqualTo("word-boundary");
     }
 
     @Test
@@ -37,5 +41,6 @@ class ContentModerationServiceTest {
 
         var d = svc.evaluateText("badword");
         assertThat(d.action()).isEqualTo(ContentModerationService.Action.ALLOW);
+        assertThat(d.blocklistMatch()).isNull();
     }
 }

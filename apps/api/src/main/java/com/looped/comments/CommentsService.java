@@ -204,7 +204,7 @@ public class CommentsService {
         boolean quarantineComment = decision.action() == ContentModerationService.Action.QUARANTINE || mediaUnderReview;
         if (quarantineComment) {
             if (decision.action() == ContentModerationService.Action.QUARANTINE) {
-                quarantine.quarantineComment(inserted.id, decision.source(), decision.reason());
+                quarantine.quarantineComment(inserted.id, decision.source(), decision.reason(), decision.blocklistMatch());
             } else {
                 quarantine.quarantineComment(inserted.id, "media", "policy:media_under_review");
             }
@@ -393,7 +393,7 @@ public class CommentsService {
         if (!updated) return EditResult.commentDeleted();
         if (decision.action() == ContentModerationService.Action.QUARANTINE
                 && (comment.get().visibility == null || comment.get().visibility.equalsIgnoreCase("public"))) {
-            quarantine.quarantineComment(commentId, decision.source(), decision.reason());
+            quarantine.quarantineComment(commentId, decision.source(), decision.reason(), decision.blocklistMatch());
         }
 
         var view = comments.findViewById(commentId, actorPrincipalId, post.get().authorPrincipalId).orElseThrow();

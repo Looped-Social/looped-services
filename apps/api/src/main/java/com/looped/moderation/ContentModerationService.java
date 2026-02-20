@@ -2,8 +2,6 @@ package com.looped.moderation;
 
 import org.springframework.stereotype.Service;
 
-import java.util.Set;
-
 @Service
 public class ContentModerationService {
     private final ModerationProperties props;
@@ -22,7 +20,7 @@ public class ContentModerationService {
 
         var match = blocklist.match(text);
         if (match != null) {
-            return Decision.quarantine("blocklist", "policy:blocklist");
+            return Decision.quarantine("blocklist", "policy:blocklist", match);
         }
 
         var openaiRes = openai.moderateText(text);
@@ -46,9 +44,12 @@ public class ContentModerationService {
 
     public enum Action { ALLOW, QUARANTINE, REJECT_ANON }
 
-    public record Decision(Action action, String source, String reason) {
-        static Decision allow() { return new Decision(Action.ALLOW, null, null); }
-        static Decision quarantine(String source, String reason) { return new Decision(Action.QUARANTINE, source, reason); }
-        static Decision rejectAnon(String reason) { return new Decision(Action.REJECT_ANON, "policy", reason); }
+    public record Decision(Action action, String source, String reason, BlocklistService.Match blocklistMatch) {
+        static Decision allow() { return new Decision(Action.ALLOW, null, null, null); }
+        static Decision quarantine(String source, String reason) { return new Decision(Action.QUARANTINE, source, reason, null); }
+        static Decision quarantine(String source, String reason, BlocklistService.Match blocklistMatch) {
+            return new Decision(Action.QUARANTINE, source, reason, blocklistMatch);
+        }
+        static Decision rejectAnon(String reason) { return new Decision(Action.REJECT_ANON, "policy", reason, null); }
     }
 }

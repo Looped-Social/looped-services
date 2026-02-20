@@ -155,7 +155,7 @@ public class PostsService {
             if (quarantinePost) {
                 String qSource = decision.action() == ContentModerationService.Action.REJECT_ANON ? decision.source() : "media";
                 String qReason = decision.action() == ContentModerationService.Action.REJECT_ANON ? decision.reason() : "policy:media_under_review";
-                quarantine.quarantinePost(refreshed.id, qSource, qReason);
+                quarantine.quarantinePost(refreshed.id, qSource, qReason, decision.blocklistMatch());
                 refreshed = posts.findById(refreshed.id).orElse(refreshed);
             } else {
                 indexHashtags(refreshed.id, effectiveCompanyId, content);
@@ -226,7 +226,7 @@ public class PostsService {
             if (quarantinePost) {
                 String qSource = decision.action() == ContentModerationService.Action.QUARANTINE ? decision.source() : "media";
                 String qReason = decision.action() == ContentModerationService.Action.QUARANTINE ? decision.reason() : "policy:media_under_review";
-                quarantine.quarantinePost(refreshed.id, qSource, qReason);
+                quarantine.quarantinePost(refreshed.id, qSource, qReason, decision.blocklistMatch());
                 hashtagPosts.deleteByPostId(refreshed.id);
                 refreshed = posts.findById(refreshed.id).orElse(refreshed);
             } else {
@@ -400,7 +400,7 @@ public class PostsService {
             indexHashtags(postId, post.get().companyId, content);
         }
         if (shouldQuarantine && (post.get().visibility == null || post.get().visibility.equalsIgnoreCase("public"))) {
-            quarantine.quarantinePost(postId, decision.source(), decision.reason());
+            quarantine.quarantinePost(postId, decision.source(), decision.reason(), decision.blocklistMatch());
         }
 
         var updatedPost = posts.findById(postId).orElseThrow();

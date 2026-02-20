@@ -85,6 +85,10 @@ public class AdminModerationQueueController {
             out.put("target_id", item.targetId);
             out.put("source", item.source);
             out.put("reason", item.reason);
+            if (item.matchedTerm != null) out.put("matched_term", item.matchedTerm);
+            if (item.blocklistTermId != null) out.put("blocklist_term_id", item.blocklistTermId);
+            if (item.matchMode != null) out.put("match_mode", item.matchMode);
+            if (item.normalizedText != null) out.put("normalized_text", item.normalizedText);
             out.put("status", item.status);
             out.put("created_at", item.createdAt);
             out.put("updated_at", item.updatedAt);

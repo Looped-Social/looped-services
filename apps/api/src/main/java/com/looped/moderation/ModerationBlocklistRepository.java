@@ -68,6 +68,16 @@ public class ModerationBlocklistRepository {
         );
     }
 
+    public List<EnabledTermRow> listEnabled() {
+        return jdbc.query(
+                "SELECT id, term FROM moderation_blocklist_terms WHERE enabled = true ORDER BY id ASC",
+                (rs, rowNum) -> new EnabledTermRow(
+                        rs.getLong("id"),
+                        rs.getString("term")
+                )
+        );
+    }
+
     public OffsetDateTime maxUpdatedAt() {
         return jdbc.query(
                 "SELECT MAX(updated_at) FROM moderation_blocklist_terms",
@@ -108,5 +118,6 @@ public class ModerationBlocklistRepository {
         public Long createdBy;
         public Long updatedBy;
     }
-}
 
+    public record EnabledTermRow(long id, String term) {}
+}

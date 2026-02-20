@@ -9,10 +9,11 @@ import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.text.Normalizer;
 import java.util.ArrayList;
-import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
-import java.util.Set;
+import java.util.Map;
+import java.util.regex.Pattern;
 
 @Service
 public class BlocklistService {
@@ -33,23 +34,21 @@ public class BlocklistService {
     public Match match(String text) {
         if (text == null || text.isBlank()) return null;
         Compiled c = compiled();
-        if (c.tokens.isEmpty() && c.collapsedTerms.isEmpty()) return null;
+        if (c.singleTokenTerms().isEmpty() && c.regexTerms().isEmpty()) return null;
 
         String normalized = normalize(text);
         if (normalized.isBlank()) return null;
 
         for (String token : tokenize(normalized)) {
-            if (c.tokens.contains(token)) {
-                return new Match("token");
+            TermEntry entry = c.singleTokenTerms().get(token);
+            if (entry != null) {
+                return entry.match("word-boundary", normalized);
             }
         }
 
-        String collapsed = collapse(normalized);
-        if (!collapsed.isBlank()) {
-            for (String term : c.collapsedTerms) {
-                if (!term.isBlank() && collapsed.contains(term)) {
-                    return new Match("collapsed");
-                }
+        for (TermEntry entry : c.regexTerms()) {
+            if (entry.pattern().matcher(normalized).find()) {
+                return entry.match("regex", normalized);
             }
         }
         return null;
@@ -86,29 +85,50 @@ public class BlocklistService {
     }
 
     private Compiled compile() {
-        List<String> raw = new ArrayList<>();
-        raw.addAll(loadLines(props.getBlocklistResource()));
-        raw.addAll(splitInlineTerms(props.getBlocklistTerms()));
+        List<TermInput> raw = new ArrayList<>();
+        for (String term : loadLines(props.getBlocklistResource())) {
+            raw.add(new TermInput(null, term));
+        }
+        for (String term : splitInlineTerms(props.getBlocklistTerms())) {
+            raw.add(new TermInput(null, term));
+        }
         if (blocklistRepo != null) {
-            raw.addAll(blocklistRepo.listEnabledTerms());
+            for (ModerationBlocklistRepository.EnabledTermRow row : blocklistRepo.listEnabled()) {
+                raw.add(new TermInput(row.id(), row.term()));
+            }
         }
 
-        Set<String> tokens = new HashSet<>();
-        Set<String> collapsedTerms = new HashSet<>();
-        for (String line : raw) {
-            if (line == null) continue;
-            String trimmed = line.trim();
+        Map<String, TermEntry> byCollapsed = new LinkedHashMap<>();
+        for (TermInput input : raw) {
+            if (input.term() == null) continue;
+            String trimmed = input.term().trim();
             if (trimmed.isBlank()) continue;
             if (trimmed.startsWith("#")) continue;
             String normalized = normalize(trimmed);
             if (normalized.isBlank()) continue;
-            for (String token : tokenize(normalized)) {
-                if (!token.isBlank()) tokens.add(token);
-            }
             String collapsed = collapse(normalized);
-            if (!collapsed.isBlank()) collapsedTerms.add(collapsed);
+            if (collapsed.isBlank()) continue;
+
+            List<String> tokens = tokenize(normalized);
+            TermEntry next = new TermEntry(trimmed, collapsed, tokens.size(), input.blocklistTermId(), compileBoundaryPattern(collapsed));
+            TermEntry existing = byCollapsed.get(collapsed);
+            if (existing == null || (existing.blocklistTermId() == null && next.blocklistTermId() != null)) {
+                byCollapsed.put(collapsed, next);
+            }
         }
-        return new Compiled(Set.copyOf(tokens), Set.copyOf(collapsedTerms));
+
+        Map<String, TermEntry> singleTokenTerms = new LinkedHashMap<>();
+        List<TermEntry> regexTerms = new ArrayList<>();
+        for (TermEntry entry : byCollapsed.values()) {
+            regexTerms.add(entry);
+            if (entry.tokenCount() == 1) {
+                TermEntry existing = singleTokenTerms.get(entry.collapsedTerm());
+                if (existing == null || (existing.blocklistTermId() == null && entry.blocklistTermId() != null)) {
+                    singleTokenTerms.put(entry.collapsedTerm(), entry);
+                }
+            }
+        }
+        return new Compiled(Map.copyOf(singleTokenTerms), List.copyOf(regexTerms));
     }
 
     private List<String> loadLines(String location) {
@@ -165,7 +185,33 @@ public class BlocklistService {
         return normalized.replaceAll("[^\\p{IsAlphabetic}\\p{IsDigit}]+", "");
     }
 
-    private record Compiled(Set<String> tokens, Set<String> collapsedTerms) {}
+    private static Pattern compileBoundaryPattern(String collapsedTerm) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("(?<![\\p{IsAlphabetic}\\p{IsDigit}])");
+        for (int i = 0; i < collapsedTerm.length(); i++) {
+            sb.append(Pattern.quote(String.valueOf(collapsedTerm.charAt(i))));
+            if (i < collapsedTerm.length() - 1) {
+                sb.append("[^\\p{IsAlphabetic}\\p{IsDigit}]*");
+            }
+        }
+        sb.append("(?![\\p{IsAlphabetic}\\p{IsDigit}])");
+        return Pattern.compile(sb.toString());
+    }
 
-    public record Match(String method) {}
+    private static String truncateNormalized(String normalizedText) {
+        if (normalizedText == null) return null;
+        int maxLen = 2048;
+        if (normalizedText.length() <= maxLen) return normalizedText;
+        return normalizedText.substring(0, maxLen);
+    }
+
+    private record Compiled(Map<String, TermEntry> singleTokenTerms, List<TermEntry> regexTerms) {}
+    private record TermInput(Long blocklistTermId, String term) {}
+    private record TermEntry(String term, String collapsedTerm, int tokenCount, Long blocklistTermId, Pattern pattern) {
+        Match match(String method, String normalizedText) {
+            return new Match(method, term, blocklistTermId, truncateNormalized(normalizedText));
+        }
+    }
+
+    public record Match(String method, String matchedTerm, Long blocklistTermId, String normalizedText) {}
 }

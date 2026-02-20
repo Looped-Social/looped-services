@@ -14,7 +14,10 @@ class BlocklistServiceTest {
         props.setBlocklistTerms("slur");
         BlocklistService svc = new BlocklistService(props, new DefaultResourceLoader(), null);
 
-        assertThat(svc.match("This contains a SLUR.")).isNotNull();
+        var match = svc.match("This contains a SLUR.");
+        assertThat(match).isNotNull();
+        assertThat(match.method()).isEqualTo("word-boundary");
+        assertThat(match.matchedTerm()).isEqualTo("slur");
         assertThat(svc.match("no match here")).isNull();
     }
 
@@ -37,5 +40,37 @@ class BlocklistServiceTest {
         BlocklistService svc = new BlocklistService(props, new DefaultResourceLoader(), null);
 
         assertThat(svc.match("anything")).isNull();
+    }
+
+    @Test
+    void does_not_match_substring_inside_larger_word() {
+        ModerationProperties props = new ModerationProperties();
+        props.setBlocklistResource(null);
+        props.setBlocklistTerms("ass");
+        BlocklistService svc = new BlocklistService(props, new DefaultResourceLoader(), null);
+
+        assertThat(svc.match("fifth class presentation this semester")).isNull();
+    }
+
+    @Test
+    void does_not_match_standalone_token_from_multi_word_term() {
+        ModerationProperties props = new ModerationProperties();
+        props.setBlocklistResource(null);
+        props.setBlocklistTerms("hand job");
+        BlocklistService svc = new BlocklistService(props, new DefaultResourceLoader(), null);
+
+        assertThat(svc.match("great job on the presentation")).isNull();
+        assertThat(svc.match("that was a hand job")).isNotNull();
+    }
+
+    @Test
+    void does_not_match_split_symbol_term_as_single_char_token() {
+        ModerationProperties props = new ModerationProperties();
+        props.setBlocklistResource(null);
+        props.setBlocklistTerms("x$$a");
+        BlocklistService svc = new BlocklistService(props, new DefaultResourceLoader(), null);
+
+        assertThat(svc.match("this has a lot of words")).isNull();
+        assertThat(svc.match("x$$a")).isNotNull();
     }
 }

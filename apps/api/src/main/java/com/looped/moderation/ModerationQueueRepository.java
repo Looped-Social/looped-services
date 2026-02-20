@@ -27,6 +27,11 @@ public class ModerationQueueRepository {
             row.targetId = rs.getLong("target_id");
             row.source = rs.getString("source");
             row.reason = rs.getString("reason");
+            row.matchedTerm = rs.getString("matched_term");
+            long blocklistTermId = rs.getLong("blocklist_term_id");
+            row.blocklistTermId = rs.wasNull() ? null : blocklistTermId;
+            row.matchMode = rs.getString("match_mode");
+            row.normalizedText = rs.getString("normalized_text");
             row.status = rs.getString("status");
             row.createdAt = rs.getObject("created_at", OffsetDateTime.class);
             row.updatedAt = rs.getObject("updated_at", OffsetDateTime.class);
@@ -52,14 +57,28 @@ public class ModerationQueueRepository {
     }
 
     public long enqueueIfAbsent(String targetType, long targetId, String source, String reason) {
+        return enqueueIfAbsent(targetType, targetId, source, reason, null);
+    }
+
+    public long enqueueIfAbsent(String targetType, long targetId, String source, String reason, QueueMatchMetadata match) {
         Long id = jdbc.query(
-                "INSERT INTO moderation_queue_items(target_type, target_id, source, reason) " +
-                        "VALUES (?,?,?,?) " +
+                "INSERT INTO moderation_queue_items(" +
+                        "target_type, target_id, source, reason, matched_term, blocklist_term_id, match_mode, normalized_text" +
+                        ") VALUES (?,?,?,?,?,?,?,?) " +
                         "ON CONFLICT (target_type, target_id) WHERE status = 'open' DO UPDATE " +
-                        "SET updated_at = now(), source = EXCLUDED.source, reason = EXCLUDED.reason " +
+                        "SET updated_at = now(), source = EXCLUDED.source, reason = EXCLUDED.reason, " +
+                        "matched_term = EXCLUDED.matched_term, blocklist_term_id = EXCLUDED.blocklist_term_id, " +
+                        "match_mode = EXCLUDED.match_mode, normalized_text = EXCLUDED.normalized_text " +
                         "RETURNING id",
                 rs -> rs.next() ? rs.getLong(1) : null,
-                targetType, targetId, source, reason
+                targetType,
+                targetId,
+                source,
+                reason,
+                match == null ? null : match.matchedTerm(),
+                match == null ? null : match.blocklistTermId(),
+                match == null ? null : match.matchMode(),
+                match == null ? null : match.normalizedText()
         );
         if (id == null) throw new IllegalStateException("Failed to enqueue moderation item");
         return id;
@@ -106,6 +125,10 @@ public class ModerationQueueRepository {
         public long targetId;
         public String source;
         public String reason;
+        public String matchedTerm;
+        public Long blocklistTermId;
+        public String matchMode;
+        public String normalizedText;
         public String status;
         public OffsetDateTime createdAt;
         public OffsetDateTime updatedAt;
@@ -113,4 +136,6 @@ public class ModerationQueueRepository {
         public Long reviewedBy;
         public String reviewNote;
     }
+
+    public record QueueMatchMetadata(String matchedTerm, Long blocklistTermId, String matchMode, String normalizedText) {}
 }
