@@ -145,7 +145,7 @@ class RepostsIntegrationTest extends PostgresTestBase {
     @Test
     void feed_includes_repost_banner_for_followed_users() throws Exception {
         long companyId = jdbc.queryForObject("INSERT INTO companies(name, domain) VALUES ('Acme3','acme3.com') RETURNING id", Long.class);
-        long viewerId = jdbc.queryForObject("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?) RETURNING id",
+        long viewerId = jdbc.queryForObject("INSERT INTO users(firebase_uid, handle, company_id, onboarding_completed_at) VALUES (?,?,?, now()) RETURNING id",
                 Long.class, "uid-banner-viewer", "viewer", companyId);
         long viewerPrincipalId = jdbc.queryForObject("INSERT INTO principals(kind, user_id) VALUES ('user', ?) RETURNING id", Long.class, viewerId);
 

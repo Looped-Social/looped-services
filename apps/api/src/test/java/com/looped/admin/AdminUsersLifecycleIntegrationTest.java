@@ -143,7 +143,7 @@ class AdminUsersLifecycleIntegrationTest extends PostgresTestBase {
                 Long.class
         );
         long userId = jdbc.queryForObject(
-                "INSERT INTO users(firebase_uid, handle, email, company_id) VALUES (?,?,?,?) RETURNING id",
+                "INSERT INTO users(firebase_uid, handle, email, company_id, onboarding_completed_at) VALUES (?,?,?,?, now()) RETURNING id",
                 Long.class, "uid-disabled", "disableduser", "d@disable.co", companyId
         );
 

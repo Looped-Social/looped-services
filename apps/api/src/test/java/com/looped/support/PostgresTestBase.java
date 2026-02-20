@@ -4,6 +4,9 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.annotation.DirtiesContext;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.redis.core.RedisCallback;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.junit.jupiter.api.BeforeEach;
 
 import java.sql.Connection;
@@ -27,6 +30,9 @@ public abstract class PostgresTestBase {
         registry.add("spring.datasource.password", postgres::getPassword);
     }
 
+    @Autowired(required = false)
+    StringRedisTemplate redis;
+
     @BeforeEach
     void cleanDatabase() throws Exception {
         try (Connection c = DriverManager.getConnection(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword());
@@ -43,6 +49,19 @@ public abstract class PostgresTestBase {
                     "user_community_bans, user_share_slugs, user_tombstones, users, companies " +
                     "RESTART IDENTITY CASCADE");
             s.execute("INSERT INTO companies(name, domain) VALUES ('Looped Global','looped.global')");
+        }
+        flushRedis();
+    }
+
+    private void flushRedis() {
+        if (redis == null) return;
+        try {
+            redis.execute((RedisCallback<String>) connection -> {
+                connection.serverCommands().flushDb();
+                return "OK";
+            });
+        } catch (RuntimeException ignored) {
+            // Tests that do not rely on Redis can proceed if Redis is unavailable.
         }
     }
 }

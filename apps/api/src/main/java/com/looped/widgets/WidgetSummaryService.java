@@ -190,13 +190,23 @@ public class WidgetSummaryService {
 
     private String resolveDisplayName(UserRepository.UserRow actor) {
         if (actor.displayName != null && !actor.displayName.isBlank()) return actor.displayName;
-        if (actor.firstName != null && !actor.firstName.isBlank() && actor.lastName != null && !actor.lastName.isBlank()) {
+        boolean placeholderIdentity = isPlaceholderIdentity(actor.firstName, actor.lastName);
+        if (!placeholderIdentity
+                && actor.firstName != null && !actor.firstName.isBlank()
+                && actor.lastName != null && !actor.lastName.isBlank()) {
             return actor.firstName + " " + actor.lastName;
         }
-        if (actor.firstName != null && !actor.firstName.isBlank()) return actor.firstName;
-        if (actor.lastName != null && !actor.lastName.isBlank()) return actor.lastName;
+        if (!placeholderIdentity && actor.firstName != null && !actor.firstName.isBlank()) return actor.firstName;
+        if (!placeholderIdentity && actor.lastName != null && !actor.lastName.isBlank()) return actor.lastName;
         if (actor.handle != null && !actor.handle.isBlank()) return actor.handle;
         return null;
+    }
+
+    private boolean isPlaceholderIdentity(String firstName, String lastName) {
+        return firstName != null
+                && lastName != null
+                && "unknown".equalsIgnoreCase(firstName.trim())
+                && "user".equalsIgnoreCase(lastName.trim());
     }
 
     private List<RecentChat> loadRecentChats(long userId) {

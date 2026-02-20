@@ -60,7 +60,7 @@ class HideAnonymousPostsIntegrationTest extends PostgresTestBase {
         long companyId = jdbc.queryForObject("INSERT INTO companies(name, domain) VALUES ('Acme','acme.com') RETURNING id", Long.class);
 
         long viewerId = jdbc.queryForObject(
-                "INSERT INTO users(firebase_uid, handle, company_id, is_anonymous) VALUES (?,?,?, true) RETURNING id",
+                "INSERT INTO users(firebase_uid, handle, company_id, is_anonymous, onboarding_completed_at) VALUES (?,?,?, true, now()) RETURNING id",
                 Long.class, "uid-viewer", "viewer", companyId
         );
         long userBId = jdbc.queryForObject(
@@ -144,4 +144,3 @@ class HideAnonymousPostsIntegrationTest extends PostgresTestBase {
                 .andExpect(jsonPath("$.items", hasSize(0)));
     }
 }
-

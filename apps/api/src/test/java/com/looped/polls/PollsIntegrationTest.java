@@ -416,6 +416,12 @@ class PollsIntegrationTest extends PostgresTestBase {
         byte[] certSig = new BlindRsaSigner((RSAPrivateKey) rsa.getPrivate(), (RSAPublicKey) rsa.getPublic())
                 .signBlinded(certMsg);
         String anonCertB64 = Base64.getEncoder().encodeToString(certSig);
+        byte[] certFingerprint = com.looped.anon.AnonCertFingerprint.sha256(kid, certSig);
+        jdbc.update(
+                "INSERT INTO anon_cert_entitlements(cert_fingerprint, anon_cert_kid, user_id, community_id, cert_expires_at) " +
+                        "VALUES (?,?,?,?, now() + interval '1 day')",
+                certFingerprint, kid, userId, communityId
+        );
         byte[] voteAction = AnonCrypto.actionMessage("poll_vote", pollId);
         String anonSigB64 = Base64.getEncoder().encodeToString(signEd25519(ed.getPrivate(), voteAction));
 

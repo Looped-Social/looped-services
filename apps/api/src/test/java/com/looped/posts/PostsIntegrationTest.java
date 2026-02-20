@@ -233,6 +233,12 @@ class PostsIntegrationTest extends PostgresTestBase {
 
     @Test
     void create_requires_community_id() throws Exception {
+        long companyId = jdbc.queryForObject(
+                "INSERT INTO companies(name, domain) VALUES ('MissingCommunityCo', 'missing-community.co') RETURNING id",
+                Long.class
+        );
+        jdbc.update("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?)",
+                "uid-missing-community", "missingcommunity", companyId);
         String auth = "Bearer " + token("uid-missing-community");
 
         mockMvc.perform(post("/v1/posts")

@@ -53,6 +53,7 @@ class AnonRegisterIntegrationTest extends PostgresTestBase {
                 "INSERT INTO communities(kind, specialization_type, name) VALUES ('specialization','major','CS') RETURNING id",
                 Long.class
         );
+        jdbc.update("INSERT INTO specialization_joins(user_id, specialization_id) VALUES (?,?)", userId, csId);
 
         var rsaKpg = KeyPairGenerator.getInstance("RSA");
         rsaKpg.initialize(2048);

@@ -59,7 +59,7 @@ class FeedIntegrationTest extends PostgresTestBase {
     @Test
     void feed_returns_popular_posts_with_pagination() throws Exception {
         long acmeId = jdbc.queryForObject("INSERT INTO companies(name, domain) VALUES ('Acme','acme.com') RETURNING id", Long.class);
-        long userId = jdbc.queryForObject("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?) RETURNING id", Long.class,
+        long userId = jdbc.queryForObject("INSERT INTO users(firebase_uid, handle, company_id, onboarding_completed_at) VALUES (?,?,?, now()) RETURNING id", Long.class,
                 "uid-feed", "erin", acmeId);
         long principalId = jdbc.queryForObject("INSERT INTO principals(kind, user_id) VALUES ('user', ?) RETURNING id", Long.class, userId);
         long commA = jdbc.queryForObject("INSERT INTO communities(kind, name) VALUES ('company', 'Acme') RETURNING id", Long.class);
@@ -103,7 +103,7 @@ class FeedIntegrationTest extends PostgresTestBase {
     @Test
     void feed_filters_by_community_id() throws Exception {
         long acmeId = jdbc.queryForObject("INSERT INTO companies(name, domain) VALUES ('Acme','acme.com') RETURNING id", Long.class);
-        long userId = jdbc.queryForObject("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?) RETURNING id", Long.class,
+        long userId = jdbc.queryForObject("INSERT INTO users(firebase_uid, handle, company_id, onboarding_completed_at) VALUES (?,?,?, now()) RETURNING id", Long.class,
                 "uid-loop-feed", "lena", acmeId);
         long principalId = jdbc.queryForObject("INSERT INTO principals(kind, user_id) VALUES ('user', ?) RETURNING id", Long.class, userId);
 
@@ -130,7 +130,7 @@ class FeedIntegrationTest extends PostgresTestBase {
     @Test
     void feed_excludes_blocked_principals() throws Exception {
         long companyId = jdbc.queryForObject("INSERT INTO companies(name, domain) VALUES ('BlockFeed','blockfeed.co') RETURNING id", Long.class);
-        long viewerUserId = jdbc.queryForObject("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?) RETURNING id",
+        long viewerUserId = jdbc.queryForObject("INSERT INTO users(firebase_uid, handle, company_id, onboarding_completed_at) VALUES (?,?,?, now()) RETURNING id",
                 Long.class, "uid-viewer", "viewer", companyId);
         long viewerPrincipalId = jdbc.queryForObject("INSERT INTO principals(kind, user_id) VALUES ('user', ?) RETURNING id", Long.class, viewerUserId);
 
@@ -164,7 +164,7 @@ class FeedIntegrationTest extends PostgresTestBase {
     void feed_mode_following_returns_posts_from_followed_principals() throws Exception {
         long companyId = jdbc.queryForObject("INSERT INTO companies(name, domain) VALUES ('FollowFeed','followfeed.co') RETURNING id", Long.class);
 
-        long viewerUserId = jdbc.queryForObject("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?) RETURNING id",
+        long viewerUserId = jdbc.queryForObject("INSERT INTO users(firebase_uid, handle, company_id, onboarding_completed_at) VALUES (?,?,?, now()) RETURNING id",
                 Long.class, "uid-follow-viewer", "viewer", companyId);
         long viewerPrincipalId = jdbc.queryForObject("INSERT INTO principals(kind, user_id) VALUES ('user', ?) RETURNING id", Long.class, viewerUserId);
 

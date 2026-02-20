@@ -58,6 +58,10 @@ public class UserAccountStatusFilter extends OncePerRequestFilter {
                 filterChain.doFilter(request, response);
                 return;
             }
+            if (isSelfLifecycleRoute(request)) {
+                filterChain.doFilter(request, response);
+                return;
+            }
             respond(response, 409, "user_not_provisioned", "Complete onboarding before using this endpoint");
             return;
         }
@@ -68,6 +72,10 @@ public class UserAccountStatusFilter extends OncePerRequestFilter {
                 return;
             }
             if (isMeRoute(path)) {
+                filterChain.doFilter(request, response);
+                return;
+            }
+            if (isSelfLifecycleRoute(request)) {
                 filterChain.doFilter(request, response);
                 return;
             }
@@ -144,6 +152,14 @@ public class UserAccountStatusFilter extends OncePerRequestFilter {
                 || allowRoute(method, path, HttpMethod.GET, "/v1/communities/*/verification/photo-id/status")
                 || allowRoute(method, path, HttpMethod.POST, "/v1/verification/start")
                 || allowRoute(method, path, HttpMethod.POST, "/v1/verification/finish");
+    }
+
+    private boolean isSelfLifecycleRoute(HttpServletRequest request) {
+        String path = request.getRequestURI();
+        String method = request.getMethod();
+        return allowRoute(method, path, HttpMethod.DELETE, "/v1/users/me")
+                || allowRoute(method, path, HttpMethod.POST, "/v1/users/me/delete")
+                || allowRoute(method, path, HttpMethod.POST, "/v1/users/me/deactivate");
     }
 
     private boolean isOnboardingRestrictedRoute(HttpServletRequest request) {

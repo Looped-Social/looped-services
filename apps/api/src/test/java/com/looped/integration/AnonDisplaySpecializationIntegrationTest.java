@@ -80,6 +80,11 @@ class AnonDisplaySpecializationIntegrationTest extends PostgresTestBase {
                 "INSERT INTO communities(kind, specialization_type, name) VALUES ('specialization','major','Computer Science') RETURNING id",
                 Long.class
         );
+        long userId = jdbc.queryForObject(
+                "INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?) RETURNING id",
+                Long.class, "uid-anon-spec-owner", "anonspecowner", companyId
+        );
+        jdbc.update("INSERT INTO specialization_joins(user_id, specialization_id) VALUES (?,?)", userId, specializationId);
 
         // Issuer (RSA) scoped to specialization community
         var rsaKpg = KeyPairGenerator.getInstance("RSA");
@@ -106,6 +111,11 @@ class AnonDisplaySpecializationIntegrationTest extends PostgresTestBase {
         byte[] certSig = new BlindRsaSigner((RSAPrivateKey) rsa.getPrivate(), (RSAPublicKey) rsa.getPublic())
                 .signBlinded(certMsg);
         String anonCertB64 = Base64.getEncoder().encodeToString(certSig);
+        byte[] certFingerprint = com.looped.anon.AnonCertFingerprint.sha256(kid, certSig);
+        jdbc.update(
+                "INSERT INTO anon_cert_entitlements(cert_fingerprint, anon_cert_kid, user_id, community_id, cert_expires_at) VALUES (?,?,?,?, now() + interval '1 day')",
+                certFingerprint, kid, userId, specializationId
+        );
 
         byte[] actionMsg = AnonCrypto.actionMessage("anon_display_specialization", anonProfileId);
         byte[] actionSig = signEd25519(ed.getPrivate(), actionMsg);
@@ -293,4 +303,3 @@ class AnonDisplaySpecializationIntegrationTest extends PostgresTestBase {
                 .andExpect(jsonPath("$.author_display_specialization.specialization_type").value("major"));
     }
 }
-

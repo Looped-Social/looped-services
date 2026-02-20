@@ -67,7 +67,7 @@ class ViewerCapabilitiesIntegrationTest extends PostgresTestBase {
                 Long.class, "uid-cap-author", "capauthor", companyId
         );
         long viewerId = jdbc.queryForObject(
-                "INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?) RETURNING id",
+                "INSERT INTO users(firebase_uid, handle, company_id, onboarding_completed_at) VALUES (?,?,?, now()) RETURNING id",
                 Long.class, "uid-cap-viewer", "capviewer", companyId
         );
         long authorPrincipal = jdbc.queryForObject(
@@ -127,7 +127,7 @@ class ViewerCapabilitiesIntegrationTest extends PostgresTestBase {
         );
         jdbc.update("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?)", "uid-poll-author", "pollauthor", companyId);
         long viewerId = jdbc.queryForObject(
-                "INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?) RETURNING id",
+                "INSERT INTO users(firebase_uid, handle, company_id, onboarding_completed_at) VALUES (?,?,?, now()) RETURNING id",
                 Long.class, "uid-poll-viewer", "pollviewer", companyId
         );
         long specializationId = jdbc.queryForObject(
