@@ -178,6 +178,11 @@ email:
 onboarding:
   default-company-domain: ${ONBOARDING_DEFAULT_COMPANY_DOMAIN:looped.global}
 
+app-config:
+  minimum-supported-version: ${APP_MINIMUM_SUPPORTED_VERSION:}
+  minimum-supported-version-message: ${APP_MINIMUM_SUPPORTED_VERSION_MESSAGE:}
+  minimum-supported-version-update-url: ${APP_MINIMUM_SUPPORTED_VERSION_UPDATE_URL:}
+
 share:
   base-url: ${SHARE_BASE_URL:https://mylooped.app}
 

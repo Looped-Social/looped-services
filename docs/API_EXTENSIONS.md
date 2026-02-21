@@ -15,10 +15,15 @@
     - `503 { "error": "cdn_not_configured" }` (when `cloudfront.domain` is unset/blank)
 - **App config**
   - `GET /v1/app-config` (no auth)
-  - Response (200): `{ "default_profile_image_url": "https://cdn.example.com/media/defaults/profile.png" }` (value may be `null` if not configured)
+  - Response (200):
+    - `default_profile_image_url` (string|null): default avatar URL used when a user has no profile image.
+    - `minimum_supported_version` (string|null): semantic app version floor (soft prompt on client; no hard block).
+    - `minimum_supported_version_message` (string|null): optional friendly copy shown with the update reminder.
+    - `minimum_supported_version_update_url` (string|null): optional URL to open for update (for example, App Store URL).
   - Semantics:
     - When `default_profile_image_url` is set (via admin settings), API payloads that include a profile image URL will return that default when the underlying user has not set `profile_image_url`.
     - When unset, profile image URL fields may be `null` as before.
+    - Minimum-version fields are optional and may be `null` when not configured.
 - **Public community share links**
   - `GET /v1/public/communities/{id}` (no auth)
   - Use case: web share route `/c/{communityId}`.

@@ -129,6 +129,24 @@ variable "email_verify_base_url" {
   default     = ""
 }
 
+variable "app_minimum_supported_version" {
+  type        = string
+  description = "Soft minimum app version exposed via /v1/app-config."
+  default     = ""
+}
+
+variable "app_minimum_supported_version_message" {
+  type        = string
+  description = "Optional custom message shown with soft minimum app version prompt."
+  default     = ""
+}
+
+variable "app_minimum_supported_version_update_url" {
+  type        = string
+  description = "Optional update URL (for example App Store) exposed via /v1/app-config."
+  default     = ""
+}
+
 variable "universal_links_apple_team_id" {
   type        = string
   description = "Apple Developer Team ID used in AASA appID (<TEAM_ID>.<BUNDLE_ID>)."

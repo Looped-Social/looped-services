@@ -59,6 +59,23 @@ class ExtendedEndpointsIntegrationTest extends PostgresTestBase {
     }
 
     @Test
+    void app_config_includes_minimum_supported_version_fields() throws Exception {
+        jdbc.update("INSERT INTO app_settings(key, value_text) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value_text = EXCLUDED.value_text",
+                "app.minimum_supported_version", "1.0.3");
+        jdbc.update("INSERT INTO app_settings(key, value_text) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value_text = EXCLUDED.value_text",
+                "app.minimum_supported_version_message", "Please update Looped for the best experience.");
+        jdbc.update("INSERT INTO app_settings(key, value_text) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value_text = EXCLUDED.value_text",
+                "app.minimum_supported_version_update_url", "https://apps.apple.com/app/id1234567890");
+
+        mockMvc.perform(get("/v1/app-config"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.default_profile_image_url", nullValue()))
+                .andExpect(jsonPath("$.minimum_supported_version", equalTo("1.0.3")))
+                .andExpect(jsonPath("$.minimum_supported_version_message", equalTo("Please update Looped for the best experience.")))
+                .andExpect(jsonPath("$.minimum_supported_version_update_url", equalTo("https://apps.apple.com/app/id1234567890")));
+    }
+
+    @Test
     void profile_update_alias_and_search_and_comments() throws Exception {
         long companyId = jdbc.queryForObject("INSERT INTO companies(name, domain) VALUES ('Acme','acme.com') RETURNING id", Long.class);
         long userId = jdbc.queryForObject("INSERT INTO users(firebase_uid, handle, company_id, display_name) VALUES (?,?,?,?) RETURNING id",
