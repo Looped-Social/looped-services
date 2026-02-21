@@ -118,4 +118,72 @@ class CommunityRequestsIntegrationTest extends PostgresTestBase {
                 .andExpect(jsonPath("$.items[0].kind", equalTo("company")))
                 .andExpect(jsonPath("$.items[0].name", equalTo("Product")));
     }
+
+    @Test
+    void create_with_contact_email_and_notify_persists_fields() throws Exception {
+        long companyId = jdbc.queryForObject(
+                "INSERT INTO companies(name, domain) VALUES ('Acme Notify', 'acmenotify.com') RETURNING id",
+                Long.class);
+        jdbc.update("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?)",
+                "uid-community-request-notify", "drew", companyId);
+
+        String auth = "Bearer " + token("uid-community-request-notify");
+        String body = """
+                {
+                  "type": "company",
+                  "name": "Carolina Product",
+                  "about": "For product folks",
+                  "contactEmail": "Drew+notify@Example.com",
+                  "notifyWhenAvailable": true
+                }
+                """;
+
+        mockMvc.perform(post("/v1/community-requests")
+                        .header("Authorization", auth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.status", equalTo("pending")));
+
+        mockMvc.perform(get("/v1/community-requests")
+                        .header("Authorization", auth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items", hasSize(1)))
+                .andExpect(jsonPath("$.items[0].contact_email", equalTo("drew+notify@example.com")))
+                .andExpect(jsonPath("$.items[0].notify_when_available", equalTo(true)));
+    }
+
+    @Test
+    void create_parses_legacy_contact_email_from_about_when_contact_email_missing() throws Exception {
+        long companyId = jdbc.queryForObject(
+                "INSERT INTO companies(name, domain) VALUES ('Acme Legacy', 'acmelegacy.com') RETURNING id",
+                Long.class);
+        jdbc.update("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?)",
+                "uid-community-request-legacy", "jules", companyId);
+
+        String auth = "Bearer " + token("uid-community-request-legacy");
+        String body = """
+                {
+                  "type": "school",
+                  "name": "UNC Chapel Hill",
+                  "about": "Need this for alumni\\nPreferred contact email: UNC.Requests@Example.edu",
+                  "notify_when_available": true
+                }
+                """;
+
+        mockMvc.perform(post("/v1/community-requests")
+                        .header("Authorization", auth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isCreated());
+
+        mockMvc.perform(get("/v1/community-requests")
+                        .header("Authorization", auth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items", hasSize(1)))
+                .andExpect(jsonPath("$.items[0].kind", equalTo("school")))
+                .andExpect(jsonPath("$.items[0].description", equalTo("Need this for alumni")))
+                .andExpect(jsonPath("$.items[0].contact_email", equalTo("unc.requests@example.edu")))
+                .andExpect(jsonPath("$.items[0].notify_when_available", equalTo(true)));
+    }
 }

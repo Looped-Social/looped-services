@@ -2,6 +2,9 @@ package com.looped.communities;
 
 import com.looped.users.UserRepository;
 import com.looped.media.MediaRepository;
+import io.micrometer.core.instrument.MeterRegistry;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 
@@ -10,22 +13,32 @@ import java.util.Locale;
 
 @Service
 public class CommunityRequestsService {
+    private static final Logger log = LoggerFactory.getLogger(CommunityRequestsService.class);
     private final UserRepository users;
     private final CommunitiesRepository communities;
     private final CommunityRequestsRepository requests;
     private final MediaRepository media;
+    private final MeterRegistry meters;
 
     public CommunityRequestsService(UserRepository users,
                                     CommunitiesRepository communities,
                                     CommunityRequestsRepository requests,
-                                    MediaRepository media) {
+                                    MediaRepository media,
+                                    MeterRegistry meters) {
         this.users = users;
         this.communities = communities;
         this.requests = requests;
         this.media = media;
+        this.meters = meters;
     }
 
-    public CreateResult create(String firebaseUid, String kind, String name, String description, String imageKey) {
+    public CreateResult create(String firebaseUid,
+                               String kind,
+                               String name,
+                               String description,
+                               String imageKey,
+                               String contactEmail,
+                               Boolean notifyWhenAvailable) {
         var userOpt = users.findByFirebaseUid(firebaseUid);
         if (userOpt.isEmpty() || userOpt.get().companyId == null) {
             return CreateResult.userNotProvisioned();
@@ -35,6 +48,17 @@ public class CommunityRequestsService {
         String normalizedName = normalizeName(name);
         if (normalizedName == null) return CreateResult.invalidName();
         String normalizedDescription = normalizeDescription(description);
+        var parsed = CommunityRequestContactEmails.parseLegacyContactEmailLine(normalizedDescription);
+        normalizedDescription = parsed.description();
+        String resolvedContactEmailRaw = (contactEmail == null || contactEmail.isBlank()) ? parsed.extractedEmail() : contactEmail;
+        String normalizedContactEmail = CommunityRequestContactEmails.normalizeValidEmailOrNull(resolvedContactEmailRaw);
+        if (resolvedContactEmailRaw != null && !resolvedContactEmailRaw.isBlank() && normalizedContactEmail == null) {
+            return CreateResult.invalidContactEmail();
+        }
+        boolean wantsNotify = Boolean.TRUE.equals(notifyWhenAvailable);
+        if (wantsNotify && normalizedContactEmail == null) {
+            return CreateResult.contactEmailRequired();
+        }
         String normalizedImageKey = normalizeImageKey(imageKey);
         if (normalizedImageKey != null) {
             var mediaRowOpt = media.findByKey(normalizedImageKey);
@@ -54,7 +78,18 @@ public class CommunityRequestsService {
             return CreateResult.communityExists();
         }
         try {
-            long id = requests.insert(userOpt.get().id, kindInfo.requestKind(), normalizedName, normalizedDescription, normalizedImageKey);
+            long id = requests.insert(
+                    userOpt.get().id,
+                    kindInfo.requestKind(),
+                    normalizedName,
+                    normalizedDescription,
+                    normalizedImageKey,
+                    normalizedContactEmail,
+                    wantsNotify
+            );
+            meters.counter("community_requests.created", "kind", kindInfo.requestKind()).increment();
+            log.info("community_request_created request_id={} user_id={} kind={} notify_when_available={} has_contact_email={}",
+                    id, userOpt.get().id, kindInfo.requestKind(), wantsNotify, normalizedContactEmail != null);
             return CreateResult.ok(id);
         } catch (DuplicateKeyException e) {
             return CreateResult.duplicate();
@@ -116,6 +151,8 @@ public class CommunityRequestsService {
         USER_NOT_PROVISIONED,
         INVALID_KIND,
         INVALID_NAME,
+        INVALID_CONTACT_EMAIL,
+        CONTACT_EMAIL_REQUIRED,
         COMMUNITY_EXISTS,
         INVALID_IMAGE,
         IMAGE_NOT_OWNED,
@@ -127,6 +164,8 @@ public class CommunityRequestsService {
         static CreateResult userNotProvisioned() { return new CreateResult(Status.USER_NOT_PROVISIONED, null); }
         static CreateResult invalidKind() { return new CreateResult(Status.INVALID_KIND, null); }
         static CreateResult invalidName() { return new CreateResult(Status.INVALID_NAME, null); }
+        static CreateResult invalidContactEmail() { return new CreateResult(Status.INVALID_CONTACT_EMAIL, null); }
+        static CreateResult contactEmailRequired() { return new CreateResult(Status.CONTACT_EMAIL_REQUIRED, null); }
         static CreateResult communityExists() { return new CreateResult(Status.COMMUNITY_EXISTS, null); }
         static CreateResult invalidImage() { return new CreateResult(Status.INVALID_IMAGE, null); }
         static CreateResult imageNotOwned() { return new CreateResult(Status.IMAGE_NOT_OWNED, null); }

@@ -35,7 +35,15 @@ public class CommunityRequestsController {
 
     @PostMapping
     public ResponseEntity<?> create(@AuthenticationPrincipal Jwt jwt, @Valid @RequestBody CreateRequest body) {
-        var res = service.create(jwt.getSubject(), body.kind(), body.name(), body.description(), body.imageKey());
+        var res = service.create(
+                jwt.getSubject(),
+                body.kind(),
+                body.name(),
+                body.description(),
+                body.imageKey(),
+                body.contactEmail(),
+                body.notifyWhenAvailable()
+        );
         return switch (res.status()) {
             case USER_NOT_PROVISIONED -> ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
                     "error", "user_not_provisioned"
@@ -45,6 +53,12 @@ public class CommunityRequestsController {
             ));
             case INVALID_NAME -> ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of(
                     "error", "name_required"
+            ));
+            case INVALID_CONTACT_EMAIL -> ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of(
+                    "error", "invalid_contact_email"
+            ));
+            case CONTACT_EMAIL_REQUIRED -> ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of(
+                    "error", "contact_email_required"
             ));
             case INVALID_IMAGE -> ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of(
                     "error", "invalid_image"
@@ -90,6 +104,10 @@ public class CommunityRequestsController {
             if (row.reviewedAt != null) map.put("reviewed_at", row.reviewedAt);
             if (row.rejectReason != null) map.put("reject_reason", row.rejectReason);
             if (row.communityId != null) map.put("community_id", row.communityId);
+            if (row.contactEmail != null) map.put("contact_email", row.contactEmail);
+            map.put("notify_when_available", row.notifyWhenAvailable);
+            if (row.notifiedAt != null) map.put("notified_at", row.notifiedAt);
+            if (row.notifiedCommunityId != null) map.put("notified_community_id", row.notifiedCommunityId);
             return map;
         }).toList();
         return ResponseEntity.ok(Map.of("items", items));
@@ -104,6 +122,8 @@ public class CommunityRequestsController {
             @NotBlank @JsonAlias("type") String kind,
             @NotBlank String name,
             @JsonAlias("about") String description,
-            @JsonAlias("image_key") String imageKey
+            @JsonAlias("image_key") String imageKey,
+            @JsonAlias("contact_email") String contactEmail,
+            @JsonAlias("notify_when_available") Boolean notifyWhenAvailable
     ) {}
 }

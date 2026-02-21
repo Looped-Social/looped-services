@@ -72,6 +72,11 @@ public class OnboardingV2Controller {
         return respond(onboardingV2.finalizeOnboarding(jwt.getSubject()));
     }
 
+    @PostMapping("/complete-after-community-request")
+    public ResponseEntity<?> completeAfterCommunityRequest(@AuthenticationPrincipal Jwt jwt) {
+        return respond(onboardingV2.completeAfterCommunityRequest(jwt.getSubject()));
+    }
+
     private ResponseEntity<?> respond(OnboardingV2Service.Result result) {
         return switch (result.status()) {
             case OK -> ResponseEntity.ok(successPayload(result.snapshot()));

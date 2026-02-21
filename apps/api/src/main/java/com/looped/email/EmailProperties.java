@@ -9,6 +9,7 @@ public class EmailProperties {
     private boolean enabled = true;
     private String from;
     private String adminFrom;
+    private String communityRequestFrom = "no-reply@mylooped.app";
     private String replyTo;
     private String verifyBaseUrl;
     private String configurationSet;
@@ -43,6 +44,14 @@ public class EmailProperties {
 
     public void setReplyTo(String replyTo) {
         this.replyTo = replyTo;
+    }
+
+    public String getCommunityRequestFrom() {
+        return communityRequestFrom;
+    }
+
+    public void setCommunityRequestFrom(String communityRequestFrom) {
+        this.communityRequestFrom = communityRequestFrom;
     }
 
     public String getVerifyBaseUrl() {

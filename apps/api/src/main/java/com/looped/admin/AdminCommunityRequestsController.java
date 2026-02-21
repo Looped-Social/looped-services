@@ -1,6 +1,7 @@
 package com.looped.admin;
 
 import com.looped.communities.CommunitiesRepository;
+import com.looped.communities.CommunityRequestAvailabilityNotifier;
 import com.looped.communities.CommunityRequestsRepository;
 import com.looped.shared.Pagination;
 import jakarta.validation.Valid;
@@ -32,17 +33,20 @@ public class AdminCommunityRequestsController {
     private final AdminAuthService auth;
     private final CommunityRequestsRepository requests;
     private final CommunitiesRepository communities;
+    private final CommunityRequestAvailabilityNotifier availabilityNotifier;
     private final AdminAuditRepository audit;
     private final String cloudfrontDomain;
 
     public AdminCommunityRequestsController(AdminAuthService auth,
                                             CommunityRequestsRepository requests,
                                             CommunitiesRepository communities,
+                                            CommunityRequestAvailabilityNotifier availabilityNotifier,
                                             AdminAuditRepository audit,
                                             @Value("${cloudfront.domain:}") String cloudfrontDomain) {
         this.auth = auth;
         this.requests = requests;
         this.communities = communities;
+        this.availabilityNotifier = availabilityNotifier;
         this.audit = audit;
         this.cloudfrontDomain = cloudfrontDomain;
     }
@@ -95,6 +99,10 @@ public class AdminCommunityRequestsController {
             if (r.reviewedBy != null) map.put("reviewed_by", r.reviewedBy);
             if (r.rejectReason != null) map.put("reject_reason", r.rejectReason);
             if (r.communityId != null) map.put("community_id", r.communityId);
+            if (r.contactEmail != null) map.put("contact_email", r.contactEmail);
+            map.put("notify_when_available", r.notifyWhenAvailable);
+            if (r.notifiedAt != null) map.put("notified_at", r.notifiedAt);
+            if (r.notifiedCommunityId != null) map.put("notified_community_id", r.notifiedCommunityId);
             return map;
         }).toList();
         Map<String, Object> body = new HashMap<>();
@@ -154,13 +162,19 @@ public class AdminCommunityRequestsController {
         } catch (DuplicateKeyException e) {
             return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "community_exists"));
         }
+        var notificationSummary = availabilityNotifier.notifyForCreatedCommunity(kindInfo.requestKind(), name, communityId);
         boolean updated = requests.review(id, "approved", authRes.admin().id, null, communityId);
         if (!updated) {
             return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "community_request_already_reviewed"));
         }
         audit.log(authRes.admin().id, "community.create", "community", communityId, null);
         audit.log(authRes.admin().id, "community_request.approve", "community_request", id, "community_id=" + communityId);
-        return ResponseEntity.ok(Map.of("status", "approved", "community_id", communityId));
+        return ResponseEntity.ok(Map.of(
+                "status", "approved",
+                "community_id", communityId,
+                "matched_requests", notificationSummary.matchedRequests(),
+                "notified_requests", notificationSummary.sentEmails()
+        ));
     }
 
     @PostMapping("/community-requests/{id}/reject")

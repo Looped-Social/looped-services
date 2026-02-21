@@ -129,6 +129,57 @@ public class EmailService {
         sendEmail(to, subject, text, html);
     }
 
+    public boolean sendCommunityRequestAvailableEmail(String to,
+                                                      String communityName,
+                                                      String webUrl,
+                                                      String deepLink) {
+        if (!isEnabled()) return false;
+        if (to == null || to.isBlank()) return false;
+        String from = props.getCommunityRequestFrom();
+        if (from == null || from.isBlank()) return false;
+        String name = (communityName == null || communityName.isBlank())
+                ? "your requested community"
+                : communityName.trim();
+        String subject = "Your community is now available on Looped";
+
+        StringBuilder text = new StringBuilder();
+        text.append("Good news — ").append(name).append(" is now available on Looped.\n\n");
+        if (webUrl != null && !webUrl.isBlank()) {
+            text.append("Open community: ").append(webUrl.trim()).append("\n");
+        }
+        if (deepLink != null && !deepLink.isBlank()) {
+            text.append("Deep link: ").append(deepLink.trim()).append("\n");
+        }
+        text.append("\nSee you on Looped.\n");
+
+        StringBuilder html = new StringBuilder();
+        html.append("<html><body style=\"margin:0;padding:0;background-color:#ffffff;color:#1f2937;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Helvetica,Arial,sans-serif;\">");
+        html.append("<div style=\"max-width:560px;margin:0 auto;padding:32px 16px;\">");
+        html.append("<div style=\"font-size:22px;font-weight:700;margin-bottom:8px;\">Your community is now available</div>");
+        html.append("<div style=\"font-size:14px;color:#6b7280;margin-bottom:16px;\">");
+        html.append(escape(name)).append(" is now available on Looped.</div>");
+        if (webUrl != null && !webUrl.isBlank()) {
+            html.append("<a href=\"").append(escape(webUrl.trim())).append("\" ")
+                    .append("style=\"display:inline-block;background:#ea404a;color:#ffffff;text-decoration:none;padding:10px 14px;border-radius:8px;font-size:14px;font-weight:600;\">")
+                    .append("Open Community")
+                    .append("</a>");
+        }
+        if (deepLink != null && !deepLink.isBlank()) {
+            html.append("<div style=\"margin-top:14px;font-size:12px;color:#9ca3af;\">");
+            html.append("Deep link: <a href=\"").append(escape(deepLink.trim())).append("\" style=\"color:#ea404a;text-decoration:none;\">")
+                    .append(escape(deepLink.trim()))
+                    .append("</a></div>");
+        }
+        html.append("</div></body></html>");
+        try {
+            sendEmailFrom(from.trim(), to, subject, text.toString(), html.toString());
+            return true;
+        } catch (RuntimeException ex) {
+            log.warn("community request availability email failed to={} err={}", to, ex.getMessage());
+            return false;
+        }
+    }
+
     public void sendAdminOpsEmail(String to, String subject, String textBody, String htmlBody) {
         if (!isEnabled()) return;
         if (to == null || to.isBlank()) return;

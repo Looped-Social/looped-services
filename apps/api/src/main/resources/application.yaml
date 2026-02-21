@@ -170,6 +170,7 @@ email:
   enabled: ${EMAIL_ENABLED:true}
   from: ${EMAIL_FROM:}
   admin-from: ${EMAIL_ADMIN_FROM:}
+  community-request-from: ${EMAIL_COMMUNITY_REQUEST_FROM:no-reply@mylooped.app}
   reply-to: ${EMAIL_REPLY_TO:}
   verify-base-url: ${EMAIL_VERIFY_BASE_URL:}
   configuration-set: ${EMAIL_CONFIGURATION_SET:}

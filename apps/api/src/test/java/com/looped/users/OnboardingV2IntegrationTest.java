@@ -292,6 +292,83 @@ class OnboardingV2IntegrationTest extends PostgresTestBase {
     }
 
     @Test
+    void complete_after_community_request_marks_onboarding_complete_without_selected_org() throws Exception {
+        long companyId = company("RequestCompleteCo", "requestcomplete.com");
+        long userId = user("uid-onb-v2-community-complete", "reqcomplete", companyId);
+        String auth = auth("uid-onb-v2-community-complete");
+
+        jdbc.update(
+                "INSERT INTO community_requests(user_id, kind, name, description, status) VALUES (?,?,?,?, 'pending')",
+                userId,
+                "company",
+                "University of North Carolina",
+                "Need this community"
+        );
+
+        mockMvc.perform(post("/v1/users/me/onboarding-v2/complete-after-community-request")
+                        .header("Authorization", auth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.onboarding_complete", equalTo(true)))
+                .andExpect(jsonPath("$.onboarding_step", equalTo("verification_notifications")))
+                .andExpect(jsonPath("$.onboarding_stage_v2", equalTo("completed")))
+                .andExpect(jsonPath("$.onboarding_context.completion_reason", equalTo("community_requested")))
+                .andExpect(jsonPath("$.onboarding_context.verification_path", equalTo("skip")))
+                .andExpect(jsonPath("$.onboarding_context.selected_org_id", nullValue()));
+
+        mockMvc.perform(get("/v1/me").header("Authorization", auth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.onboarding_stage_v2", equalTo("completed")))
+                .andExpect(jsonPath("$.onboarding_step", equalTo("verification_notifications")));
+
+        Integer completed = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM users WHERE id = ? AND onboarding_completed_at IS NOT NULL",
+                Integer.class,
+                userId
+        );
+        org.junit.jupiter.api.Assertions.assertEquals(1, completed.intValue());
+    }
+
+    @Test
+    void complete_after_community_request_requires_pending_org_request() throws Exception {
+        long companyId = company("RequestMissingCo", "requestmissing.com");
+        user("uid-onb-v2-community-missing", "reqmissing", companyId);
+        String auth = auth("uid-onb-v2-community-missing");
+
+        mockMvc.perform(post("/v1/users/me/onboarding-v2/complete-after-community-request")
+                        .header("Authorization", auth))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error", equalTo("community_request_required")))
+                .andExpect(jsonPath("$.current_stage_v2", equalTo("profile_setup")))
+                .andExpect(jsonPath("$.allowed_next_stages_v2", hasItem("posting_info")));
+    }
+
+    @Test
+    void complete_after_community_request_is_idempotent() throws Exception {
+        long companyId = company("RequestIdempotentCo", "requestidempotent.com");
+        long userId = user("uid-onb-v2-community-idempotent", "reqidempotent", companyId);
+        String auth = auth("uid-onb-v2-community-idempotent");
+
+        jdbc.update(
+                "INSERT INTO community_requests(user_id, kind, name, description, status) VALUES (?,?,?,?, 'pending')",
+                userId,
+                "school",
+                "UNC",
+                "Need this community"
+        );
+
+        mockMvc.perform(post("/v1/users/me/onboarding-v2/complete-after-community-request")
+                        .header("Authorization", auth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.onboarding_complete", equalTo(true)));
+
+        mockMvc.perform(post("/v1/users/me/onboarding-v2/complete-after-community-request")
+                        .header("Authorization", auth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.onboarding_complete", equalTo(true)))
+                .andExpect(jsonPath("$.onboarding_context.completion_reason", equalTo("community_requested")));
+    }
+
+    @Test
     void verification_choice_skip_from_choice_stage_returns_ok() throws Exception {
         long companyId = company("ChoiceSkipCo", "choiceskip.com");
         user("uid-onb-v2-choice-skip", "choiceskip", companyId);

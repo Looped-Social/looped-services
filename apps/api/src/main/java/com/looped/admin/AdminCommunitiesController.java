@@ -1,6 +1,7 @@
 package com.looped.admin;
 
 import com.looped.communities.CommunitiesRepository;
+import com.looped.communities.CommunityRequestAvailabilityNotifier;
 import com.looped.communities.CommunityVerificationsRepository;
 import com.looped.communities.CommunityDomainsRepository;
 import com.looped.communities.CommunityLogoResolver;
@@ -40,6 +41,7 @@ public class AdminCommunitiesController {
     private final CommunitiesRepository communities;
     private final CommunityDomainsRepository domains;
     private final CommunityLogoResolver logos;
+    private final CommunityRequestAvailabilityNotifier availabilityNotifier;
     private final AdminAuditRepository audit;
     private final CommunityVerificationsRepository verifications;
     private final boolean sfSymbolsEnabled;
@@ -51,6 +53,7 @@ public class AdminCommunitiesController {
                                       CommunitiesRepository communities,
                                       CommunityDomainsRepository domains,
                                       CommunityLogoResolver logos,
+                                      CommunityRequestAvailabilityNotifier availabilityNotifier,
                                       AdminAuditRepository audit,
                                       CommunityVerificationsRepository verifications,
                                       @Value("${specializations.icons.sf-symbol.enabled:false}") boolean sfSymbolsEnabled,
@@ -61,6 +64,7 @@ public class AdminCommunitiesController {
         this.communities = communities;
         this.domains = domains;
         this.logos = logos;
+        this.availabilityNotifier = availabilityNotifier;
         this.audit = audit;
         this.verifications = verifications;
         this.sfSymbolsEnabled = sfSymbolsEnabled;
@@ -184,8 +188,14 @@ public class AdminCommunitiesController {
             return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "community_exists"));
         }
         long id = communities.insert(kind, name, description, imageUrl, ttlDays, specializationType, shortName, cooldownMonths);
+        String requestKind = requestKindForCommunity(kind, specializationType);
+        var notificationSummary = availabilityNotifier.notifyForCreatedCommunity(requestKind, name, id);
         audit.log(authRes.admin().id, "community.create", "community", id, null);
-        return ResponseEntity.status(HttpStatus.CREATED).body(Map.of("id", id));
+        return ResponseEntity.status(HttpStatus.CREATED).body(Map.of(
+                "id", id,
+                "matched_requests", notificationSummary.matchedRequests(),
+                "notified_requests", notificationSummary.sentEmails()
+        ));
     }
 
     @PatchMapping("/{id}")
@@ -501,6 +511,15 @@ public class AdminCommunitiesController {
             return null;
         }
         return normalized;
+    }
+
+    private String requestKindForCommunity(String kind, String specializationType) {
+        if (kind == null) return null;
+        String normalizedKind = kind.trim().toLowerCase(Locale.ROOT);
+        if ("specialization".equals(normalizedKind)) {
+            return normalizeSpecializationType(specializationType);
+        }
+        return normalizedKind;
     }
 
     private String normalizeName(String raw) {

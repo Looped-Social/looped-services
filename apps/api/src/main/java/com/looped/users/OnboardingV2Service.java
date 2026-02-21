@@ -1,6 +1,7 @@
 package com.looped.users;
 
 import com.looped.communities.CommunitiesRepository;
+import com.looped.communities.CommunityRequestsRepository;
 import com.looped.communities.CommunityVerificationsRepository;
 import com.looped.communities.SpecializationMembershipService;
 import com.looped.communities.SpecializationJoinsRepository;
@@ -19,6 +20,7 @@ public class OnboardingV2Service {
     private final UserRepository users;
     private final OnboardingV2Repository onboardingV2;
     private final CommunitiesRepository communities;
+    private final CommunityRequestsRepository communityRequests;
     private final CommunityVerificationsRepository communityVerifications;
     private final SpecializationMembershipService specializationMemberships;
     private final SpecializationJoinsRepository specializationJoins;
@@ -27,6 +29,7 @@ public class OnboardingV2Service {
     public OnboardingV2Service(UserRepository users,
                                OnboardingV2Repository onboardingV2,
                                CommunitiesRepository communities,
+                               CommunityRequestsRepository communityRequests,
                                CommunityVerificationsRepository communityVerifications,
                                SpecializationMembershipService specializationMemberships,
                                SpecializationJoinsRepository specializationJoins,
@@ -34,6 +37,7 @@ public class OnboardingV2Service {
         this.users = users;
         this.onboardingV2 = onboardingV2;
         this.communities = communities;
+        this.communityRequests = communityRequests;
         this.communityVerifications = communityVerifications;
         this.specializationMemberships = specializationMemberships;
         this.specializationJoins = specializationJoins;
@@ -365,6 +369,32 @@ public class OnboardingV2Service {
         bundle.state.stageV2 = OnboardingV2Stages.COMPLETED;
         bundle.state.finalizedAt = OffsetDateTime.now();
         bundle.state.requiresSpecializationSelection = false;
+        onboardingV2.update(bundle.state);
+        users.markOnboardingComplete(bundle.user.id);
+
+        var refreshedUser = users.findById(bundle.user.id).orElse(bundle.user);
+        var refreshedState = ensureState(refreshedUser);
+        return Result.ok(snapshot(refreshedUser, refreshedState));
+    }
+
+    public Result completeAfterCommunityRequest(String firebaseUid) {
+        var bundleOpt = provisioned(firebaseUid);
+        if (bundleOpt.isEmpty()) return Result.userNotProvisioned();
+        var bundle = bundleOpt.get();
+        if (isCompleted(bundle.state)) return Result.ok(snapshot(bundle.user, bundle.state));
+        if (!communityRequests.existsPendingOrgRequestByUserId(bundle.user.id)) {
+            return Result.conflict("community_request_required", snapshot(bundle.user, bundle.state));
+        }
+
+        bundle.state.verificationPath = "skip";
+        bundle.state.verificationStatus = "none";
+        bundle.state.requiresSpecializationSelection = false;
+        if (bundle.state.skipExplainerAckAt == null) {
+            bundle.state.skipExplainerAckAt = OffsetDateTime.now();
+        }
+        bundle.state.stageV2 = OnboardingV2Stages.COMPLETED;
+        bundle.state.completionReason = "community_requested";
+        bundle.state.finalizedAt = OffsetDateTime.now();
         onboardingV2.update(bundle.state);
         users.markOnboardingComplete(bundle.user.id);
 
