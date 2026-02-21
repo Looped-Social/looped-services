@@ -18,6 +18,7 @@ import java.time.Instant;
 import java.util.List;
 
 import static org.hamcrest.Matchers.equalTo;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -117,5 +118,41 @@ class SpecializationPrerequisitesIntegrationTest extends PostgresTestBase {
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.joined").value(true));
     }
-}
 
+    @Test
+    void completed_onboarding_skip_path_does_not_block_join_when_required_verification_exists() throws Exception {
+        long companyId = jdbc.queryForObject("INSERT INTO companies(name, domain) VALUES ('JoinFixCo','joinfix.co') RETURNING id", Long.class);
+        long userId = jdbc.queryForObject(
+                "INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?) RETURNING id",
+                Long.class, "uid-field-join-fix", "fieldjoinfix", companyId
+        );
+        long fieldId = jdbc.queryForObject(
+                "INSERT INTO communities(kind, specialization_type, name) VALUES ('specialization','field','Join Fix Field') RETURNING id",
+                Long.class
+        );
+        long verifiedCompanyCommunityId = jdbc.queryForObject(
+                "INSERT INTO communities(kind, name) VALUES ('company', 'Join Fix Company Community') RETURNING id",
+                Long.class
+        );
+        jdbc.update(
+                "INSERT INTO community_verifications(user_id, community_id, method, verified, verified_at, expires_at) VALUES (?,?,?,?,now(),NULL)",
+                userId, verifiedCompanyCommunityId, "manual", true
+        );
+        jdbc.update(
+                "INSERT INTO user_onboarding_v2(user_id, stage_v2, selected_org_kind, verification_path, verification_status, requires_specialization_selection, updated_at) " +
+                        "VALUES (?,?,?,?,?,?,now())",
+                userId, "completed", "company", "skip", "none", false
+        );
+
+        String auth = "Bearer " + token("uid-field-join-fix");
+        mockMvc.perform(get("/v1/me/specializations/join-limits?type=field").header("Authorization", auth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].specialization_type", equalTo("field")))
+                .andExpect(jsonPath("$.items[0].required_verification_kind", equalTo("company")))
+                .andExpect(jsonPath("$.items[0].can_join", equalTo(true)));
+
+        mockMvc.perform(post("/v1/specializations/" + fieldId + "/join").header("Authorization", auth))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.joined").value(true));
+    }
+}

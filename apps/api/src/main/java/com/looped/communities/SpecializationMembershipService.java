@@ -284,7 +284,10 @@ public class SpecializationMembershipService {
     private String onboardingVerificationRequiredKind(long userId, String fallbackRequiredKind) {
         var rowOpt = onboardingV2.findByUserId(userId);
         if (rowOpt.isEmpty()) return null;
+        if (users.findById(userId).map(u -> u.onboardingCompletedAt != null).orElse(false)) return null;
         var row = rowOpt.get();
+        String stage = row.stageV2 == null ? null : row.stageV2.trim().toLowerCase(Locale.ROOT);
+        if ("completed".equals(stage)) return null;
         String path = row.verificationPath == null ? null : row.verificationPath.trim().toLowerCase(Locale.ROOT);
         String status = row.verificationStatus == null ? "none" : row.verificationStatus.trim().toLowerCase(Locale.ROOT);
         if (!"skip".equals(path) && !"photo_id".equals(path)) return null;
