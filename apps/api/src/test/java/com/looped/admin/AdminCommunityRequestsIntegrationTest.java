@@ -169,7 +169,7 @@ class AdminCommunityRequestsIntegrationTest extends PostgresTestBase {
 
         @Bean
         @Primary
-        SesClient sesClient(AtomicInteger sesSendCount) {
+        SesClient sesClientStub(AtomicInteger sesSendCount) {
             SesClient ses = mock(SesClient.class);
             when(ses.sendEmail(any(SendEmailRequest.class))).thenAnswer(inv -> {
                 int n = sesSendCount.incrementAndGet();

@@ -52,7 +52,7 @@ class OnboardingV2ServiceTest {
         UserRepository.UserRow before = userRow(userId, "uid-has-request", 3L, null, "profile_setup");
         UserRepository.UserRow after = userRow(userId, "uid-has-request", 3L, completedAt, "verification_notifications");
         OnboardingV2Repository.Row initialState = stateRow(userId, "profile_setup", null, null);
-        OnboardingV2Repository.Row completedState = stateRow(userId, "completed", "skip", "community_requested");
+        OnboardingV2Repository.Row completedState = stateRow(userId, "completed", "skip", "skipped_verification");
         completedState.finalizedAt = completedAt;
         completedState.skipExplainerAckAt = completedAt;
 
@@ -70,7 +70,7 @@ class OnboardingV2ServiceTest {
         assertThat(result.snapshot().onboardingComplete()).isTrue();
         assertThat(result.snapshot().onboardingStageV2()).isEqualTo("completed");
         assertThat(result.snapshot().onboardingStep()).isEqualTo("verification_notifications");
-        assertThat(result.snapshot().onboardingContext().get("completion_reason")).isEqualTo("community_requested");
+        assertThat(result.snapshot().onboardingContext().get("completion_reason")).isEqualTo("skipped_verification");
         Mockito.verify(onboardingV2).update(Mockito.any(OnboardingV2Repository.Row.class));
         Mockito.verify(users).markOnboardingComplete(userId);
     }
@@ -123,4 +123,3 @@ class OnboardingV2ServiceTest {
         return row;
     }
 }
-

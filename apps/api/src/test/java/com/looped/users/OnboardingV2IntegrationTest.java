@@ -311,7 +311,7 @@ class OnboardingV2IntegrationTest extends PostgresTestBase {
                 .andExpect(jsonPath("$.onboarding_complete", equalTo(true)))
                 .andExpect(jsonPath("$.onboarding_step", equalTo("verification_notifications")))
                 .andExpect(jsonPath("$.onboarding_stage_v2", equalTo("completed")))
-                .andExpect(jsonPath("$.onboarding_context.completion_reason", equalTo("community_requested")))
+                .andExpect(jsonPath("$.onboarding_context.completion_reason", equalTo("skipped_verification")))
                 .andExpect(jsonPath("$.onboarding_context.verification_path", equalTo("skip")))
                 .andExpect(jsonPath("$.onboarding_context.selected_org_id", nullValue()));
 
@@ -365,7 +365,7 @@ class OnboardingV2IntegrationTest extends PostgresTestBase {
                         .header("Authorization", auth))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.onboarding_complete", equalTo(true)))
-                .andExpect(jsonPath("$.onboarding_context.completion_reason", equalTo("community_requested")));
+                .andExpect(jsonPath("$.onboarding_context.completion_reason", equalTo("skipped_verification")));
     }
 
     @Test

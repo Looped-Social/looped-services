@@ -393,7 +393,7 @@ public class OnboardingV2Service {
             bundle.state.skipExplainerAckAt = OffsetDateTime.now();
         }
         bundle.state.stageV2 = OnboardingV2Stages.COMPLETED;
-        bundle.state.completionReason = "community_requested";
+        bundle.state.completionReason = "skipped_verification";
         bundle.state.finalizedAt = OffsetDateTime.now();
         onboardingV2.update(bundle.state);
         users.markOnboardingComplete(bundle.user.id);
