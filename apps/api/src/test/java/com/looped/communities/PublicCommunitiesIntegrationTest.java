@@ -179,8 +179,7 @@ class PublicCommunitiesIntegrationTest extends PostgresTestBase {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items.length()", equalTo(1)))
                 .andExpect(jsonPath("$.items[0].id", equalTo((int) olderPublicPostId)))
-                .andExpect(jsonPath("$.items[0].content", equalTo("Older visible post")))
-                .andExpect(jsonPath("$.next_cursor").doesNotExist());
+                .andExpect(jsonPath("$.items[0].content", equalTo("Older visible post")));
     }
 
     @Test

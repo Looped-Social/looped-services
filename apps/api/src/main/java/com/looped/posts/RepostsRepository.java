@@ -133,6 +133,67 @@ public class RepostsRepository {
             int totalCount
     ) {}
 
+    public List<PostReposterRow> repostersForPost(long postId,
+                                                  long viewerPrincipalId,
+                                                  OffsetDateTime cursorTs,
+                                                  Long cursorId,
+                                                  int limit) {
+        String sqlBase = """
+                SELECT r.id AS repost_id,
+                       r.created_at AS reposted_at,
+                       u.id AS user_id,
+                       u.handle AS username,
+                       u.display_name AS display_name,
+                       u.handle AS handle,
+                       u.profile_image_url AS profile_image_url
+                FROM post_reposts r
+                JOIN principals p ON p.id = r.reposter_principal_id AND p.kind = 'user'
+                JOIN users u ON u.id = p.user_id AND u.deleted_at IS NULL
+                WHERE r.post_id = ?
+                  AND NOT EXISTS (
+                    SELECT 1 FROM principal_blocks pb
+                    WHERE pb.blocker_principal_id = ?
+                      AND pb.blocked_principal_id = r.reposter_principal_id
+                  )
+                  AND NOT EXISTS (
+                    SELECT 1 FROM principal_blocks pb
+                    WHERE pb.blocker_principal_id = r.reposter_principal_id
+                      AND pb.blocked_principal_id = ?
+                  )
+                """;
+        Object[] params;
+        if (cursorTs == null || cursorId == null) {
+            sqlBase += "ORDER BY r.created_at DESC, r.id DESC LIMIT ?";
+            params = new Object[]{postId, viewerPrincipalId, viewerPrincipalId, limit};
+        } else {
+            sqlBase += "AND (r.created_at < ? OR (r.created_at = ? AND r.id < ?)) ORDER BY r.created_at DESC, r.id DESC LIMIT ?";
+            params = new Object[]{postId, viewerPrincipalId, viewerPrincipalId, cursorTs, cursorTs, cursorId, limit};
+        }
+        return jdbc.query(
+                sqlBase,
+                (rs, rowNum) -> new PostReposterRow(
+                        rs.getLong("repost_id"),
+                        rs.getObject("reposted_at", OffsetDateTime.class),
+                        rs.getLong("user_id"),
+                        rs.getString("username"),
+                        rs.getString("display_name"),
+                        rs.getString("handle"),
+                        rs.getString("profile_image_url")
+                ),
+                params
+        );
+    }
+
+    public record PostReposterRow(
+            long repostId,
+            OffsetDateTime repostedAt,
+            long userId,
+            String username,
+            String displayName,
+            String handle,
+            String profileImageUrl
+    ) {}
+
     public List<RepostedPostRow> repostedPosts(long reposterPrincipalId, OffsetDateTime cursorTs, Long cursorId, int limit,
                                               long viewerUserId, boolean hideAnonymousPosts) {
         String hideAnonymousFilter = hideAnonymousPosts

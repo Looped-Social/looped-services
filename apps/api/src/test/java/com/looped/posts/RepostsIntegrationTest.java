@@ -208,4 +208,76 @@ class RepostsIntegrationTest extends PostgresTestBase {
         mockMvc.perform(get("/v1/feed?limit=1&cursor=" + next).header("Authorization", auth))
                 .andExpect(status().isOk());
     }
+
+    @Test
+    void reposters_endpoint_returns_paginated_enriched_users() throws Exception {
+        long companyId = jdbc.queryForObject("INSERT INTO companies(name, domain) VALUES ('Acme4','acme4.com') RETURNING id", Long.class);
+        long viewerId = jdbc.queryForObject("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?) RETURNING id",
+                Long.class, "uid-reposters-viewer", "viewer", companyId);
+        long viewerPrincipalId = jdbc.queryForObject("INSERT INTO principals(kind, user_id) VALUES ('user', ?) RETURNING id", Long.class, viewerId);
+        long authorId = jdbc.queryForObject("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?) RETURNING id",
+                Long.class, "uid-reposters-author", "author", companyId);
+        long authorPrincipalId = jdbc.queryForObject("INSERT INTO principals(kind, user_id) VALUES ('user', ?) RETURNING id", Long.class, authorId);
+        Instant base = Instant.now();
+        long postId = jdbc.queryForObject("INSERT INTO posts(author_id, author_principal_id, company_id, content, created_at) VALUES (?,?,?,?,?) RETURNING id",
+                Long.class, authorId, authorPrincipalId, companyId, "hello", Timestamp.from(base.minusSeconds(60)));
+
+        long reposterA = jdbc.queryForObject(
+                "INSERT INTO users(firebase_uid, handle, display_name, profile_image_url, company_id) VALUES (?,?,?,?,?) RETURNING id",
+                Long.class, "uid-reposters-a", "a", "Reposter A", "https://cdn.example.com/a.jpg", companyId
+        );
+        long reposterB = jdbc.queryForObject(
+                "INSERT INTO users(firebase_uid, handle, display_name, profile_image_url, company_id) VALUES (?,?,?,?,?) RETURNING id",
+                Long.class, "uid-reposters-b", "b", "Reposter B", "https://cdn.example.com/b.jpg", companyId
+        );
+        long reposterC = jdbc.queryForObject(
+                "INSERT INTO users(firebase_uid, handle, display_name, profile_image_url, company_id) VALUES (?,?,?,?,?) RETURNING id",
+                Long.class, "uid-reposters-c", "c", "Reposter C", "https://cdn.example.com/c.jpg", companyId
+        );
+        long principalA = jdbc.queryForObject("INSERT INTO principals(kind, user_id) VALUES ('user', ?) RETURNING id", Long.class, reposterA);
+        long principalB = jdbc.queryForObject("INSERT INTO principals(kind, user_id) VALUES ('user', ?) RETURNING id", Long.class, reposterB);
+        long principalC = jdbc.queryForObject("INSERT INTO principals(kind, user_id) VALUES ('user', ?) RETURNING id", Long.class, reposterC);
+
+        jdbc.update("INSERT INTO post_reposts(reposter_principal_id, post_id, created_at) VALUES (?,?,?)", principalA, postId, Timestamp.from(base.minusSeconds(30)));
+        jdbc.update("INSERT INTO post_reposts(reposter_principal_id, post_id, created_at) VALUES (?,?,?)", principalB, postId, Timestamp.from(base.minusSeconds(20)));
+        jdbc.update("INSERT INTO post_reposts(reposter_principal_id, post_id, created_at) VALUES (?,?,?)", principalC, postId, Timestamp.from(base.minusSeconds(10)));
+        jdbc.update("UPDATE posts SET repost_count = 3 WHERE id = ?", postId);
+
+        String auth = "Bearer " + token("uid-reposters-viewer");
+        var r1 = mockMvc.perform(get("/v1/posts/" + postId + "/reposters?limit=2").header("Authorization", auth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items", hasSize(2)))
+                .andExpect(jsonPath("$.items[0].username", equalTo("c")))
+                .andExpect(jsonPath("$.items[0].display_name", equalTo("Reposter C")))
+                .andExpect(jsonPath("$.items[0].displayName", equalTo("Reposter C")))
+                .andExpect(jsonPath("$.items[0].handle", equalTo("c")))
+                .andExpect(jsonPath("$.items[0].profile_image_url", equalTo("https://cdn.example.com/c.jpg")))
+                .andExpect(jsonPath("$.items[0].profileImageUrl", equalTo("https://cdn.example.com/c.jpg")))
+                .andExpect(jsonPath("$.items[0].user_id", equalTo((int) reposterC)))
+                .andExpect(jsonPath("$.items[0].userId", equalTo((int) reposterC)))
+                .andExpect(jsonPath("$.items[1].username", equalTo("b")))
+                .andExpect(jsonPath("$.next_cursor", notNullValue()))
+                .andReturn();
+
+        String next = r1.getResponse().getContentAsString().replaceAll(".*\"next_cursor\":\"([^\"]+)\".*", "$1");
+
+        mockMvc.perform(get("/v1/posts/" + postId + "/reposters?limit=2&cursor=" + next).header("Authorization", auth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items", hasSize(1)))
+                .andExpect(jsonPath("$.items[0].username", equalTo("a")))
+                .andExpect(jsonPath("$.next_cursor").doesNotExist());
+
+        jdbc.update("INSERT INTO principal_blocks(blocker_principal_id, blocked_principal_id) VALUES (?,?)", viewerPrincipalId, principalC);
+        mockMvc.perform(get("/v1/posts/" + postId + "/reposters?limit=5").header("Authorization", auth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items", hasSize(2)))
+                .andExpect(jsonPath("$.items[0].username", equalTo("b")))
+                .andExpect(jsonPath("$.items[1].username", equalTo("a")));
+    }
+
+    @Test
+    void reposters_endpoint_requires_authentication() throws Exception {
+        mockMvc.perform(get("/v1/posts/123/reposters?limit=20"))
+                .andExpect(status().isUnauthorized());
+    }
 }
