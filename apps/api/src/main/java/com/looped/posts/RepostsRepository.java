@@ -82,11 +82,14 @@ public class RepostsRepository {
             params[i + 2] = postIds.get(i);
         }
         String sql = """
-                SELECT post_id, user_id, username, total_count
+                SELECT post_id, user_id, username, display_name, handle, profile_image_url, total_count
                 FROM (
                     SELECT r.post_id,
                            u.id AS user_id,
                            u.handle AS username,
+                           u.display_name AS display_name,
+                           u.handle AS handle,
+                           u.profile_image_url AS profile_image_url,
                            COUNT(*) OVER (PARTITION BY r.post_id) AS total_count,
                            ROW_NUMBER() OVER (PARTITION BY r.post_id ORDER BY r.created_at DESC, r.id DESC) AS rn
                     FROM post_reposts r
@@ -111,13 +114,24 @@ public class RepostsRepository {
                         rs.getLong("post_id"),
                         rs.getLong("user_id"),
                         rs.getString("username"),
+                        rs.getString("display_name"),
+                        rs.getString("handle"),
+                        rs.getString("profile_image_url"),
                         rs.getInt("total_count")
                 ),
                 params
         );
     }
 
-    public record FollowedRepostRow(long postId, long userId, String username, int totalCount) {}
+    public record FollowedRepostRow(
+            long postId,
+            long userId,
+            String username,
+            String displayName,
+            String handle,
+            String profileImageUrl,
+            int totalCount
+    ) {}
 
     public List<RepostedPostRow> repostedPosts(long reposterPrincipalId, OffsetDateTime cursorTs, Long cursorId, int limit,
                                               long viewerUserId, boolean hideAnonymousPosts) {

@@ -87,10 +87,19 @@ public final class PostPayloads {
             java.util.List<java.util.Map<String, Object>> users = row.repostedByFollowedUsers == null
                     ? java.util.List.of()
                     : row.repostedByFollowedUsers.stream()
-                    .map(u -> java.util.Map.<String, Object>of(
-                            "user_id", u.userId(),
-                            "username", u.username()
-                    ))
+                    .map(u -> {
+                        java.util.Map<String, Object> user = new java.util.HashMap<>();
+                        user.put("user_id", u.userId());
+                        user.put("userId", u.userId());
+                        user.put("username", u.username());
+                        user.put("display_name", u.displayName());
+                        user.put("displayName", u.displayName());
+                        user.put("handle", u.handle());
+                        String profileImageUrl = com.looped.users.ProfileImageUrls.resolve(u.profileImageUrl(), defaultProfileImageUrl);
+                        user.put("profile_image_url", profileImageUrl);
+                        user.put("profileImageUrl", profileImageUrl);
+                        return user;
+                    })
                     .toList();
             out.put("reposted_by_followed_users", users);
             out.put("reposted_by_followed_users_count", row.repostedByFollowedUsersCount);

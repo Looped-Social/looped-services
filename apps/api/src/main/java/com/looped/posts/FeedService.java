@@ -27,7 +27,6 @@ public class FeedService {
     private final CommunityVerificationsRepository communityVerifications;
     private final SpecializationJoinsRepository specializationJoins;
     private final PostStateService postState;
-    private final RepostsRepository reposts;
     private final UserCommunityBanRepository communityBans;
     private final FypProperties fyp;
 
@@ -36,7 +35,6 @@ public class FeedService {
                        CommunityVerificationsRepository communityVerifications,
                        SpecializationJoinsRepository specializationJoins,
                        PostStateService postState,
-                       RepostsRepository reposts,
                        UserCommunityBanRepository communityBans,
                        FypProperties fyp) {
         this.posts = posts;
@@ -46,7 +44,6 @@ public class FeedService {
         this.communityVerifications = communityVerifications;
         this.specializationJoins = specializationJoins;
         this.postState = postState;
-        this.reposts = reposts;
         this.communityBans = communityBans;
         this.fyp = fyp;
     }
@@ -73,7 +70,6 @@ public class FeedService {
                 ? feedFollowing(cursor, limit, communityId, viewerUserId, viewerPrincipalId, hideAnonymousPosts)
                 : feedForYou(cursor, limit, communityId, viewerUserId, viewerPrincipalId, hideAnonymousPosts);
         postState.applyForPrincipal(principal.id, result.items());
-        applyRepostBanners(principal.id, result.items());
         return result;
     }
 
@@ -111,7 +107,6 @@ public class FeedService {
             next = Pagination.encode(last.createdAt, last.id);
         }
         postState.applyForPrincipal(principal.id, list);
-        applyRepostBanners(principal.id, list);
         return FeedResult.ok(list, next);
     }
 
@@ -308,30 +303,6 @@ public class FeedService {
         var list = posts.findTrendingWithMedia(asOf, since, communityId, limit, u.get().id, principal.id, u.get().hideAnonymousPosts);
         postState.applyForPrincipal(principal.id, list);
         return TrendingResult.ok(list);
-    }
-
-    private void applyRepostBanners(long viewerPrincipalId, List<? extends PostRepository.PostRow> items) {
-        if (items == null || items.isEmpty()) return;
-        List<Long> postIds = items.stream().map(p -> p.id).distinct().toList();
-        for (PostRepository.PostRow post : items) {
-            post.repostedByFollowedUsers = java.util.List.of();
-            post.repostedByFollowedUsersCount = 0;
-        }
-        var rows = reposts.followedRepostsForPosts(viewerPrincipalId, postIds);
-        if (rows == null || rows.isEmpty()) return;
-        java.util.Map<Long, java.util.List<PostRepository.RepostBannerUser>> usersByPost = new java.util.HashMap<>();
-        java.util.Map<Long, Integer> countsByPost = new java.util.HashMap<>();
-        for (var row : rows) {
-            countsByPost.put(row.postId(), row.totalCount());
-            usersByPost.computeIfAbsent(row.postId(), ignored -> new java.util.ArrayList<>())
-                    .add(new PostRepository.RepostBannerUser(row.userId(), row.username()));
-        }
-        for (PostRepository.PostRow post : items) {
-            Integer total = countsByPost.get(post.id);
-            if (total == null) continue;
-            post.repostedByFollowedUsersCount = total;
-            post.repostedByFollowedUsers = usersByPost.getOrDefault(post.id, java.util.List.of());
-        }
     }
 
     private Set<Long> eligibleCommunityIdsForUserId(long userId) {

@@ -931,7 +931,7 @@ public class PostRepository {
             public Integer fypRank;      // 0-based position in returned page
 	    }
 
-    public record RepostBannerUser(long userId, String username) {}
+    public record RepostBannerUser(long userId, String username, String displayName, String handle, String profileImageUrl) {}
 
     public static class ScoredPostRow extends PostRow {
         public long score;

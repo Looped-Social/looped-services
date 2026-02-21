@@ -157,12 +157,18 @@ class RepostsIntegrationTest extends PostgresTestBase {
         long postId = jdbc.queryForObject("INSERT INTO posts(author_id, author_principal_id, company_id, content, created_at) VALUES (?,?,?,?,?) RETURNING id",
                 Long.class, authorId, authorPrincipalId, companyId, "hello", Timestamp.from(base.minusSeconds(60)));
 
-        long reposterA = jdbc.queryForObject("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?) RETURNING id",
-                Long.class, "uid-reposter-a", "a", companyId);
-        long reposterB = jdbc.queryForObject("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?) RETURNING id",
-                Long.class, "uid-reposter-b", "b", companyId);
-        long reposterC = jdbc.queryForObject("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?) RETURNING id",
-                Long.class, "uid-reposter-c", "c", companyId);
+        long reposterA = jdbc.queryForObject(
+                "INSERT INTO users(firebase_uid, handle, display_name, profile_image_url, company_id) VALUES (?,?,?,?,?) RETURNING id",
+                Long.class, "uid-reposter-a", "a", "Reposter A", "https://cdn.example.com/a.jpg", companyId
+        );
+        long reposterB = jdbc.queryForObject(
+                "INSERT INTO users(firebase_uid, handle, display_name, profile_image_url, company_id) VALUES (?,?,?,?,?) RETURNING id",
+                Long.class, "uid-reposter-b", "b", "Reposter B", "https://cdn.example.com/b.jpg", companyId
+        );
+        long reposterC = jdbc.queryForObject(
+                "INSERT INTO users(firebase_uid, handle, display_name, profile_image_url, company_id) VALUES (?,?,?,?,?) RETURNING id",
+                Long.class, "uid-reposter-c", "c", "Reposter C", "https://cdn.example.com/c.jpg", companyId
+        );
 
         long principalA = jdbc.queryForObject("INSERT INTO principals(kind, user_id) VALUES ('user', ?) RETURNING id", Long.class, reposterA);
         long principalB = jdbc.queryForObject("INSERT INTO principals(kind, user_id) VALUES ('user', ?) RETURNING id", Long.class, reposterB);
@@ -185,7 +191,15 @@ class RepostsIntegrationTest extends PostgresTestBase {
                 .andExpect(jsonPath("$.items[0].reposted_by_followed_users_count", equalTo(3)))
                 .andExpect(jsonPath("$.items[0].reposted_by_followed_users", hasSize(2)))
                 .andExpect(jsonPath("$.items[0].reposted_by_followed_users[0].username", equalTo("c")))
+                .andExpect(jsonPath("$.items[0].reposted_by_followed_users[0].display_name", equalTo("Reposter C")))
+                .andExpect(jsonPath("$.items[0].reposted_by_followed_users[0].handle", equalTo("c")))
+                .andExpect(jsonPath("$.items[0].reposted_by_followed_users[0].profile_image_url", equalTo("https://cdn.example.com/c.jpg")))
+                .andExpect(jsonPath("$.items[0].repostedByFollowedUsers[0].displayName", equalTo("Reposter C")))
+                .andExpect(jsonPath("$.items[0].repostedByFollowedUsers[0].profileImageUrl", equalTo("https://cdn.example.com/c.jpg")))
                 .andExpect(jsonPath("$.items[0].reposted_by_followed_users[1].username", equalTo("b")))
+                .andExpect(jsonPath("$.items[0].reposted_by_followed_users[1].display_name", equalTo("Reposter B")))
+                .andExpect(jsonPath("$.items[0].reposted_by_followed_users[1].handle", equalTo("b")))
+                .andExpect(jsonPath("$.items[0].reposted_by_followed_users[1].profile_image_url", equalTo("https://cdn.example.com/b.jpg")))
                 .andExpect(jsonPath("$.next_cursor", notNullValue()))
                 .andReturn();
 

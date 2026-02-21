@@ -19,6 +19,35 @@
   - Semantics:
     - When `default_profile_image_url` is set (via admin settings), API payloads that include a profile image URL will return that default when the underlying user has not set `profile_image_url`.
     - When unset, profile image URL fields may be `null` as before.
+- **Public community share links**
+  - `GET /v1/public/communities/{id}` (no auth)
+  - Use case: web share route `/c/{communityId}`.
+  - Response (200):
+    - `id` (long)
+    - `name` (string)
+    - `short_name` (string|null, optional key when absent)
+    - `description` (string|null, optional key when absent)
+    - `image_url` (string|null, optional key when absent)
+    - `member_count` (int)
+    - `kind` (string, optional key when absent)
+    - `specialization_type` (string, optional key when absent)
+  - Errors:
+    - `404 { "error": "community_not_found", "message": "Community not found" }`
+    - `410 { "error": "community_unavailable", "message": "Community is unavailable" }`
+  - Semantics:
+    - `404` means the community id does not exist.
+    - `410` means the community exists but is not shareable via public links (unavailable/unshareable state).
+  - `GET /v1/public/communities/{id}/posts?cursor=&limit=` (no auth)
+  - Query params:
+    - `cursor` optional opaque pagination cursor.
+    - `limit` optional, defaults to `20`, clamped to `1..100`.
+  - Response (200):
+    - `{ "items": [<public_post_payload>], "next_cursor": "opaque?" }`
+    - `items` only includes publicly visible/shareable posts for that community.
+    - Public post payload matches `PostPayloads.publicFrom(...)` shape and includes `poll` when a poll exists.
+  - Errors:
+    - `404 { "error": "community_not_found", "message": "Community not found" }`
+    - `410 { "error": "community_unavailable", "message": "Community is unavailable" }`
 - **Widgets summary**
   - `GET /v1/widget-summary` (auth required: `Authorization: Bearer <firebase_jwt>`)
   - Purpose: single lightweight payload for WidgetKit timelines (Inbox Pulse, Verified Communities, Profile Stats).
