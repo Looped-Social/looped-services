@@ -40,6 +40,17 @@ jobs:
         working-directory: infra/envs/prod
         run: tofu init -backend-config=backend.hcl.example
 
+      - name: Write terraform.tfvars (prod)
+        working-directory: infra/envs/prod
+        run: |
+          cat > terraform.tfvars <<'EOF'
+          ${{ secrets.TOFU_TFVARS_PROD }}
+          EOF
+          if [ ! -s terraform.tfvars ]; then
+            echo "TOFU_TFVARS_PROD is missing or empty"
+            exit 1
+          fi
+
       - name: tofu apply (prod)
         working-directory: infra/envs/prod
-        run: tofu apply -auto-approve -no-color
+        run: tofu apply -input=false -auto-approve -no-color -var-file=terraform.tfvars
