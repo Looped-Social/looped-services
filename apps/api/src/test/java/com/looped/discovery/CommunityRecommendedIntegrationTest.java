@@ -159,4 +159,35 @@ class CommunityRecommendedIntegrationTest extends PostgresTestBase {
                 .andExpect(jsonPath("$.items[0].name", equalTo("LowCo")))
                 .andExpect(jsonPath("$.next_cursor").doesNotExist());
     }
+
+    @Test
+    void recommended_personalizes_toward_user_affinity_kind() throws Exception {
+        long companyId = jdbc.queryForObject(
+                "INSERT INTO companies(name, domain) VALUES ('RecAffinity', 'rec-affinity.com') RETURNING id",
+                Long.class);
+        jdbc.update("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?)",
+                "uid-rec-affinity", "affinity", companyId);
+        long userId = jdbc.queryForObject("SELECT id FROM users WHERE firebase_uid = ?", Long.class, "uid-rec-affinity");
+
+        long schoolA = jdbc.queryForObject(
+                "INSERT INTO communities(kind, name, member_count, created_at) VALUES ('school','Affinity School A', 100, '2025-01-01T00:00:00Z') RETURNING id",
+                Long.class);
+        jdbc.update(
+                "INSERT INTO communities(kind, name, member_count, created_at) VALUES ('school','Affinity School B', 100, '2025-01-01T00:00:00Z')"
+        );
+        jdbc.update(
+                "INSERT INTO communities(kind, name, member_count, created_at) VALUES ('company','Affinity Company', 100, '2025-01-01T00:00:00Z')"
+        );
+
+        jdbc.update("INSERT INTO community_follows(user_id, community_id) VALUES (?, ?)", userId, schoolA);
+
+        String auth = "Bearer " + token("uid-rec-affinity");
+        mockMvc.perform(get("/v1/communities/recommended")
+                        .param("limit", "3")
+                        .header("Authorization", auth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items", hasSize(3)))
+                .andExpect(jsonPath("$.items[0].kind", equalTo("school")))
+                .andExpect(jsonPath("$.items[0].name", equalTo("Affinity School B")));
+    }
 }

@@ -101,10 +101,7 @@ public class DiscoveryService {
     public RecommendedCommunitiesResult recommendedCommunities(String firebaseUid, String kind,
                                                                String specializationType, String cursor, int limit) {
         var actor = users.findByFirebaseUid(firebaseUid);
-        Long userId = null;
-        if (actor.isPresent() && actor.get().companyId != null) {
-            userId = actor.get().id;
-        }
+        Long userId = actor.map(u -> u.id).orElse(null);
 
         RankPagination.Cursor rankedCursor = null;
         if (cursor != null && !cursor.isBlank()) {
@@ -113,15 +110,15 @@ public class DiscoveryService {
             } catch (IllegalArgumentException ignored) {}
         }
         OffsetDateTime asOf = rankedCursor == null ? OffsetDateTime.now() : rankedCursor.asOf();
-        Long memberCount = rankedCursor == null ? null : rankedCursor.score();
+        Long score = rankedCursor == null ? null : rankedCursor.score();
         OffsetDateTime cTs = rankedCursor == null ? null : rankedCursor.timestamp();
         Long cId = rankedCursor == null ? null : rankedCursor.id();
 
-        var rows = communities.recommended(userId, kind, specializationType, asOf, memberCount, cTs, cId, limit);
+        var rows = communities.recommended(userId, kind, specializationType, asOf, score, cTs, cId, limit);
         String next = null;
         if (rows.size() == limit) {
             var last = rows.get(rows.size() - 1);
-            next = RankPagination.encode(asOf, last.memberCount, last.createdAt, last.id);
+            next = RankPagination.encode(asOf, last.score, last.createdAt, last.id);
         }
         return RecommendedCommunitiesResult.ok(rows, next);
     }

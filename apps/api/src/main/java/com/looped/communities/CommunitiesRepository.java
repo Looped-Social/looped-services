@@ -570,49 +570,123 @@ public class CommunitiesRepository {
 
     public List<RecommendedRow> recommended(Long userId, String kind, String specializationType,
                                             OffsetDateTime asOf,
-                                            Long cursorMemberCount,
+                                            Long cursorScore,
                                             OffsetDateTime cursorCreatedAt,
                                             Long cursorId,
                                             int limit) {
-        StringBuilder sql = new StringBuilder(
-                "SELECT c.id, c.kind, c.name, c.short_name, c.description, c.member_count, c.image_url, c.specialization_type, c.verification_ttl_days, c.created_at, c.icon_kind, c.icon_value, c.icon_updated_at, " +
-                        "CASE WHEN cf.user_id IS NULL THEN false ELSE true END AS is_following, " +
-                        "CASE WHEN sj.user_id IS NULL THEN false ELSE true END AS is_joined " +
-                        "FROM communities c " +
-                        "LEFT JOIN community_follows cf ON cf.community_id = c.id AND cf.user_id = COALESCE(?, -1::bigint) " +
-                        "LEFT JOIN specialization_joins sj ON sj.specialization_id = c.id AND sj.user_id = COALESCE(?, -1::bigint) "
-        );
+        StringBuilder sql = new StringBuilder("""
+                WITH me AS (
+                    SELECT ?::bigint AS user_id, ?::timestamptz AS as_of
+                ),
+                my_verified AS (
+                    SELECT cv.community_id
+                    FROM community_verifications cv
+                    CROSS JOIN me
+                    WHERE me.user_id IS NOT NULL
+                      AND cv.user_id = me.user_id
+                      AND cv.verified = true
+                      AND (cv.expires_at IS NULL OR cv.expires_at > me.as_of)
+                ),
+                my_verified_kinds AS (
+                    SELECT DISTINCT c.kind
+                    FROM my_verified mv
+                    JOIN communities c ON c.id = mv.community_id
+                ),
+                my_followed_kinds AS (
+                    SELECT DISTINCT c.kind
+                    FROM community_follows cf
+                    JOIN communities c ON c.id = cf.community_id
+                    CROSS JOIN me
+                    WHERE me.user_id IS NOT NULL
+                      AND cf.user_id = me.user_id
+                ),
+                my_followed_specialization_types AS (
+                    SELECT DISTINCT c.specialization_type
+                    FROM community_follows cf
+                    JOIN communities c ON c.id = cf.community_id
+                    CROSS JOIN me
+                    WHERE me.user_id IS NOT NULL
+                      AND cf.user_id = me.user_id
+                      AND c.kind = 'specialization'
+                      AND c.specialization_type IS NOT NULL
+                ),
+                my_joined_specialization_types AS (
+                    SELECT DISTINCT c.specialization_type
+                    FROM specialization_joins sj2
+                    JOIN communities c ON c.id = sj2.specialization_id
+                    CROSS JOIN me
+                    WHERE me.user_id IS NOT NULL
+                      AND sj2.user_id = me.user_id
+                      AND c.kind = 'specialization'
+                      AND c.specialization_type IS NOT NULL
+                ),
+                ranked AS (
+                    SELECT c.id, c.kind, c.name, c.short_name, c.description, c.member_count, c.image_url, c.specialization_type,
+                           c.verification_ttl_days, c.created_at, c.icon_kind, c.icon_value, c.icon_updated_at,
+                           CASE WHEN cf.user_id IS NULL THEN false ELSE true END AS is_following,
+                           CASE WHEN sj.user_id IS NULL THEN false ELSE true END AS is_joined,
+                           CAST(FLOOR(
+                               -- Global quality baseline: popularity + recency.
+                               LEAST(9000000, LN(1 + GREATEST(c.member_count, 0)::double precision) * 1200000) +
+                               LEAST(300000, (1.0 / (1.0 + EXTRACT(EPOCH FROM (me.as_of - c.created_at)) / 86400.0)) * 300000) +
+                               -- Personal boosts.
+                               CASE WHEN mv.community_id IS NULL THEN 0 ELSE 900000 END +
+                               CASE WHEN mvk.kind IS NULL THEN 0 ELSE 220000 END +
+                               CASE WHEN mfk.kind IS NULL THEN 0 ELSE 140000 END +
+                               CASE WHEN c.kind = 'specialization' AND mfs.specialization_type IS NOT NULL THEN 220000 ELSE 0 END +
+                               CASE WHEN c.kind = 'specialization' AND mjs.specialization_type IS NOT NULL THEN 280000 ELSE 0 END +
+                               -- Lightly de-prioritize already followed/joined rows.
+                               CASE WHEN cf.user_id IS NULL THEN 0 ELSE -250000 END +
+                               CASE WHEN sj.user_id IS NULL THEN 0 ELSE -250000 END
+                           ) AS BIGINT) AS score
+                    FROM communities c
+                    CROSS JOIN me
+                    LEFT JOIN community_follows cf
+                           ON cf.community_id = c.id
+                          AND cf.user_id = me.user_id
+                    LEFT JOIN specialization_joins sj
+                           ON sj.specialization_id = c.id
+                          AND sj.user_id = me.user_id
+                    LEFT JOIN my_verified mv ON mv.community_id = c.id
+                    LEFT JOIN my_verified_kinds mvk ON mvk.kind = c.kind
+                    LEFT JOIN my_followed_kinds mfk ON mfk.kind = c.kind
+                    LEFT JOIN my_followed_specialization_types mfs
+                           ON c.kind = 'specialization'
+                          AND mfs.specialization_type = c.specialization_type
+                    LEFT JOIN my_joined_specialization_types mjs
+                           ON c.kind = 'specialization'
+                          AND mjs.specialization_type = c.specialization_type
+                    WHERE c.created_at <= me.as_of
+                )
+                SELECT *
+                FROM ranked
+                """);
         List<Object> params = new ArrayList<>();
         params.add(userId);
-        params.add(userId);
+        params.add(asOf == null ? OffsetDateTime.now() : asOf);
+
         boolean hasWhere = false;
-        if (asOf != null) {
-            sql.append("WHERE c.created_at <= ? ");
-            params.add(asOf);
-            hasWhere = true;
-        }
         if (kind != null && !kind.isBlank()) {
-            sql.append(hasWhere ? "AND " : "WHERE ");
-            sql.append("c.kind = ? ");
+            sql.append("WHERE kind = ? ");
             params.add(kind);
             hasWhere = true;
         }
         if (specializationType != null && !specializationType.isBlank()) {
             sql.append(hasWhere ? "AND " : "WHERE ");
-            sql.append("c.specialization_type = ? ");
+            sql.append("specialization_type = ? ");
             params.add(specializationType);
             hasWhere = true;
         }
-        if (cursorMemberCount != null && cursorCreatedAt != null && cursorId != null) {
+        if (cursorScore != null && cursorCreatedAt != null && cursorId != null) {
             sql.append(hasWhere ? "AND " : "WHERE ");
-            sql.append("(c.member_count < ? OR (c.member_count = ? AND (c.created_at < ? OR (c.created_at = ? AND c.id < ?)))) ");
-            params.add(cursorMemberCount);
-            params.add(cursorMemberCount);
+            sql.append("(score < ? OR (score = ? AND (created_at < ? OR (created_at = ? AND id < ?)))) ");
+            params.add(cursorScore);
+            params.add(cursorScore);
             params.add(cursorCreatedAt);
             params.add(cursorCreatedAt);
             params.add(cursorId);
         }
-        sql.append("ORDER BY c.member_count DESC, c.created_at DESC, c.id DESC LIMIT ?");
+        sql.append("ORDER BY score DESC, created_at DESC, id DESC LIMIT ?");
         params.add(limit);
         return jdbc.query(
                 sql.toString(),
@@ -634,6 +708,7 @@ public class CommunitiesRepository {
                     row.iconUpdatedAt = rs.getObject("icon_updated_at", OffsetDateTime.class);
                     row.isFollowing = rs.getBoolean("is_following");
                     row.isJoined = rs.getBoolean("is_joined");
+                    row.score = rs.getLong("score");
                     return row;
                 },
                 params.toArray()
@@ -709,6 +784,7 @@ public class CommunitiesRepository {
         public String iconKind;
         public String iconValue;
         public OffsetDateTime iconUpdatedAt;
+        public long score;
     }
 
     public List<SpecializationFilterRow> listSpecializationsForFilters(String specializationType) {
