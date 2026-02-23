@@ -990,6 +990,13 @@ public class PostRepository {
         ) > 0;
     }
 
+    public boolean clearMedia(long postId) {
+        return jdbc.update(
+                "UPDATE posts SET media_asset_id = NULL WHERE id = ? AND removed_at IS NULL",
+                postId
+        ) > 0;
+    }
+
 	    public static class PostRow {
 	        public long id;
 	        public Long authorId;

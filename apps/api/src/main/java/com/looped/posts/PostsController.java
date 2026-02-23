@@ -282,7 +282,13 @@ public class PostsController {
                     "message", "Authorization is required"
             ));
         }
-        var res = postsService.edit(jwt == null ? null : jwt.getSubject(), id, body.content(), body.toAnonProof());
+        var res = postsService.edit(
+                jwt == null ? null : jwt.getSubject(),
+                id,
+                body.content(),
+                body.removeMediaRequested(),
+                body.toAnonProof()
+        );
         return switch (res.status()) {
             case USER_NOT_PROVISIONED -> ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
                     "error", "user_not_provisioned",
@@ -379,11 +385,16 @@ public class PostsController {
                                Long anonTimestamp) {}
 
     public record EditRequest(@NotBlank @Size(max = 1000) String content,
+                              @JsonAlias("remove_media") Boolean removeMedia,
                               Boolean asAnon,
                               Long anonProfileId,
                               String anonCert,
                               String anonCertKid,
                               String anonSig) {
+        boolean removeMediaRequested() {
+            return Boolean.TRUE.equals(removeMedia);
+        }
+
         com.looped.anon.AnonProofService.AnonActionProof toAnonProof() {
             if (asAnon == null || !asAnon) return null;
             return new com.looped.anon.AnonProofService.AnonActionProof(anonProfileId, anonCert, anonCertKid, anonSig);

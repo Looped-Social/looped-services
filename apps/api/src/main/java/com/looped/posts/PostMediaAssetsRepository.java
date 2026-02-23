@@ -35,4 +35,8 @@ public class PostMediaAssetsRepository {
                 }
         );
     }
+
+    public void deleteByPostId(long postId) {
+        jdbc.update("DELETE FROM post_media_assets WHERE post_id = ?", postId);
+    }
 }

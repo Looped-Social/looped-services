@@ -340,7 +340,7 @@
     - Response: `{ anon_profile_id, handle, community_id, anon_cert_kid, expires_at }`
   - **Anonymous actions** (NO JWT; reject Authorization with `400 { error: "anon_jwt_not_allowed" }`):
     - `POST /v1/posts` with `{ communityId, isAnon: true, anonProfileId, anonCert, anonCertKid, anonSig, anonTimestamp }`
-    - `PUT /v1/posts/{id}` with `{ content, asAnon: true, anonProfileId, anonCert, anonCertKid, anonSig }`
+    - `PUT /v1/posts/{id}` with `{ content, removeMedia?: boolean, asAnon: true, anonProfileId, anonCert, anonCertKid, anonSig }` (`remove_media` also accepted)
     - `DELETE /v1/posts/{id}` with `{ asAnon: true, anonProfileId, anonCert, anonCertKid, anonSig }`
     - `DELETE /v1/posts/{id}/like` with `{ asAnon: true, anonProfileId, anonCert, anonCertKid, anonSig }`
     - `POST /v1/posts/{id}/comments` with `{ content, parentId?, asAnon: true, anonProfileId, anonCert, anonCertKid, anonSig }`

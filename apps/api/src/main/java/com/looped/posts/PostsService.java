@@ -365,7 +365,7 @@ public class PostsService {
     }
 
     @Transactional
-    public EditResult edit(String firebaseUid, long postId, String content, AnonProofService.AnonActionProof anonProof) {
+    public EditResult edit(String firebaseUid, long postId, String content, boolean removeMedia, AnonProofService.AnonActionProof anonProof) {
         var post = posts.findByIdIncludingRemoved(postId);
         if (post.isEmpty()) return EditResult.notFound();
         if (post.get().removedAt != null) return EditResult.postRemoved();
@@ -393,6 +393,10 @@ public class PostsService {
 
         boolean updated = posts.updateContent(postId, content);
         if (!updated) return EditResult.postRemoved();
+        if (removeMedia) {
+            posts.clearMedia(postId);
+            postMediaAssets.deleteByPostId(postId);
+        }
 
         hashtagPosts.deleteByPostId(postId);
         boolean shouldQuarantine = decision.action() == ContentModerationService.Action.QUARANTINE;
