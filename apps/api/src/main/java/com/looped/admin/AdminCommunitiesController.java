@@ -158,6 +158,9 @@ public class AdminCommunitiesController {
             return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of("error", "invalid_kind"));
         }
         String specializationType = normalizeSpecializationType(body.specializationType());
+        if (specializationType == null) {
+            specializationType = normalizeSpecializationTypeFromKind(body.kind());
+        }
         if ("specialization".equals(kind) && specializationType == null) {
             return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of("error", "specialization_type_required"));
         }
