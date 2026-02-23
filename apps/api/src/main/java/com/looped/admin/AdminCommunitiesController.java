@@ -4,6 +4,7 @@ import com.looped.communities.CommunitiesRepository;
 import com.looped.communities.CommunityRequestAvailabilityNotifier;
 import com.looped.communities.CommunityVerificationsRepository;
 import com.looped.communities.CommunityDomainsRepository;
+import com.looped.communities.CommunityImageSlots;
 import com.looped.communities.CommunityLogoResolver;
 import com.looped.communities.SpecializationIcons;
 import com.looped.shared.Pagination;
@@ -167,6 +168,16 @@ public class AdminCommunitiesController {
         String description = normalizeDescription(body.description());
         String imageUrl = normalizeDescription(body.imageUrl());
         String shortName = normalizeShortName(body.shortName());
+        List<String> normalizedDomains = normalizeDomains(body.domains());
+        if (normalizedDomains == null) {
+            return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of("error", "invalid_domain"));
+        }
+        if ("specialization".equals(kind) && !normalizedDomains.isEmpty()) {
+            return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of(
+                    "error", "domains_not_allowed_for_specialization",
+                    "message", "major/field communities cannot define verification domains"
+            ));
+        }
         Integer ttlDays = body.verificationTtlDays();
         if (ttlDays != null && ttlDays < 0) {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of("error", "invalid_ttl_days"));
@@ -188,6 +199,9 @@ public class AdminCommunitiesController {
             return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "community_exists"));
         }
         long id = communities.insert(kind, name, description, imageUrl, ttlDays, specializationType, shortName, cooldownMonths);
+        for (String domain : normalizedDomains) {
+            domains.insert(id, domain);
+        }
         String requestKind = requestKindForCommunity(kind, specializationType);
         var notificationSummary = availabilityNotifier.notifyForCreatedCommunity(requestKind, name, id);
         audit.log(authRes.admin().id, "community.create", "community", id, null);
@@ -485,13 +499,8 @@ public class AdminCommunitiesController {
             Map<String, Object> icon = com.looped.communities.SpecializationIcons.payloadOrNull(row.iconKind, row.iconValue);
             if (icon != null) map.put("icon", icon);
         }
-        String resolved = row.imageUrl;
-        if ((resolved == null || resolved.isBlank()) && fallbacks != null) {
-            resolved = fallbacks.get(row.id);
-        } else if (resolved == null || resolved.isBlank()) {
-            resolved = logos.resolve(row.id, row.kind, row.imageUrl);
-        }
-        if (resolved != null && !resolved.isBlank()) map.put("image_url", resolved);
+        String fallback = fallbacks != null ? fallbacks.get(row.id) : logos.resolve(row.id, row.kind, row.imageUrl);
+        CommunityImageSlots.putPayload(map, row.imageUrl, row.profileImageUrl, fallback);
         map.put("created_at", row.createdAt);
         if (row.verificationTtlDays != null) map.put("verification_ttl_days", row.verificationTtlDays);
         if (row.specializationJoinCooldownMonths != null) {
@@ -538,6 +547,18 @@ public class AdminCommunitiesController {
         if (raw == null) return null;
         String trimmed = raw.trim();
         return trimmed.isBlank() ? null : trimmed;
+    }
+
+    private List<String> normalizeDomains(List<String> rawDomains) {
+        if (rawDomains == null || rawDomains.isEmpty()) return List.of();
+        java.util.LinkedHashSet<String> out = new java.util.LinkedHashSet<>();
+        for (String raw : rawDomains) {
+            if (raw == null || raw.isBlank()) continue;
+            String normalized = domains.normalizeDomain(raw);
+            if (normalized == null) return null;
+            out.add(normalized);
+        }
+        return List.copyOf(out);
     }
 
     private String deriveShortName(String domain) {
@@ -607,7 +628,7 @@ public class AdminCommunitiesController {
 
     public record CreateCommunityRequest(@NotBlank String kind, @NotBlank String name, String description, String imageUrl,
                                          Integer verificationTtlDays, String specializationType, String shortName,
-                                         Integer specializationJoinCooldownMonths) {}
+                                         Integer specializationJoinCooldownMonths, List<String> domains) {}
 
     public record UpdateCommunityRequest(String name, String description, Integer verificationTtlDays, String shortName,
                                          Integer specializationJoinCooldownMonths, SpecializationIcons.IconRequest icon) {}

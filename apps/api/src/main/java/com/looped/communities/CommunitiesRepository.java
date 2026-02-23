@@ -24,7 +24,7 @@ public class CommunitiesRepository {
     }
 
     private static final String BASE_COLUMNS =
-            "id, kind, name, description, member_count, image_url, specialization_type, created_at, verification_ttl_days, short_name, specialization_join_cooldown_months, icon_kind, icon_value, icon_updated_at";
+            "id, kind, name, description, member_count, image_url, profile_image_url, specialization_type, created_at, verification_ttl_days, short_name, specialization_join_cooldown_months, icon_kind, icon_value, icon_updated_at";
 
     private static final RowMapper<CommunityRow> MAPPER = new RowMapper<>() {
         @Override
@@ -36,6 +36,7 @@ public class CommunitiesRepository {
             row.description = rs.getString("description");
             row.memberCount = rs.getInt("member_count");
             row.imageUrl = rs.getString("image_url");
+            row.profileImageUrl = rs.getString("profile_image_url");
             row.specializationType = rs.getString("specialization_type");
             row.createdAt = rs.getObject("created_at", OffsetDateTime.class);
             int ttlDays = rs.getInt("verification_ttl_days");
@@ -156,14 +157,14 @@ public class CommunitiesRepository {
                 WITH base AS (
                     SELECT c.id, c.kind, c.name, c.description,
                            COUNT(j.user_id) FILTER (WHERE u.deleted_at IS NULL) AS member_count,
-                           c.image_url, c.specialization_type, c.created_at, c.verification_ttl_days, c.short_name, c.specialization_join_cooldown_months,
+                           c.image_url, c.profile_image_url, c.specialization_type, c.created_at, c.verification_ttl_days, c.short_name, c.specialization_join_cooldown_months,
                            c.icon_kind, c.icon_value, c.icon_updated_at
                     FROM communities c
                     LEFT JOIN specialization_joins j ON j.specialization_id = c.id AND j.created_at <= ?
                     LEFT JOIN users u ON u.id = j.user_id
                     WHERE c.kind = 'specialization' AND c.specialization_type = ? AND c.created_at <= ?
                     GROUP BY c.id, c.kind, c.name, c.description,
-                             c.image_url, c.specialization_type, c.created_at, c.verification_ttl_days, c.short_name, c.specialization_join_cooldown_months,
+                             c.image_url, c.profile_image_url, c.specialization_type, c.created_at, c.verification_ttl_days, c.short_name, c.specialization_join_cooldown_months,
                              c.icon_kind, c.icon_value, c.icon_updated_at
                 )
                 SELECT * FROM base
@@ -621,7 +622,7 @@ public class CommunitiesRepository {
                       AND c.specialization_type IS NOT NULL
                 ),
                 ranked AS (
-                    SELECT c.id, c.kind, c.name, c.short_name, c.description, c.member_count, c.image_url, c.specialization_type,
+                    SELECT c.id, c.kind, c.name, c.short_name, c.description, c.member_count, c.image_url, c.profile_image_url, c.specialization_type,
                            c.verification_ttl_days, c.created_at, c.icon_kind, c.icon_value, c.icon_updated_at,
                            CASE WHEN cf.user_id IS NULL THEN false ELSE true END AS is_following,
                            CASE WHEN sj.user_id IS NULL THEN false ELSE true END AS is_joined,
@@ -699,6 +700,7 @@ public class CommunitiesRepository {
                     row.description = rs.getString("description");
                     row.memberCount = rs.getInt("member_count");
                     row.imageUrl = rs.getString("image_url");
+                    row.profileImageUrl = rs.getString("profile_image_url");
                     row.specializationType = rs.getString("specialization_type");
                     int ttlDays = rs.getInt("verification_ttl_days");
                     row.verificationTtlDays = rs.wasNull() ? null : ttlDays;
@@ -733,10 +735,10 @@ public class CommunitiesRepository {
                        Integer verificationTtlDays, String specializationType, String shortName,
                        Integer specializationJoinCooldownMonths) {
         Long id = jdbc.query(
-                "INSERT INTO communities(kind, name, description, image_url, verification_ttl_days, specialization_type, short_name, specialization_join_cooldown_months) " +
-                        "VALUES (?,?,?,?,?,?,?,?) RETURNING id",
+                "INSERT INTO communities(kind, name, description, image_url, profile_image_url, verification_ttl_days, specialization_type, short_name, specialization_join_cooldown_months) " +
+                        "VALUES (?,?,?,?,?,?,?,?,?) RETURNING id",
                 rs -> rs.next() ? rs.getLong(1) : null,
-                kind, name, description, imageUrl, verificationTtlDays, specializationType, shortName, specializationJoinCooldownMonths
+                kind, name, description, imageUrl, null, verificationTtlDays, specializationType, shortName, specializationJoinCooldownMonths
         );
         if (id == null) {
             throw new IllegalStateException("Failed to insert community");
@@ -751,6 +753,7 @@ public class CommunitiesRepository {
         public String description;
         public int memberCount;
         public String imageUrl;
+        public String profileImageUrl;
         public String specializationType;
         public OffsetDateTime createdAt;
         public Integer verificationTtlDays;
@@ -776,6 +779,7 @@ public class CommunitiesRepository {
         public String description;
         public int memberCount;
         public String imageUrl;
+        public String profileImageUrl;
         public String specializationType;
         public boolean isFollowing;
         public boolean isJoined;
@@ -949,6 +953,14 @@ public class CommunitiesRepository {
         int rows = jdbc.update(
                 "UPDATE communities SET image_url = ? WHERE id = ?",
                 imageUrl, communityId
+        );
+        return rows > 0;
+    }
+
+    public boolean updateProfileImageUrl(long communityId, String profileImageUrl) {
+        int rows = jdbc.update(
+                "UPDATE communities SET profile_image_url = ? WHERE id = ?",
+                profileImageUrl, communityId
         );
         return rows > 0;
     }

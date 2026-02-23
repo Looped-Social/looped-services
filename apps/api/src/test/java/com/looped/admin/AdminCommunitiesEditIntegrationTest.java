@@ -2,6 +2,7 @@ package com.looped.admin;
 
 import com.looped.auth.TestSecurityConfig;
 import com.looped.support.PostgresTestBase;
+import com.jayway.jsonpath.JsonPath;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -166,5 +167,59 @@ class AdminCommunitiesEditIntegrationTest extends PostgresTestBase {
                 .andExpect(jsonPath("$.id", equalTo((int) communityId)))
                 .andExpect(jsonPath("$.kind", equalTo("school")))
                 .andExpect(jsonPath("$.specialization_type").doesNotExist());
+    }
+
+    @Test
+    void create_accepts_optional_short_name_and_optional_domains() throws Exception {
+        admins.insert(null, "admin-create-community@looped.com", "admin", "active",
+                List.of(AdminPermissions.CREATE_COMMUNITY));
+        String auth = "Bearer " + token("admin-create-community", "admin-create-community@looped.com");
+
+        var created = mockMvc.perform(post("/v1/admin/communities")
+                        .header("Authorization", auth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "kind": "company",
+                                  "name": "Create Domains Co",
+                                  "shortName": "createco",
+                                  "domains": ["https://www.createco.com/path", "createco.edu"]
+                                }
+                                """))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.id").exists())
+                .andReturn();
+
+        Number idNum = JsonPath.read(created.getResponse().getContentAsString(), "$.id");
+        long id = idNum.longValue();
+
+        List<String> persistedDomains = jdbc.queryForList(
+                "SELECT domain FROM community_domains WHERE community_id = ? ORDER BY domain ASC",
+                String.class,
+                id
+        );
+        org.assertj.core.api.Assertions.assertThat(persistedDomains).containsExactly("createco.com", "createco.edu");
+        String shortName = jdbc.queryForObject("SELECT short_name FROM communities WHERE id = ?", String.class, id);
+        org.assertj.core.api.Assertions.assertThat(shortName).isEqualTo("createco");
+    }
+
+    @Test
+    void create_rejects_domains_for_specialization_kind() throws Exception {
+        admins.insert(null, "admin-create-major@looped.com", "admin", "active",
+                List.of(AdminPermissions.CREATE_COMMUNITY));
+        String auth = "Bearer " + token("admin-create-major", "admin-create-major@looped.com");
+
+        mockMvc.perform(post("/v1/admin/communities")
+                        .header("Authorization", auth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "kind": "major",
+                                  "name": "Computer Engineering",
+                                  "domains": ["university.edu"]
+                                }
+                                """))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.error", equalTo("domains_not_allowed_for_specialization")));
     }
 }

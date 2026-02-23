@@ -41,9 +41,7 @@ public class PublicCommunitiesService {
         if (row.description != null && !row.description.isBlank()) {
             payload.put("description", row.description);
         }
-        if (row.imageUrl != null && !row.imageUrl.isBlank()) {
-            payload.put("image_url", row.imageUrl);
-        }
+        CommunityImageSlots.putPayload(payload, row.imageUrl, row.profileImageUrl, null);
         payload.put("member_count", memberCounts.memberCount(row.id, row.kind));
         if (row.kind != null && !row.kind.isBlank()) {
             payload.put("kind", row.kind);

@@ -1,6 +1,7 @@
 package com.looped.admin;
 
 import com.looped.communities.CommunitiesRepository;
+import com.looped.communities.CommunityImageSlots;
 import com.looped.communities.CommunityLogoAssetsRepository;
 import com.looped.communities.CommunityLogoResolver;
 import com.looped.media.MediaImageSafetyService;
@@ -99,37 +100,43 @@ public class AdminCommunityLogosController {
         }).toList();
 
         String logoDevUrl = logoResolver.resolve(id, community.kind, null);
-        String selectedUrl = community.imageUrl;
-        String selectedSource;
-        Long selectedUploadId = null;
-        if (selectedUrl == null || selectedUrl.isBlank()) {
-            if (logoDevUrl != null) {
-                selectedSource = "logo_dev";
-                selectedUrl = logoDevUrl;
-            } else {
-                selectedSource = "none";
-                selectedUrl = null;
-            }
-        } else {
-            selectedSource = "custom";
-            for (var item : items) {
-                Object cdn = item.get("cdn_url");
-                if (cdn != null && cdn.equals(selectedUrl)) {
-                    selectedSource = "upload";
-                    selectedUploadId = (Long) item.get("id");
-                    break;
-                }
-            }
-        }
+        CommunityImageSlots.Resolved resolved = CommunityImageSlots.resolve(
+                community.imageUrl,
+                community.profileImageUrl,
+                logoDevUrl
+        );
+        SlotSelection bannerSelection = resolveSlotSelection(
+                "banner",
+                community.imageUrl,
+                community.profileImageUrl,
+                resolved.bannerImageUrl(),
+                logoDevUrl,
+                items
+        );
+        SlotSelection profileSelection = resolveSlotSelection(
+                "profile",
+                community.profileImageUrl,
+                community.imageUrl,
+                resolved.profileImageUrl(),
+                logoDevUrl,
+                items
+        );
 
         Map<String, Object> out = new HashMap<>();
         out.put("community_id", id);
         out.put("kind", community.kind);
         out.put("uploads", items);
         if (logoDevUrl != null) out.put("logo_dev_url", logoDevUrl);
-        out.put("selected_source", selectedSource);
-        if (selectedUrl != null) out.put("selected_image_url", selectedUrl);
-        if (selectedUploadId != null) out.put("selected_upload_id", selectedUploadId);
+        out.put("selected_source", bannerSelection.source());
+        if (bannerSelection.imageUrl() != null) out.put("selected_image_url", bannerSelection.imageUrl());
+        if (bannerSelection.uploadId() != null) out.put("selected_upload_id", bannerSelection.uploadId());
+        out.put("selected_banner_source", bannerSelection.source());
+        if (bannerSelection.imageUrl() != null) out.put("selected_banner_image_url", bannerSelection.imageUrl());
+        if (bannerSelection.uploadId() != null) out.put("selected_banner_upload_id", bannerSelection.uploadId());
+        out.put("selected_profile_source", profileSelection.source());
+        if (profileSelection.imageUrl() != null) out.put("selected_profile_image_url", profileSelection.imageUrl());
+        if (profileSelection.uploadId() != null) out.put("selected_profile_upload_id", profileSelection.uploadId());
+        CommunityImageSlots.putPayload(out, community.imageUrl, community.profileImageUrl, logoDevUrl);
         return ResponseEntity.ok(out);
     }
 
@@ -258,6 +265,10 @@ public class AdminCommunityLogosController {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "not_found"));
         }
 
+        String slot = normalizeImageSlot(body.slot());
+        if (slot == null) {
+            return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of("error", "invalid_slot"));
+        }
         boolean useLogoDev = body.useLogoDev() != null && body.useLogoDev();
         boolean hasImageKey = body.imageKey() != null && !body.imageKey().isBlank();
         boolean hasImageUrl = body.imageUrl() != null && !body.imageUrl().isBlank();
@@ -301,21 +312,36 @@ public class AdminCommunityLogosController {
             selectedSource = "custom";
         }
 
-        boolean updated = communities.updateImageUrl(id, selectedUrl);
+        boolean updated = "profile".equals(slot)
+                ? communities.updateProfileImageUrl(id, selectedUrl)
+                : communities.updateImageUrl(id, selectedUrl);
         if (!updated) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "not_found"));
         }
-        audit.log(authRes.admin().id, "community.logo.set", "community", id, "source=" + selectedSource);
+        audit.log(authRes.admin().id, "community.logo.set", "community", id, "slot=" + slot + ",source=" + selectedSource);
 
-        String resolved = selectedUrl;
-        if (resolved == null || resolved.isBlank()) {
-            resolved = logoResolver.resolve(id, communityOpt.get().kind, null);
+        var updatedCommunityOpt = communities.findById(id);
+        if (updatedCommunityOpt.isEmpty()) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "not_found"));
         }
+        var updatedCommunity = updatedCommunityOpt.get();
+        String logoDevUrl = logoResolver.resolve(id, updatedCommunity.kind, null);
+        CommunityImageSlots.Resolved resolved = CommunityImageSlots.resolve(
+                updatedCommunity.imageUrl,
+                updatedCommunity.profileImageUrl,
+                logoDevUrl
+        );
+        String selectedImageUrl = "profile".equals(slot) ? resolved.profileImageUrl() : resolved.bannerImageUrl();
+        Long selectedSlotUploadId = findUploadIdByUrlFromAssets(logoAssets.listByCommunity(id), selectedImageUrl);
+
         Map<String, Object> out = new HashMap<>();
         out.put("community_id", id);
+        out.put("slot", slot);
         out.put("selected_source", selectedSource);
-        if (resolved != null) out.put("image_url", resolved);
+        if (selectedImageUrl != null) out.put("selected_image_url", selectedImageUrl);
         if (selectedUploadId != null) out.put("selected_upload_id", selectedUploadId);
+        if (selectedSlotUploadId != null) out.put("selected_slot_upload_id", selectedSlotUploadId);
+        CommunityImageSlots.putPayload(out, updatedCommunity.imageUrl, updatedCommunity.profileImageUrl, logoDevUrl);
         return ResponseEntity.ok(out);
     }
 
@@ -346,49 +372,76 @@ public class AdminCommunityLogosController {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "logo_not_found"));
         }
 
-        boolean clearedSelectedLogo = false;
-        String selectedImageUrl = communityOpt.get().imageUrl;
+        boolean clearedSelectedBanner = false;
+        boolean clearedSelectedProfile = false;
         String deletedUploadCdn = cdnUrl(logoAsset.get().s3Key);
-        if (selectedImageUrl != null && deletedUploadCdn != null && selectedImageUrl.equals(deletedUploadCdn)) {
-            communities.updateImageUrl(id, null);
-            clearedSelectedLogo = true;
+        if (deletedUploadCdn != null) {
+            String selectedBanner = communityOpt.get().imageUrl;
+            if (selectedBanner != null && selectedBanner.equals(deletedUploadCdn)) {
+                communities.updateImageUrl(id, null);
+                clearedSelectedBanner = true;
+            }
+            String selectedProfile = communityOpt.get().profileImageUrl;
+            if (selectedProfile != null && selectedProfile.equals(deletedUploadCdn)) {
+                communities.updateProfileImageUrl(id, null);
+                clearedSelectedProfile = true;
+            }
         }
+        boolean clearedSelectedLogo = clearedSelectedBanner || clearedSelectedProfile;
 
         audit.log(authRes.admin().id, "community.logo.delete", "community", id, "upload_id=" + uploadId);
 
-        String resolved = communities.findById(id)
-                .map(row -> row.imageUrl)
-                .orElse(null);
-        String selectedSource = "none";
-        Long selectedUploadId = null;
-        if (resolved == null || resolved.isBlank()) {
-            resolved = logoResolver.resolve(id, communityOpt.get().kind, null);
-            if (resolved != null && !resolved.isBlank()) {
-                selectedSource = "logo_dev";
-            }
-        } else {
-            selectedSource = "custom";
-            for (var upload : logoAssets.listByCommunity(id)) {
-                String uploadCdn = cdnUrl(upload.s3Key);
-                if (uploadCdn != null && uploadCdn.equals(resolved)) {
-                    selectedSource = "upload";
-                    selectedUploadId = upload.id;
-                    break;
-                }
-            }
+        var updatedCommunityOpt = communities.findById(id);
+        if (updatedCommunityOpt.isEmpty()) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "not_found"));
         }
+        var updatedCommunity = updatedCommunityOpt.get();
+        var currentUploads = logoAssets.listByCommunity(id);
+        List<Map<String, Object>> uploadItems = currentUploads.stream().map(row -> {
+            Map<String, Object> map = new HashMap<>();
+            map.put("id", row.id);
+            String cdn = cdnUrl(row.s3Key);
+            if (cdn != null) map.put("cdn_url", cdn);
+            return map;
+        }).toList();
+        String logoDevUrl = logoResolver.resolve(id, updatedCommunity.kind, null);
+        CommunityImageSlots.Resolved resolved = CommunityImageSlots.resolve(
+                updatedCommunity.imageUrl,
+                updatedCommunity.profileImageUrl,
+                logoDevUrl
+        );
+        SlotSelection bannerSelection = resolveSlotSelection(
+                "banner",
+                updatedCommunity.imageUrl,
+                updatedCommunity.profileImageUrl,
+                resolved.bannerImageUrl(),
+                logoDevUrl,
+                uploadItems
+        );
+        SlotSelection profileSelection = resolveSlotSelection(
+                "profile",
+                updatedCommunity.profileImageUrl,
+                updatedCommunity.imageUrl,
+                resolved.profileImageUrl(),
+                logoDevUrl,
+                uploadItems
+        );
 
         Map<String, Object> out = new HashMap<>();
         out.put("status", "deleted");
         out.put("upload_id", uploadId);
         out.put("cleared_selected_logo", clearedSelectedLogo);
-        out.put("selected_source", selectedSource);
-        if (selectedUploadId != null) {
-            out.put("selected_upload_id", selectedUploadId);
-        }
-        if (resolved != null && !resolved.isBlank()) {
-            out.put("image_url", resolved);
-        }
+        out.put("cleared_selected_banner", clearedSelectedBanner);
+        out.put("cleared_selected_profile", clearedSelectedProfile);
+        out.put("selected_source", bannerSelection.source());
+        if (bannerSelection.uploadId() != null) out.put("selected_upload_id", bannerSelection.uploadId());
+        out.put("selected_banner_source", bannerSelection.source());
+        if (bannerSelection.imageUrl() != null) out.put("selected_banner_image_url", bannerSelection.imageUrl());
+        if (bannerSelection.uploadId() != null) out.put("selected_banner_upload_id", bannerSelection.uploadId());
+        out.put("selected_profile_source", profileSelection.source());
+        if (profileSelection.imageUrl() != null) out.put("selected_profile_image_url", profileSelection.imageUrl());
+        if (profileSelection.uploadId() != null) out.put("selected_profile_upload_id", profileSelection.uploadId());
+        CommunityImageSlots.putPayload(out, updatedCommunity.imageUrl, updatedCommunity.profileImageUrl, logoDevUrl);
         return ResponseEntity.ok(out);
     }
 
@@ -428,10 +481,76 @@ public class AdminCommunityLogosController {
         return null;
     }
 
+    private String normalizeImageSlot(String raw) {
+        if (raw == null || raw.isBlank()) return "banner";
+        String normalized = raw.trim().toLowerCase(Locale.ROOT);
+        if ("banner".equals(normalized) || "profile".equals(normalized)) return normalized;
+        return null;
+    }
+
+    private Long findUploadIdByUrl(List<Map<String, Object>> uploads, String imageUrl) {
+        if (uploads == null || uploads.isEmpty() || imageUrl == null || imageUrl.isBlank()) return null;
+        for (var upload : uploads) {
+            Object cdn = upload.get("cdn_url");
+            if (cdn != null && imageUrl.equals(cdn.toString())) {
+                Object id = upload.get("id");
+                if (id instanceof Long l) return l;
+                if (id instanceof Number n) return n.longValue();
+                break;
+            }
+        }
+        return null;
+    }
+
+    private Long findUploadIdByUrlFromAssets(List<CommunityLogoAssetsRepository.LogoAssetRow> uploads, String imageUrl) {
+        if (uploads == null || uploads.isEmpty() || imageUrl == null || imageUrl.isBlank()) return null;
+        for (var upload : uploads) {
+            String cdn = cdnUrl(upload.s3Key);
+            if (cdn != null && imageUrl.equals(cdn)) {
+                return upload.id;
+            }
+        }
+        return null;
+    }
+
+    private SlotSelection resolveSlotSelection(String slot,
+                                               String explicitSlotUrl,
+                                               String explicitOtherSlotUrl,
+                                               String effectiveSlotUrl,
+                                               String logoDevUrl,
+                                               List<Map<String, Object>> uploads) {
+        String explicit = normalizeCustomValue(explicitSlotUrl);
+        String other = normalizeCustomValue(explicitOtherSlotUrl);
+        String effective = normalizeCustomValue(effectiveSlotUrl);
+        if (effective == null) {
+            return new SlotSelection("none", null, null);
+        }
+        Long uploadId = findUploadIdByUrl(uploads, effective);
+        if (explicit != null) {
+            return new SlotSelection(uploadId != null ? "upload" : "custom", effective, uploadId);
+        }
+        if (other != null && other.equals(effective)) {
+            String fallbackSource = "banner".equals(slot) ? "fallback_profile" : "fallback_banner";
+            return new SlotSelection(fallbackSource, effective, uploadId);
+        }
+        if (logoDevUrl != null && logoDevUrl.equals(effective)) {
+            return new SlotSelection("logo_dev", effective, null);
+        }
+        return new SlotSelection(uploadId != null ? "upload" : "custom", effective, uploadId);
+    }
+
+    private String normalizeCustomValue(String raw) {
+        if (raw == null) return null;
+        String trimmed = raw.trim();
+        return trimmed.isBlank() ? null : trimmed;
+    }
+
     public record PresignRequest(@NotBlank String contentType, @NotNull Long sizeBytes) {}
 
     public record CallbackRequest(@NotBlank String key, @NotBlank String mimeType,
                                   Integer width, Integer height, Integer durationSeconds) {}
 
-    public record UpdateLogoRequest(String imageUrl, String imageKey, Boolean useLogoDev) {}
+    public record UpdateLogoRequest(String imageUrl, String imageKey, Boolean useLogoDev, String slot) {}
+
+    private record SlotSelection(String source, String imageUrl, Long uploadId) {}
 }

@@ -68,7 +68,7 @@ public class CommunitiesController {
         out.put("name", community.name);
         if (community.shortName != null) out.put("short_name", community.shortName);
         if (community.description != null) out.put("description", community.description);
-        if (community.imageUrl != null) out.put("image_url", community.imageUrl);
+        CommunityImageSlots.putPayload(out, community.imageUrl, community.profileImageUrl, null);
         out.put("member_count", memberCounts.memberCount(community.id, community.kind));
         if (community.specializationType != null) out.put("specialization_type", community.specializationType);
         if ("specialization".equalsIgnoreCase(community.kind)) {

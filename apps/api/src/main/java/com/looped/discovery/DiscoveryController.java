@@ -3,6 +3,7 @@ package com.looped.discovery;
 import com.looped.communities.CommunitiesRepository;
 import com.looped.communities.CommunityMemberCountService;
 import com.looped.communities.CommunityFollowsRepository;
+import com.looped.communities.CommunityImageSlots;
 import com.looped.communities.CommunityLogoResolver;
 import com.looped.communities.SpecializationJoinsRepository;
 import com.looped.posts.PostPayloads;
@@ -371,13 +372,8 @@ public class DiscoveryController {
             Map<String, Object> icon = com.looped.communities.SpecializationIcons.payloadOrNull(row.iconKind, row.iconValue);
             if (icon != null) map.put("icon", icon);
         }
-        String resolved = row.imageUrl;
-        if ((resolved == null || resolved.isBlank()) && fallbacks != null) {
-            resolved = fallbacks.get(row.id);
-        } else if (resolved == null || resolved.isBlank()) {
-            resolved = logos.resolve(row.id, row.kind, row.imageUrl);
-        }
-        if (resolved != null && !resolved.isBlank()) map.put("image_url", resolved);
+        String fallback = fallbacks != null ? fallbacks.get(row.id) : logos.resolve(row.id, row.kind, row.imageUrl);
+        CommunityImageSlots.putPayload(map, row.imageUrl, row.profileImageUrl, fallback);
         return map;
     }
 
@@ -405,13 +401,8 @@ public class DiscoveryController {
             Map<String, Object> icon = com.looped.communities.SpecializationIcons.payloadOrNull(row.iconKind, row.iconValue);
             if (icon != null) map.put("icon", icon);
         }
-        String resolved = row.imageUrl;
-        if ((resolved == null || resolved.isBlank()) && fallbacks != null) {
-            resolved = fallbacks.get(row.id);
-        } else if (resolved == null || resolved.isBlank()) {
-            resolved = logos.resolve(row.id, row.kind, row.imageUrl);
-        }
-        if (resolved != null && !resolved.isBlank()) map.put("image_url", resolved);
+        String fallback = fallbacks != null ? fallbacks.get(row.id) : logos.resolve(row.id, row.kind, row.imageUrl);
+        CommunityImageSlots.putPayload(map, row.imageUrl, row.profileImageUrl, fallback);
         return map;
     }
 
