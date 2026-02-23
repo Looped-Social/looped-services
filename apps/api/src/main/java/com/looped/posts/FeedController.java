@@ -157,13 +157,15 @@ public class FeedController {
     @GetMapping("/trending")
     public ResponseEntity<?> trending(
             @AuthenticationPrincipal Jwt jwt,
-            @RequestParam(value = "limit", required = false, defaultValue = "3") int limit,
+            @RequestParam(value = "cursor", required = false) String cursor,
+            @RequestParam(value = "limit", required = false, defaultValue = "20") int limit,
             @RequestParam(value = "communityId", required = false) Long communityId,
             @RequestParam(value = "community_id", required = false) Long communityIdAlt
     ) {
-        int lim = Math.max(1, Math.min(limit, 10));
+        int lim = Math.max(1, Math.min(limit, 50));
+        UUID feedRequestId = UUID.randomUUID();
         Long resolvedCommunityId = communityId != null ? communityId : communityIdAlt;
-        var res = feedService.trending(jwt.getSubject(), lim, resolvedCommunityId);
+        var res = feedService.trending(jwt.getSubject(), cursor, lim, resolvedCommunityId);
         if (res.status() == FeedService.Status.USER_NOT_PROVISIONED) {
             return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
                     "error", "user_not_provisioned",
@@ -194,6 +196,14 @@ public class FeedController {
             PostPayloads.putViewerCapabilities(payload, capabilitiesByPostId.get(row.id));
             return payload;
         }).toList();
-        return ResponseEntity.ok(Map.of("items", items));
+        java.util.Map<String, Object> out = new java.util.HashMap<>();
+        out.put("feed_request_id", feedRequestId);
+        out.put("algorithm", resolvedCommunityId == null ? "trending_personal_v1" : "trending_personal_v1_community");
+        out.put("algorithm_version", "1");
+        out.put("items", items);
+        if (res.nextCursor() != null) {
+            out.put("next_cursor", res.nextCursor());
+        }
+        return ResponseEntity.ok(out);
     }
 }

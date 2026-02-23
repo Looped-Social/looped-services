@@ -6,6 +6,7 @@ import com.looped.communities.SpecializationJoinsRepository;
 import com.looped.principals.PrincipalRepository;
 import com.looped.shared.Pagination;
 import com.looped.shared.RankPagination;
+import com.looped.users.FollowsRepository;
 import com.looped.users.UserCommunityBanRepository;
 import com.looped.users.UserRepository;
 import org.springframework.stereotype.Service;
@@ -28,7 +29,9 @@ public class FeedService {
     private final SpecializationJoinsRepository specializationJoins;
     private final PostStateService postState;
     private final UserCommunityBanRepository communityBans;
+    private final FollowsRepository follows;
     private final FypProperties fyp;
+    private final TrendingProperties trending;
 
     public FeedService(PostRepository posts, UserRepository users, PrincipalRepository principals,
                        CommunitiesRepository communities,
@@ -36,7 +39,9 @@ public class FeedService {
                        SpecializationJoinsRepository specializationJoins,
                        PostStateService postState,
                        UserCommunityBanRepository communityBans,
-                       FypProperties fyp) {
+                       FollowsRepository follows,
+                       FypProperties fyp,
+                       TrendingProperties trending) {
         this.posts = posts;
         this.users = users;
         this.principals = principals;
@@ -45,7 +50,9 @@ public class FeedService {
         this.specializationJoins = specializationJoins;
         this.postState = postState;
         this.communityBans = communityBans;
+        this.follows = follows;
         this.fyp = fyp;
+        this.trending = trending;
     }
 
     public FeedResult feed(String firebaseUid, String cursor, int limit, Long communityId, String mode) {
@@ -286,6 +293,10 @@ public class FeedService {
     }
 
     public TrendingResult trending(String firebaseUid, int limit, Long communityId) {
+        return trending(firebaseUid, null, limit, communityId);
+    }
+
+    public TrendingResult trending(String firebaseUid, String cursor, int limit, Long communityId) {
         var u = users.findByFirebaseUid(firebaseUid);
         if (u.isEmpty()) {
             return TrendingResult.userNotProvisioned();
@@ -297,12 +308,44 @@ public class FeedService {
         if (communityId != null && communityBans.isBanned(u.get().id, communityId)) {
             return TrendingResult.communityBanned();
         }
-        OffsetDateTime asOf = OffsetDateTime.now();
-        OffsetDateTime since = asOf.minusDays(3);
         var principal = principals.createForUser(u.get().id);
-        var list = posts.findTrendingWithMedia(asOf, since, communityId, limit, u.get().id, principal.id, u.get().hideAnonymousPosts);
+        RankPagination.Cursor rankedCursor = null;
+        if (cursor != null && !cursor.isBlank()) {
+            try {
+                rankedCursor = RankPagination.decode(cursor);
+            } catch (IllegalArgumentException ignored) {
+                rankedCursor = null;
+            }
+        }
+        OffsetDateTime asOf = rankedCursor == null ? OffsetDateTime.now() : rankedCursor.asOf();
+        OffsetDateTime since = asOf.minusDays(Math.max(1, Math.min(30, trending.getWindowDays())));
+        Set<Long> eligibleCommunityIds = eligibleCommunityIdsForUserId(u.get().id);
+        var followedPrincipalIds = follows.findFolloweePrincipalIds(principal.id, Math.max(1, trending.getMaxFollowedPrincipalBoosts()));
+        var list = posts.findTrendingPersonalizedWithMedia(
+                asOf,
+                since,
+                communityId,
+                rankedCursor == null ? null : rankedCursor.score(),
+                rankedCursor == null ? null : rankedCursor.timestamp(),
+                rankedCursor == null ? null : rankedCursor.id(),
+                limit,
+                u.get().id,
+                principal.id,
+                u.get().hideAnonymousPosts,
+                eligibleCommunityIds,
+                followedPrincipalIds,
+                trending.getHalfLifeHours(),
+                trending.getBaselineEngagement(),
+                trending.getCommunityBoost(),
+                trending.getFollowingBoost()
+        );
         postState.applyForPrincipal(principal.id, list);
-        return TrendingResult.ok(list);
+        String next = null;
+        if (list.size() == limit) {
+            var last = list.get(list.size() - 1);
+            next = RankPagination.encode(asOf, last.score, last.createdAt, last.id);
+        }
+        return TrendingResult.ok(list, next);
     }
 
     private Set<Long> eligibleCommunityIdsForUserId(long userId) {
@@ -544,10 +587,10 @@ public class FeedService {
         static FeedResult communityBanned() { return new FeedResult(Status.COMMUNITY_BANNED, List.of(), null); }
     }
 
-    public record TrendingResult(Status status, List<PostRepository.TrendingRow> items) {
-        static TrendingResult ok(List<PostRepository.TrendingRow> items) { return new TrendingResult(Status.OK, items); }
-        static TrendingResult userNotProvisioned() { return new TrendingResult(Status.USER_NOT_PROVISIONED, List.of()); }
-        static TrendingResult communityNotFound() { return new TrendingResult(Status.COMMUNITY_NOT_FOUND, List.of()); }
-        static TrendingResult communityBanned() { return new TrendingResult(Status.COMMUNITY_BANNED, List.of()); }
+    public record TrendingResult(Status status, List<PostRepository.TrendingRow> items, String nextCursor) {
+        static TrendingResult ok(List<PostRepository.TrendingRow> items, String next) { return new TrendingResult(Status.OK, items, next); }
+        static TrendingResult userNotProvisioned() { return new TrendingResult(Status.USER_NOT_PROVISIONED, List.of(), null); }
+        static TrendingResult communityNotFound() { return new TrendingResult(Status.COMMUNITY_NOT_FOUND, List.of(), null); }
+        static TrendingResult communityBanned() { return new TrendingResult(Status.COMMUNITY_BANNED, List.of(), null); }
     }
 }

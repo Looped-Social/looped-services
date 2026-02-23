@@ -227,6 +227,13 @@ feed:
     max-candidates-per-pool: ${FEED_FYP_MAX_CANDIDATES_PER_POOL:250}
     max-per-author: ${FEED_FYP_MAX_PER_AUTHOR:2}
     max-per-community: ${FEED_FYP_MAX_PER_COMMUNITY:5}
+  trending:
+    window-days: ${FEED_TRENDING_WINDOW_DAYS:3}
+    half-life-hours: ${FEED_TRENDING_HALF_LIFE_HOURS:16}
+    baseline-engagement: ${FEED_TRENDING_BASELINE_ENGAGEMENT:0.10}
+    community-boost: ${FEED_TRENDING_COMMUNITY_BOOST:0.20}
+    following-boost: ${FEED_TRENDING_FOLLOWING_BOOST:0.30}
+    max-followed-principal-boosts: ${FEED_TRENDING_MAX_FOLLOWED_PRINCIPAL_BOOSTS:400}
   metrics:
     global-fyp:
       enabled: ${FEED_METRICS_GLOBAL_FYP_ENABLED:true}

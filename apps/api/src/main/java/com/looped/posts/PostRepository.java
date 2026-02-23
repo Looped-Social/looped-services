@@ -740,6 +740,118 @@ public class PostRepository {
         return jdbc.query(base, TRENDING_MAPPER, params);
     }
 
+    public java.util.List<TrendingRow> findTrendingPersonalizedWithMedia(java.time.OffsetDateTime asOf,
+                                                                          java.time.OffsetDateTime since,
+                                                                          Long communityId,
+                                                                          Long cursorScore,
+                                                                          java.time.OffsetDateTime cursorTs,
+                                                                          Long cursorId,
+                                                                          int limit,
+                                                                          long viewerUserId,
+                                                                          long viewerPrincipalId,
+                                                                          boolean hideAnonymousPosts,
+                                                                          java.util.Collection<Long> boostedCommunityIds,
+                                                                          java.util.Collection<Long> followedPrincipalIds,
+                                                                          double halfLifeHours,
+                                                                          double baselineEngagement,
+                                                                          double communityBoost,
+                                                                          double followingBoost) {
+        String base = BASE_SELECT +
+                "WHERE p.media_asset_id IS NOT NULL " +
+                "AND p.created_at >= ? " +
+                "AND p.removed_at IS NULL " +
+                "AND p.visibility = 'public' " +
+                "AND (p.author_id IS NULL OR u.id IS NOT NULL) ";
+        java.util.List<Object> baseArgs = new java.util.ArrayList<>();
+        baseArgs.add(since);
+        if (communityId != null) {
+            base += "AND p.community_id = ? ";
+            baseArgs.add(communityId);
+        }
+        if (hideAnonymousPosts) {
+            base += hideAnonymousFilter(true);
+            baseArgs.add(viewerUserId);
+        }
+        base += blocksFilter();
+        baseArgs.add(viewerPrincipalId);
+        baseArgs.add(viewerPrincipalId);
+        base += communityBansFilter();
+        baseArgs.add(viewerUserId);
+
+        double halfLife = Math.max(1.0, Math.min(24 * 14, halfLifeHours)); // 1h..14d
+        double baseline = Math.max(0.0, Math.min(10.0, baselineEngagement));
+        double normalizedCommunityBoost = Math.max(0.0, Math.min(5.0, communityBoost));
+        double normalizedFollowingBoost = Math.max(0.0, Math.min(5.0, followingBoost));
+        java.util.List<Long> boostedCommunities = boostedCommunityIds == null
+                ? java.util.List.of()
+                : boostedCommunityIds.stream().filter(v -> v != null && v > 0).distinct().toList();
+        java.util.List<Long> followedPrincipals = followedPrincipalIds == null
+                ? java.util.List.of()
+                : followedPrincipalIds.stream().filter(v -> v != null && v > 0).distinct().toList();
+
+        String engagementExpr =
+                "(" +
+                        "2.0 * LN(1 + b.likes_count::double precision) + " +
+                        "1.5 * LN(1 + b.comments_count::double precision) + " +
+                        "0.25 * LN(1 + b.repost_count::double precision) + " +
+                        "0.05 * LN(1 + b.share_count::double precision) + " +
+                        "? " +
+                        ")";
+        String ageHoursExpr = "(EXTRACT(EPOCH FROM (?::timestamptz - b.created_at)) / 3600.0)";
+
+        String communityBoostExpr = "0.0";
+        if (!boostedCommunities.isEmpty()) {
+            String placeholders = String.join(",", java.util.Collections.nCopies(boostedCommunities.size(), "?"));
+            communityBoostExpr = "CASE WHEN b.community_id IN (" + placeholders + ") THEN ? ELSE 0.0 END";
+        }
+        String followingBoostExpr = "0.0";
+        if (!followedPrincipals.isEmpty()) {
+            String placeholders = String.join(",", java.util.Collections.nCopies(followedPrincipals.size(), "?"));
+            followingBoostExpr = "CASE WHEN b.author_principal_id IN (" + placeholders + ") THEN ? ELSE 0.0 END";
+        }
+        String scoreExpr = "CAST(FLOOR(((" + engagementExpr + ") * EXP(-(" + ageHoursExpr + " / ?)) + " +
+                communityBoostExpr + " + " + followingBoostExpr + ") * 1000000) AS BIGINT)";
+
+        String sql = "WITH b AS (" + base + "), scored AS (" +
+                "SELECT b.*, " + scoreExpr + " AS score FROM b" +
+                ") SELECT * FROM scored ";
+
+        java.util.List<Object> args = new java.util.ArrayList<>(baseArgs);
+        args.add(baseline);
+        args.add(asOf);
+        args.add(halfLife);
+        if (!boostedCommunities.isEmpty()) {
+            args.addAll(boostedCommunities);
+            args.add(normalizedCommunityBoost);
+        }
+        if (!followedPrincipals.isEmpty()) {
+            args.addAll(followedPrincipals);
+            args.add(normalizedFollowingBoost);
+        }
+
+        if (cursorScore == null || cursorTs == null || cursorId == null) {
+            args.add(limit);
+            return jdbc.query(
+                    sql + "ORDER BY score DESC, created_at DESC, id DESC LIMIT ?",
+                    TRENDING_MAPPER,
+                    args.toArray()
+            );
+        }
+
+        args.add(cursorScore);
+        args.add(cursorScore);
+        args.add(cursorTs);
+        args.add(cursorTs);
+        args.add(cursorId);
+        args.add(limit);
+        return jdbc.query(
+                sql + "WHERE (score < ? OR (score = ? AND (created_at < ? OR (created_at = ? AND id < ?)))) " +
+                        "ORDER BY score DESC, created_at DESC, id DESC LIMIT ?",
+                TRENDING_MAPPER,
+                args.toArray()
+        );
+    }
+
     public java.util.List<ScoredPostRow> searchCompanyPosts(long companyId, String query, String prefixQuery, java.time.OffsetDateTime asOf,
                                                            Long cursorScore, java.time.OffsetDateTime cursorTs, Long cursorId, int limit,
                                                            long viewerUserId, long viewerPrincipalId, boolean hideAnonymousPosts) {
@@ -940,6 +1052,7 @@ public class PostRepository {
     public static class TrendingRow extends PostRow {
         public String communityName;
         public String communityKind;
+        public long score;
     }
 
     private static final RowMapper<ScoredPostRow> SCORED_MAPPER = new RowMapper<>() {
@@ -1046,6 +1159,7 @@ public class PostRepository {
             p.communityName = rs.getString("community_name");
             p.communityShortName = rs.getString("community_short_name");
             p.communityKind = rs.getString("community_kind");
+            p.score = rs.getLong("score");
             return p;
         }
     };

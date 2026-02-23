@@ -48,4 +48,18 @@ public class FollowsRepository {
                 followeePrincipalId
         );
     }
+
+    public java.util.List<Long> findFolloweePrincipalIds(long followerPrincipalId, int limit) {
+        int lim = Math.max(1, Math.min(limit, 2000));
+        return jdbc.query(
+                "SELECT f.followee_principal_id AS id " +
+                        "FROM principal_follows f " +
+                        "WHERE f.follower_principal_id = ? " +
+                        "ORDER BY f.created_at DESC, f.followee_principal_id DESC " +
+                        "LIMIT ?",
+                (rs, rowNum) -> rs.getLong("id"),
+                followerPrincipalId,
+                lim
+        );
+    }
 }
