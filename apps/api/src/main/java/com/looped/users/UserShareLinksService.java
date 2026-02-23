@@ -128,6 +128,28 @@ public class UserShareLinksService {
         return UpdateCustomSlugResult.ok(toSettings(usernameSlug, slug));
     }
 
+    public OtherUserSettingsResult settingsForUser(String viewerFirebaseUid, long targetUserId) {
+        var viewer = users.findByFirebaseUid(viewerFirebaseUid);
+        if (viewer.isEmpty() || viewer.get().companyId == null) return OtherUserSettingsResult.userNotProvisioned();
+
+        var target = users.findById(targetUserId);
+        if (target.isEmpty() || target.get().companyId == null) return OtherUserSettingsResult.notFound();
+        if (target.get().disabledAt != null) return OtherUserSettingsResult.unavailable();
+        if (!viewer.get().companyId.equals(target.get().companyId)) return OtherUserSettingsResult.forbidden();
+
+        var usernameRow = shareSlugs.findActiveUsernameSlug(targetUserId);
+        if (usernameRow.isEmpty()) return OtherUserSettingsResult.notFound();
+        String usernameSlug = normalizeSlug(usernameRow.get().slug);
+        if (usernameSlug == null || isReservedSlug(usernameSlug)) return OtherUserSettingsResult.notFound();
+
+        String customSlug = shareSlugs.findActiveCustomSlug(targetUserId).map(s -> s.slug).orElse(null);
+        String normalizedCustomSlug = normalizeSlug(customSlug);
+        if (normalizedCustomSlug != null && isReservedSlug(normalizedCustomSlug)) {
+            normalizedCustomSlug = null;
+        }
+        return OtherUserSettingsResult.ok(toSettings(usernameSlug, normalizedCustomSlug));
+    }
+
     private Map<String, Object> toSettings(String usernameSlug, String customSlug) {
         String activeSlug = customSlug != null && !customSlug.isBlank() ? customSlug : usernameSlug;
         String canonicalUrl = publicBaseUrl + "/u/" + activeSlug;
@@ -150,6 +172,7 @@ public class UserShareLinksService {
 
     public enum Status {
         OK,
+        FORBIDDEN,
         NOT_FOUND,
         UNAVAILABLE,
         USER_NOT_PROVISIONED,
@@ -180,6 +203,14 @@ public class UserShareLinksService {
     public record SettingsResult(Status status, Map<String, Object> settings) {
         static SettingsResult ok(Map<String, Object> settings) { return new SettingsResult(Status.OK, settings); }
         static SettingsResult userNotProvisioned() { return new SettingsResult(Status.USER_NOT_PROVISIONED, null); }
+    }
+
+    public record OtherUserSettingsResult(Status status, Map<String, Object> settings) {
+        static OtherUserSettingsResult ok(Map<String, Object> settings) { return new OtherUserSettingsResult(Status.OK, settings); }
+        static OtherUserSettingsResult userNotProvisioned() { return new OtherUserSettingsResult(Status.USER_NOT_PROVISIONED, null); }
+        static OtherUserSettingsResult forbidden() { return new OtherUserSettingsResult(Status.FORBIDDEN, null); }
+        static OtherUserSettingsResult notFound() { return new OtherUserSettingsResult(Status.NOT_FOUND, null); }
+        static OtherUserSettingsResult unavailable() { return new OtherUserSettingsResult(Status.UNAVAILABLE, null); }
     }
 
     public record UpdateCustomSlugResult(Status status, Map<String, Object> settings) {

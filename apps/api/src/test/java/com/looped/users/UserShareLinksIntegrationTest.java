@@ -293,4 +293,38 @@ class UserShareLinksIntegrationTest extends PostgresTestBase {
                 .andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.error", equalTo("slug_not_actionable")));
     }
+
+    @Test
+    void other_user_share_link_returns_canonical_url() throws Exception {
+        long companyId = jdbc.queryForObject(
+                "INSERT INTO companies(name, domain) VALUES ('ShareOther', 'shareother.co') RETURNING id",
+                Long.class
+        );
+        jdbc.update(
+                "INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?)",
+                "uid-share-other-viewer",
+                "viewer",
+                companyId
+        );
+        long targetUserId = jdbc.queryForObject(
+                "INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?) RETURNING id",
+                Long.class,
+                "uid-share-other-target",
+                "target",
+                companyId
+        );
+
+        mockMvc.perform(put("/v1/users/me/share-link")
+                        .header("Authorization", "Bearer " + token("uid-share-other-target"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"customSlug\":\"target_custom\"}"))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get("/v1/users/" + targetUserId + "/share-link")
+                        .header("Authorization", "Bearer " + token("uid-share-other-viewer")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.userId", equalTo((int) targetUserId)))
+                .andExpect(jsonPath("$.activeSlug", equalTo("target_custom")))
+                .andExpect(jsonPath("$.canonicalUrl", equalTo("https://mylooped.app/u/target_custom")));
+    }
 }

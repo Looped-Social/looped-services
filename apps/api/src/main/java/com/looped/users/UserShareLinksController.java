@@ -10,8 +10,10 @@ import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.HashMap;
 import java.util.Map;
 
 @RestController
@@ -52,6 +54,39 @@ public class UserShareLinksController {
                     "error", "user_not_provisioned"
             ));
             case OK -> ResponseEntity.ok(res.settings());
+            default -> ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        };
+    }
+
+    @GetMapping("/{id}/share-link")
+    public ResponseEntity<?> getUserShareLink(
+            @AuthenticationPrincipal Jwt jwt,
+            @PathVariable("id") long id
+    ) {
+        var res = shareLinks.settingsForUser(jwt.getSubject(), id);
+        return switch (res.status()) {
+            case USER_NOT_PROVISIONED -> ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
+                    "error", "user_not_provisioned"
+            ));
+            case NOT_FOUND -> ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of(
+                    "error", "not_found",
+                    "message", "User not found"
+            ));
+            case FORBIDDEN -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
+                    "error", "forbidden",
+                    "message", "Cross-company access denied"
+            ));
+            case UNAVAILABLE -> ResponseEntity.status(HttpStatus.GONE).body(Map.of(
+                    "error", "profile_unavailable",
+                    "message", "Profile is unavailable"
+            ));
+            case OK -> {
+                Map<String, Object> body = new HashMap<>();
+                body.put("user_id", id);
+                body.put("userId", id);
+                body.putAll(res.settings());
+                yield ResponseEntity.ok(body);
+            }
             default -> ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         };
     }

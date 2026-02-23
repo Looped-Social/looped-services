@@ -371,7 +371,7 @@ public class PostsController {
         };
     }
 
-    public record CreateRequest(@Size(max = 1000) String content,
+    public record CreateRequest(@Size(max = 500) String content,
                                @JsonAlias("media_asset_id") Long mediaAssetId,
                                @Size(max = 4) @JsonAlias("media_asset_ids") List<Long> mediaAssetIds,
                                @JsonAlias("community_id") Long communityId,
@@ -384,7 +384,7 @@ public class PostsController {
                                String anonSig,
                                Long anonTimestamp) {}
 
-    public record EditRequest(@NotBlank @Size(max = 1000) String content,
+    public record EditRequest(@NotBlank @Size(max = 500) String content,
                               @JsonAlias("remove_media") Boolean removeMedia,
                               Boolean asAnon,
                               Long anonProfileId,
