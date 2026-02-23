@@ -141,15 +141,20 @@ public class EmailService {
                 ? "your requested community"
                 : communityName.trim();
         String subject = "Your community is now available on Looped";
+        String actionUrl = null;
+        if (webUrl != null && !webUrl.isBlank()) {
+            actionUrl = webUrl.trim();
+        } else if (deepLink != null && !deepLink.isBlank()) {
+            actionUrl = deepLink.trim();
+        }
 
         StringBuilder text = new StringBuilder();
         text.append("Good news — ").append(name).append(" is now available on Looped.\n\n");
-        if (webUrl != null && !webUrl.isBlank()) {
-            text.append("Open community: ").append(webUrl.trim()).append("\n");
+        if (actionUrl != null) {
+            text.append("Open community: ").append(actionUrl).append("\n");
         }
-        if (deepLink != null && !deepLink.isBlank()) {
-            text.append("Deep link: ").append(deepLink.trim()).append("\n");
-        }
+        text.append("\nIf you did not request a community on Looped Social, please ignore this email.\n");
+        text.append("If you have questions, email support@looped.app.\n");
         text.append("\nSee you on Looped.\n");
 
         StringBuilder html = new StringBuilder();
@@ -158,24 +163,69 @@ public class EmailService {
         html.append("<div style=\"font-size:22px;font-weight:700;margin-bottom:8px;\">Your community is now available</div>");
         html.append("<div style=\"font-size:14px;color:#6b7280;margin-bottom:16px;\">");
         html.append(escape(name)).append(" is now available on Looped.</div>");
-        if (webUrl != null && !webUrl.isBlank()) {
-            html.append("<a href=\"").append(escape(webUrl.trim())).append("\" ")
+        if (actionUrl != null) {
+            html.append("<a href=\"").append(escape(actionUrl)).append("\" ")
                     .append("style=\"display:inline-block;background:#ea404a;color:#ffffff;text-decoration:none;padding:10px 14px;border-radius:8px;font-size:14px;font-weight:600;\">")
                     .append("Open Community")
                     .append("</a>");
         }
-        if (deepLink != null && !deepLink.isBlank()) {
-            html.append("<div style=\"margin-top:14px;font-size:12px;color:#9ca3af;\">");
-            html.append("Deep link: <a href=\"").append(escape(deepLink.trim())).append("\" style=\"color:#ea404a;text-decoration:none;\">")
-                    .append(escape(deepLink.trim()))
-                    .append("</a></div>");
-        }
+        html.append("<div style=\"margin-top:16px;font-size:13px;color:#6b7280;\">If you did not request a community on Looped Social, please ignore this email.</div>");
+        html.append("<div style=\"margin-top:8px;font-size:13px;color:#6b7280;\">If you have questions, email <a href=\"mailto:support@looped.app\" style=\"color:#ea404a;text-decoration:none;\">support@looped.app</a>.</div>");
         html.append("</div></body></html>");
         try {
             sendEmailFrom(from.trim(), to, subject, text.toString(), html.toString());
             return true;
         } catch (RuntimeException ex) {
             log.warn("community request availability email failed to={} err={}", to, ex.getMessage());
+            return false;
+        }
+    }
+
+    public boolean sendCommunityRequestRejectedEmail(String to,
+                                                     String communityName,
+                                                     String rejectReason) {
+        if (!isEnabled()) return false;
+        if (to == null || to.isBlank()) return false;
+        String from = props.getCommunityRequestFrom();
+        if (from == null || from.isBlank()) return false;
+
+        String name = (communityName == null || communityName.isBlank())
+                ? "your requested community"
+                : communityName.trim();
+        String subject = "Update on your Looped community request";
+        String reason = rejectReason == null ? null : rejectReason.trim();
+        if (reason != null && reason.isBlank()) reason = null;
+
+        StringBuilder text = new StringBuilder();
+        text.append("Thanks for requesting ").append(name).append(" on Looped.\n\n");
+        text.append("We reviewed your request and couldn't approve it right now.\n");
+        if (reason != null) {
+            text.append("\nReason: ").append(reason).append("\n");
+        }
+        text.append("\nIf you did not request a community on Looped Social, please ignore this email.\n");
+        text.append("If you have questions, email support@looped.app.\n");
+
+        StringBuilder html = new StringBuilder();
+        html.append("<html><body style=\"margin:0;padding:0;background-color:#ffffff;color:#1f2937;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Helvetica,Arial,sans-serif;\">");
+        html.append("<div style=\"max-width:560px;margin:0 auto;padding:32px 16px;\">");
+        html.append("<div style=\"font-size:22px;font-weight:700;margin-bottom:8px;\">Community request update</div>");
+        html.append("<div style=\"font-size:14px;color:#6b7280;margin-bottom:12px;\">");
+        html.append("We reviewed your request for ").append(escape(name)).append(" and couldn't approve it right now.");
+        html.append("</div>");
+        if (reason != null) {
+            html.append("<div style=\"font-size:13px;color:#374151;margin-bottom:12px;\">Reason: ")
+                    .append(escape(reason))
+                    .append("</div>");
+        }
+        html.append("<div style=\"margin-top:16px;font-size:13px;color:#6b7280;\">If you did not request a community on Looped Social, please ignore this email.</div>");
+        html.append("<div style=\"margin-top:8px;font-size:13px;color:#6b7280;\">If you have questions, email <a href=\"mailto:support@looped.app\" style=\"color:#ea404a;text-decoration:none;\">support@looped.app</a>.</div>");
+        html.append("</div></body></html>");
+
+        try {
+            sendEmailFrom(from.trim(), to, subject, text.toString(), html.toString());
+            return true;
+        } catch (RuntimeException ex) {
+            log.warn("community request rejection email failed to={} err={}", to, ex.getMessage());
             return false;
         }
     }

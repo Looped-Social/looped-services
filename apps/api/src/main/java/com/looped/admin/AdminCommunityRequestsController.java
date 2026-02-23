@@ -3,6 +3,7 @@ package com.looped.admin;
 import com.looped.communities.CommunitiesRepository;
 import com.looped.communities.CommunityRequestAvailabilityNotifier;
 import com.looped.communities.CommunityRequestsRepository;
+import com.looped.email.EmailService;
 import com.looped.shared.Pagination;
 import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Value;
@@ -26,14 +27,21 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.regex.Pattern;
 
 @RestController
 @RequestMapping("/v1/admin")
 public class AdminCommunityRequestsController {
+    private static final Pattern EMAIL_PATTERN = Pattern.compile(
+            "^[A-Z0-9._%+-]+@[A-Z0-9.-]+\\.[A-Z]{2,63}$",
+            Pattern.CASE_INSENSITIVE
+    );
+
     private final AdminAuthService auth;
     private final CommunityRequestsRepository requests;
     private final CommunitiesRepository communities;
     private final CommunityRequestAvailabilityNotifier availabilityNotifier;
+    private final EmailService emailService;
     private final AdminAuditRepository audit;
     private final String cloudfrontDomain;
 
@@ -41,12 +49,14 @@ public class AdminCommunityRequestsController {
                                             CommunityRequestsRepository requests,
                                             CommunitiesRepository communities,
                                             CommunityRequestAvailabilityNotifier availabilityNotifier,
+                                            EmailService emailService,
                                             AdminAuditRepository audit,
                                             @Value("${cloudfront.domain:}") String cloudfrontDomain) {
         this.auth = auth;
         this.requests = requests;
         this.communities = communities;
         this.availabilityNotifier = availabilityNotifier;
+        this.emailService = emailService;
         this.audit = audit;
         this.cloudfrontDomain = cloudfrontDomain;
     }
@@ -201,8 +211,16 @@ public class AdminCommunityRequestsController {
         if (!updated) {
             return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "community_request_already_reviewed"));
         }
+        String recipient = resolveRequestRecipientEmail(reqOpt.get());
+        boolean notifiedRequester = false;
+        if (recipient != null) {
+            notifiedRequester = emailService.sendCommunityRequestRejectedEmail(recipient, reqOpt.get().name, reason);
+        }
         audit.log(authRes.admin().id, "community_request.reject", "community_request", id, null);
-        return ResponseEntity.ok(Map.of("status", "rejected"));
+        return ResponseEntity.ok(Map.of(
+                "status", "rejected",
+                "notified_requester", notifiedRequester
+        ));
     }
 
     @DeleteMapping("/community-requests/{id}")
@@ -254,6 +272,20 @@ public class AdminCommunityRequestsController {
     private String cdnUrl(String key) {
         if (cloudfrontDomain == null || cloudfrontDomain.isBlank()) return null;
         return "https://" + cloudfrontDomain + "/" + key;
+    }
+
+    private String resolveRequestRecipientEmail(CommunityRequestsRepository.Row row) {
+        if (row == null) return null;
+        String contact = normalizeEmailOrNull(row.contactEmail);
+        if (contact != null) return contact;
+        return normalizeEmailOrNull(row.userEmail);
+    }
+
+    private String normalizeEmailOrNull(String raw) {
+        if (raw == null) return null;
+        String trimmed = raw.trim().toLowerCase(Locale.ROOT);
+        if (trimmed.isBlank() || trimmed.length() > 320) return null;
+        return EMAIL_PATTERN.matcher(trimmed).matches() ? trimmed : null;
     }
 
     public record ApproveRequest(String kind, String name, String description, String imageUrl, Integer verificationTtlDays) {}

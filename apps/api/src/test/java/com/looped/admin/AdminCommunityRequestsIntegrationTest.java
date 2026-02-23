@@ -108,6 +108,7 @@ class AdminCommunityRequestsIntegrationTest extends PostgresTestBase {
 
     @Test
     void approve_request_notifies_matching_pending_requests_and_prevents_duplicate_sends() throws Exception {
+        int sendsBefore = sesSendCount.get();
         long companyId = jdbc.queryForObject(
                 "INSERT INTO companies(name, domain) VALUES ('Notify Acme', 'notifyacme.com') RETURNING id",
                 Long.class);
@@ -151,12 +152,45 @@ class AdminCommunityRequestsIntegrationTest extends PostgresTestBase {
         );
         org.junit.jupiter.api.Assertions.assertEquals(1, notifiedA.intValue());
         org.junit.jupiter.api.Assertions.assertEquals(1, notifiedB.intValue());
-        org.junit.jupiter.api.Assertions.assertEquals(2, sesSendCount.get());
+        org.junit.jupiter.api.Assertions.assertEquals(sendsBefore + 2, sesSendCount.get());
 
         var secondRun = availabilityNotifier.notifyForCreatedCommunity("company", "University of North Carolina", communityId);
         org.junit.jupiter.api.Assertions.assertEquals(0, secondRun.matchedRequests());
         org.junit.jupiter.api.Assertions.assertEquals(0, secondRun.sentEmails());
-        org.junit.jupiter.api.Assertions.assertEquals(2, sesSendCount.get());
+        org.junit.jupiter.api.Assertions.assertEquals(sendsBefore + 2, sesSendCount.get());
+    }
+
+    @Test
+    void reject_request_sends_rejection_email_to_request_contact() throws Exception {
+        int sendsBefore = sesSendCount.get();
+        long companyId = jdbc.queryForObject(
+                "INSERT INTO companies(name, domain) VALUES ('Reject Acme', 'rejectacme.com') RETURNING id",
+                Long.class);
+        long userId = jdbc.queryForObject(
+                "INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?) RETURNING id",
+                Long.class, "uid-reject-req", "rejectreq", companyId);
+        long requestId = jdbc.queryForObject(
+                "INSERT INTO community_requests(user_id, kind, name, description, contact_email, notify_when_available) " +
+                        "VALUES (?,?,?,?,?,true) RETURNING id",
+                Long.class, userId, "company", "Rejected Co", "Needs review", "reject@example.com");
+
+        admins.insert(null, "admin@looped.com", "owner", "active", List.of(AdminPermissions.CREATE_COMMUNITY));
+        String auth = "Bearer " + token("admin-uid", "admin@looped.com");
+
+        mockMvc.perform(post("/v1/admin/community-requests/" + requestId + "/reject")
+                        .header("Authorization", auth)
+                        .contentType("application/json")
+                        .content("{\"reason\":\"Needs clearer request details\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status", equalTo("rejected")))
+                .andExpect(jsonPath("$.notified_requester", equalTo(true)));
+
+        String status = jdbc.queryForObject(
+                "SELECT status FROM community_requests WHERE id = ?",
+                String.class, requestId
+        );
+        org.junit.jupiter.api.Assertions.assertEquals("rejected", status);
+        org.junit.jupiter.api.Assertions.assertEquals(sendsBefore + 1, sesSendCount.get());
     }
 
     @TestConfiguration
