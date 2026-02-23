@@ -149,6 +149,15 @@ public class ModerationQueueAdminService {
         return ResolveResult.invalidTargetType();
     }
 
+    @Transactional
+    public ResolveResult dismiss(long queueId, long adminId, String note) {
+        var item = queue.findById(queueId);
+        if (item.isEmpty()) return ResolveResult.notFound();
+        if (!"open".equalsIgnoreCase(item.get().status)) return ResolveResult.alreadyReviewed(item.get().status);
+        boolean updated = queue.review(queueId, "dismissed", adminId, note);
+        return updated ? ResolveResult.ok("dismissed") : ResolveResult.alreadyReviewed("not_open");
+    }
+
     private void indexHashtags(long postId, long companyId, String content) {
         var tags = HashtagParser.extract(content);
         if (tags.isEmpty()) return;

@@ -220,6 +220,31 @@ public class AdminModerationQueueController {
         };
     }
 
+    @PostMapping("/{id}/dismiss")
+    public ResponseEntity<?> dismiss(
+            @AuthenticationPrincipal Jwt jwt,
+            @PathVariable("id") long id,
+            @RequestBody(required = false) ReviewRequest body
+    ) {
+        String email = jwt.getClaimAsString("email");
+        var authRes = auth.requirePermission(jwt.getSubject(), email, AdminPermissions.RESOLVE_MODERATION_QUEUE);
+        if (authRes.status() != AdminAuthService.Status.OK) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "forbidden"));
+        }
+        String note = body == null ? null : body.note();
+        var res = queue.dismiss(id, authRes.admin().id, note);
+        return switch (res.status()) {
+            case NOT_FOUND -> ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "not_found"));
+            case INVALID_TARGET_TYPE -> ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of("error", "invalid_target_type"));
+            case TARGET_NOT_FOUND -> ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "target_not_found"));
+            case ALREADY_REVIEWED -> ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "already_reviewed", "status", res.priorStatus()));
+            case OK -> {
+                audit.log(authRes.admin().id, "moderation_queue.dismiss", "moderation_queue_item", id, null);
+                yield ResponseEntity.ok(Map.of("status", "dismissed"));
+            }
+        };
+    }
+
     public record ReviewRequest(String note) {}
     public record RemoveRequest(String reason, String note) {}
 }

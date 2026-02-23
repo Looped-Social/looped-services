@@ -231,6 +231,14 @@ variable "moderation_openai_timeout_millis" {
   type = number
 }
 
+variable "moderation_openai_daily_request_budget" {
+  type = number
+}
+
+variable "moderation_openai_budget_redis_prefix" {
+  type = string
+}
+
 variable "moderation_openai_category_blocklist" {
   type = string
 }

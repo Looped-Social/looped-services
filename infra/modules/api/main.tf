@@ -458,6 +458,8 @@ resource "aws_ecs_task_definition" "api" {
           { name = "MODERATION_OPENAI_MODEL", value = var.moderation_openai_model },
           { name = "MODERATION_OPENAI_BASE_URL", value = var.moderation_openai_base_url },
           { name = "MODERATION_OPENAI_TIMEOUT_MILLIS", value = tostring(var.moderation_openai_timeout_millis) },
+          { name = "MODERATION_OPENAI_DAILY_REQUEST_BUDGET", value = tostring(var.moderation_openai_daily_request_budget) },
+          { name = "MODERATION_OPENAI_BUDGET_REDIS_PREFIX", value = var.moderation_openai_budget_redis_prefix },
           { name = "MODERATION_OPENAI_CATEGORY_BLOCKLIST", value = var.moderation_openai_category_blocklist },
           { name = "MODERATION_REPORT_QUARANTINE_THRESHOLD", value = tostring(var.moderation_report_quarantine_threshold) },
           { name = "REDIS_URL", value = local.redis_url },

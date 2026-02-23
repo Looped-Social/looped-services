@@ -198,6 +198,16 @@ variable "moderation_openai_timeout_millis" {
   default = 5000
 }
 
+variable "moderation_openai_daily_request_budget" {
+  type    = number
+  default = 9000
+}
+
+variable "moderation_openai_budget_redis_prefix" {
+  type    = string
+  default = "moderation:openai:requests"
+}
+
 variable "moderation_openai_category_blocklist" {
   type    = string
   default = "hate,hate/threatening,sexual,sexual/minors,self-harm,self-harm/intent,self-harm/instructions,violence,violence/graphic"

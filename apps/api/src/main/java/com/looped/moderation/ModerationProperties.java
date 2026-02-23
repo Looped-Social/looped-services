@@ -16,6 +16,8 @@ public class ModerationProperties {
     private String openaiBaseUrl = "https://api.openai.com/v1";
     private String openaiCategoryBlocklist = "hate,hate/threatening,sexual,sexual/minors,self-harm,self-harm/intent,self-harm/instructions,violence,violence/graphic";
     private int openaiTimeoutMillis = 2000;
+    private int openaiDailyRequestBudget = 9000;
+    private String openaiBudgetRedisPrefix = "moderation:openai:requests";
 
     public boolean isEnabled() {
         return enabled;
@@ -95,5 +97,21 @@ public class ModerationProperties {
 
     public void setOpenaiTimeoutMillis(int openaiTimeoutMillis) {
         this.openaiTimeoutMillis = openaiTimeoutMillis;
+    }
+
+    public int getOpenaiDailyRequestBudget() {
+        return openaiDailyRequestBudget;
+    }
+
+    public void setOpenaiDailyRequestBudget(int openaiDailyRequestBudget) {
+        this.openaiDailyRequestBudget = openaiDailyRequestBudget;
+    }
+
+    public String getOpenaiBudgetRedisPrefix() {
+        return openaiBudgetRedisPrefix;
+    }
+
+    public void setOpenaiBudgetRedisPrefix(String openaiBudgetRedisPrefix) {
+        this.openaiBudgetRedisPrefix = openaiBudgetRedisPrefix;
     }
 }

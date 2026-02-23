@@ -135,6 +135,20 @@ rate-limit:
     window-seconds: ${RL_USER_WINDOW_SECONDS:60}
     max-requests: ${RL_USER_MAX_REQUESTS:180}
 
+moderation:
+  enabled: ${MODERATION_ENABLED:true}
+  report-quarantine-threshold: ${MODERATION_REPORT_QUARANTINE_THRESHOLD:10}
+  blocklist-resource: ${MODERATION_BLOCKLIST_RESOURCE:classpath:moderation/blocklist.txt}
+  blocklist-terms: ${MODERATION_BLOCKLIST_TERMS:}
+  openai-api-key: ${MODERATION_OPENAI_API_KEY:}
+  openai-enabled: ${MODERATION_OPENAI_ENABLED:false}
+  openai-model: ${MODERATION_OPENAI_MODEL:omni-moderation-latest}
+  openai-base-url: ${MODERATION_OPENAI_BASE_URL:https://api.openai.com/v1}
+  openai-category-blocklist: ${MODERATION_OPENAI_CATEGORY_BLOCKLIST:hate,hate/threatening,sexual,sexual/minors,self-harm,self-harm/intent,self-harm/instructions,violence,violence/graphic}
+  openai-timeout-millis: ${MODERATION_OPENAI_TIMEOUT_MILLIS:2000}
+  openai-daily-request-budget: ${MODERATION_OPENAI_DAILY_REQUEST_BUDGET:9000}
+  openai-budget-redis-prefix: ${MODERATION_OPENAI_BUDGET_REDIS_PREFIX:moderation:openai:requests}
+
 communities:
   verification-expiry-cron: "${COMMUNITIES_VERIFICATION_EXPIRY_CRON:0 0 * * * *}"
   verification-reminders:

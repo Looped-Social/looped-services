@@ -126,6 +126,8 @@ module "api" {
   moderation_openai_model                = var.moderation_openai_model
   moderation_openai_base_url             = var.moderation_openai_base_url
   moderation_openai_timeout_millis       = var.moderation_openai_timeout_millis
+  moderation_openai_daily_request_budget = var.moderation_openai_daily_request_budget
+  moderation_openai_budget_redis_prefix  = var.moderation_openai_budget_redis_prefix
   moderation_openai_category_blocklist   = var.moderation_openai_category_blocklist
   moderation_report_quarantine_threshold = var.moderation_report_quarantine_threshold
 
