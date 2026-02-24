@@ -134,6 +134,30 @@
   - Request:
     - `{ "session_id": "<uuid>", "sent_at_ms?": <epoch_ms>, "events": [ ... ] }`
     - See `docs/recommendations/TELEMETRY_API.md` for event types and schemas.
+- **People recommendations (PYMK + community rails)**
+  - `GET /v1/recommendations/people/rails?surface=search|onboarding|feed_card|profile_similar|inbox_empty&community_id=&rails=&limit_per_rail=`
+    - Returns rail bundle:
+      - `request_id`, `surface`, optional `community`
+      - `rails: [{ rail, title, items, next_cursor?, has_more, degraded }]`
+      - `experiment: { key, bucket }`, `degraded`, `generated_at`
+    - `items[*]`:
+      - `recommendation_id`
+      - `user: { id, handle, display_name, avatar_url, headline, community? }`
+      - `reasons: [{ code, text }]`
+      - `actions: { can_connect, can_hide, can_less_like_this }`
+      - `tracking: { token, position }`
+  - `GET /v1/recommendations/people/{rail}?surface=&community_id=&limit=&cursor=`
+    - `rail`: `pymk | community | active_community`
+    - Returns single-rail page with same item shape + cursor pagination metadata.
+    - Invalid cursor returns `400 { "error": "invalid_cursor" }`.
+  - `POST /v1/recommendations/people/feedback`
+    - Request:
+      - `{ "events": [{ "event_id", "type", "recommendation_id?", "tracking_token", "position?", "client_ts?", "metadata?" }] }`
+      - `type`: `impression | profile_open | connect_request_sent | connect_accepted | hide | less_like_this`
+      - `click` is accepted as alias for `profile_open`.
+    - Response:
+      - `{ "request_id", "accepted", "deduped", "dropped", "suppressed_candidate_ids" }`
+    - `hide` and `less_like_this` create cooldown suppressions server-side.
 - **Onboarding**
   - `POST /v1/users/onboard` → creates the user record from Firebase identity + email domain.
   - Body: `{ "username": "string", "firstName": "string", "lastName": "string", "dateOfBirth": "YYYY-MM-DD" }`

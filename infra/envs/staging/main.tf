@@ -134,11 +134,15 @@ module "api" {
   logo_dev_token  = var.logo_dev_token
   logo_dev_retina = var.logo_dev_retina
 
-  rate_limit_enabled     = var.rate_limit_enabled
-  rl_ip_window_seconds   = var.rl_ip_window_seconds
-  rl_ip_max_requests     = var.rl_ip_max_requests
-  rl_user_window_seconds = var.rl_user_window_seconds
-  rl_user_max_requests   = var.rl_user_max_requests
+  rate_limit_enabled                                = var.rate_limit_enabled
+  rl_ip_window_seconds                              = var.rl_ip_window_seconds
+  rl_ip_max_requests                                = var.rl_ip_max_requests
+  rl_user_window_seconds                            = var.rl_user_window_seconds
+  rl_user_max_requests                              = var.rl_user_max_requests
+  reco_people_active_community_rail_enabled         = var.reco_people_active_community_rail_enabled
+  reco_people_open_report_exclusion_threshold       = var.reco_people_open_report_exclusion_threshold
+  reco_people_experiment_bucket_b_percent           = var.reco_people_experiment_bucket_b_percent
+  reco_people_max_viewer_exposure_per_candidate_24h = var.reco_people_max_viewer_exposure_per_candidate_24h
 
   sqs_notif_queue_url = var.enable_push_notifications ? module.notifications.notif_queue_url : ""
   sqs_notif_queue_arn = var.enable_push_notifications ? module.notifications.notif_queue_arn : ""

@@ -7,3 +7,4 @@ to evolve it safely and scalably.
 - `TELEMETRY_API.md`: iOS -> API telemetry events and the proposed ingestion endpoint(s).
 - `AWS_PIPELINE.md`: AWS-first data pipeline and scaling plan (MVP -> 100M+).
 - `FYP_SCALE_ALERTS.md`: automated admin email alerts for "time to upgrade FYP" based on metrics.
+- `PEOPLE_RECOMMENDATIONS_V1.md`: v1 people-recommendations backend spec, compatibility notes, rollout, and scaling path.

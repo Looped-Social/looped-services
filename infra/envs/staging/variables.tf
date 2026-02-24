@@ -248,6 +248,30 @@ variable "rl_user_max_requests" {
   default     = 180
 }
 
+variable "reco_people_active_community_rail_enabled" {
+  type        = bool
+  description = "Enable the active-community recommendation rail."
+  default     = true
+}
+
+variable "reco_people_open_report_exclusion_threshold" {
+  type        = number
+  description = "Exclude recommended users once open distinct reporter count reaches this threshold."
+  default     = 3
+}
+
+variable "reco_people_experiment_bucket_b_percent" {
+  type        = number
+  description = "Percent of users assigned to experiment bucket B for people recommendations."
+  default     = 50
+}
+
+variable "reco_people_max_viewer_exposure_per_candidate_24h" {
+  type        = number
+  description = "Per-viewer exposure cap per candidate within 24h."
+  default     = 3
+}
+
 variable "logo_dev_token" {
   type        = string
   description = "Logo.dev public token used to generate default community logos. Leave empty to disable logo.dev fallback."

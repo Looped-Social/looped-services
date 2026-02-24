@@ -262,5 +262,29 @@ telemetry:
     max-batches-per-run: ${TELEMETRY_RETENTION_MAX_BATCHES_PER_RUN:20}
     cron: "${TELEMETRY_RETENTION_CRON:0 0 4 * * *}"
 
+recommendations:
+  people:
+    active-community-rail-enabled: ${RECO_PEOPLE_ACTIVE_COMMUNITY_RAIL_ENABLED:false}
+    candidate-fetch-multiplier: ${RECO_PEOPLE_CANDIDATE_FETCH_MULTIPLIER:6}
+    max-fetch-per-rail: ${RECO_PEOPLE_MAX_FETCH_PER_RAIL:200}
+    open-report-exclusion-threshold: ${RECO_PEOPLE_OPEN_REPORT_EXCLUSION_THRESHOLD:3}
+    active-window-days: ${RECO_PEOPLE_ACTIVE_WINDOW_DAYS:14}
+    max-per-community-per-page: ${RECO_PEOPLE_MAX_PER_COMMUNITY_PER_PAGE:4}
+    max-per-specialization-per-page: ${RECO_PEOPLE_MAX_PER_SPECIALIZATION_PER_PAGE:4}
+    max-viewer-exposure-per-candidate24h: ${RECO_PEOPLE_MAX_VIEWER_EXPOSURE_PER_CANDIDATE_24H:3}
+    hide-cooldown: ${RECO_PEOPLE_HIDE_COOLDOWN:P30D}
+    less-like-cooldown: ${RECO_PEOPLE_LESS_LIKE_COOLDOWN:P14D}
+    model-version: ${RECO_PEOPLE_MODEL_VERSION:people-v1-heuristic}
+    experiment-key: ${RECO_PEOPLE_EXPERIMENT_KEY:people_reco_v1}
+    experiment-bucket-b-percent: ${RECO_PEOPLE_EXPERIMENT_BUCKET_B_PERCENT:50}
+    max-feedback-events-per-request: ${RECO_PEOPLE_MAX_FEEDBACK_EVENTS_PER_REQUEST:200}
+    retention-enabled: ${RECO_PEOPLE_RETENTION_ENABLED:true}
+    audit-retention-days: ${RECO_PEOPLE_AUDIT_RETENTION_DAYS:60}
+    feedback-retention-days: ${RECO_PEOPLE_FEEDBACK_RETENTION_DAYS:90}
+    retention-batch-size: ${RECO_PEOPLE_RETENTION_BATCH_SIZE:5000}
+    retention-max-batches-per-run: ${RECO_PEOPLE_RETENTION_MAX_BATCHES_PER_RUN:20}
+    retention:
+      cron: "${RECO_PEOPLE_RETENTION_CRON:0 30 4 * * *}"
+
 widgets:
   snapshot-ttl-seconds: ${WIDGET_SNAPSHOT_TTL_SECONDS:900}

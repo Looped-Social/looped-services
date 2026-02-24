@@ -467,7 +467,11 @@ resource "aws_ecs_task_definition" "api" {
           { name = "RL_IP_WINDOW_SECONDS", value = tostring(var.rl_ip_window_seconds) },
           { name = "RL_IP_MAX_REQUESTS", value = tostring(var.rl_ip_max_requests) },
           { name = "RL_USER_WINDOW_SECONDS", value = tostring(var.rl_user_window_seconds) },
-          { name = "RL_USER_MAX_REQUESTS", value = tostring(var.rl_user_max_requests) }
+          { name = "RL_USER_MAX_REQUESTS", value = tostring(var.rl_user_max_requests) },
+          { name = "RECO_PEOPLE_ACTIVE_COMMUNITY_RAIL_ENABLED", value = tostring(var.reco_people_active_community_rail_enabled) },
+          { name = "RECO_PEOPLE_OPEN_REPORT_EXCLUSION_THRESHOLD", value = tostring(var.reco_people_open_report_exclusion_threshold) },
+          { name = "RECO_PEOPLE_EXPERIMENT_BUCKET_B_PERCENT", value = tostring(var.reco_people_experiment_bucket_b_percent) },
+          { name = "RECO_PEOPLE_MAX_VIEWER_EXPOSURE_PER_CANDIDATE_24H", value = tostring(var.reco_people_max_viewer_exposure_per_candidate_24h) }
         ],
         (var.sqs_notif_queue_url != null && trimspace(var.sqs_notif_queue_url) != "") ? [
           { name = "SQS_NOTIF_QUEUE_URL", value = var.sqs_notif_queue_url }

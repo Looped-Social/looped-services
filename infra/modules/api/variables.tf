@@ -301,3 +301,27 @@ variable "rl_user_max_requests" {
   description = "Max requests per user within rl_user_window_seconds."
   default     = 180
 }
+
+variable "reco_people_active_community_rail_enabled" {
+  type        = bool
+  description = "Enable the active-community recommendation rail."
+  default     = false
+}
+
+variable "reco_people_open_report_exclusion_threshold" {
+  type        = number
+  description = "Exclude recommended users once open distinct reporter count reaches this threshold."
+  default     = 3
+}
+
+variable "reco_people_experiment_bucket_b_percent" {
+  type        = number
+  description = "Percent of users assigned to experiment bucket B for people recommendations."
+  default     = 50
+}
+
+variable "reco_people_max_viewer_exposure_per_candidate_24h" {
+  type        = number
+  description = "Per-viewer exposure cap per candidate within 24h."
+  default     = 3
+}
