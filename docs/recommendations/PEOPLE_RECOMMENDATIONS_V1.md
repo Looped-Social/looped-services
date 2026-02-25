@@ -81,3 +81,7 @@ The mobile contract is documented in `docs/API_EXTENSIONS.md`.
   - prunes expired suppressions
   - prunes old recommendation audit + feedback rows by configured retention windows
 - If recommendation SQL path degrades, service falls back to simpler heuristic retrieval and marks response as degraded.
+- Temporary recommendation identity observability:
+  - `people_reco.display_name_fallback_total` (tags: `surface`, `rail`)
+  - `people_reco.items_total` (tags: `surface`, `rail`)
+  - Request-scoped log when fallback occurs: `people_reco_display_name_fallback`

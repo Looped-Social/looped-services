@@ -2,6 +2,9 @@ package com.looped.recommendations.people;
 
 import com.looped.settings.AppConfigService;
 import com.looped.users.ProfileImageUrls;
+import io.micrometer.core.instrument.MeterRegistry;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -24,12 +27,20 @@ import java.util.Map;
 @RestController
 @RequestMapping("/v1/recommendations/people")
 class PeopleRecommendationsController {
+    private static final Logger log = LoggerFactory.getLogger(PeopleRecommendationsController.class);
+    private static final String METRIC_RECO_ITEMS_TOTAL = "people_reco.items_total";
+    private static final String METRIC_DISPLAY_NAME_FALLBACK_TOTAL = "people_reco.display_name_fallback_total";
+
     private final PeopleRecommendationService service;
     private final AppConfigService appConfig;
+    private final MeterRegistry meters;
 
-    PeopleRecommendationsController(PeopleRecommendationService service, AppConfigService appConfig) {
+    PeopleRecommendationsController(PeopleRecommendationService service,
+                                    AppConfigService appConfig,
+                                    MeterRegistry meters) {
         this.service = service;
         this.appConfig = appConfig;
+        this.meters = meters;
     }
 
     @GetMapping("/rails")
@@ -76,6 +87,18 @@ class PeopleRecommendationsController {
         String defaultProfileImageUrl = appConfig.defaultProfileImageUrl();
         List<Map<String, Object>> railPayloads = new ArrayList<>();
         for (var railPage : result.rails()) {
+            int itemCount = railPage.items().size();
+            long fallbackCount = railPage.items().stream().filter(this::isDisplayNameFallback).count();
+            recordDisplayNameMetrics(parsedSurface.wire(), railPage.rail().wire(), itemCount, fallbackCount);
+            if (fallbackCount > 0) {
+                log.info("people_reco_display_name_fallback request_id={} surface={} rail={} fallback_count={} item_count={}",
+                        result.requestId(),
+                        parsedSurface.wire(),
+                        railPage.rail().wire(),
+                        fallbackCount,
+                        itemCount);
+            }
+
             Map<String, Object> railPayload = new HashMap<>();
             railPayload.put("rail", railPage.rail().wire());
             railPayload.put("title", railPage.title());
@@ -157,6 +180,17 @@ class PeopleRecommendationsController {
         }
 
         String defaultProfileImageUrl = appConfig.defaultProfileImageUrl();
+        int itemCount = result.rail().items().size();
+        long fallbackCount = result.rail().items().stream().filter(this::isDisplayNameFallback).count();
+        recordDisplayNameMetrics(parsedSurface.wire(), result.rail().rail().wire(), itemCount, fallbackCount);
+        if (fallbackCount > 0) {
+            log.info("people_reco_display_name_fallback request_id={} surface={} rail={} fallback_count={} item_count={}",
+                    result.requestId(),
+                    parsedSurface.wire(),
+                    result.rail().rail().wire(),
+                    fallbackCount,
+                    itemCount);
+        }
 
         Map<String, Object> body = new HashMap<>();
         body.put("request_id", result.requestId());
@@ -250,6 +284,19 @@ class PeopleRecommendationsController {
     private String resolvedDisplayName(String displayName, String handle) {
         if (displayName != null && !displayName.isBlank()) return displayName;
         return handle == null ? "" : handle;
+    }
+
+    private boolean isDisplayNameFallback(PeopleRecommendationService.RecommendationItem item) {
+        return item == null || item.row() == null || item.row().displayName == null || item.row().displayName.isBlank();
+    }
+
+    private void recordDisplayNameMetrics(String surface, String rail, int itemCount, long fallbackCount) {
+        if (itemCount > 0) {
+            meters.counter(METRIC_RECO_ITEMS_TOTAL, "surface", surface, "rail", rail).increment(itemCount);
+        }
+        if (fallbackCount > 0) {
+            meters.counter(METRIC_DISPLAY_NAME_FALLBACK_TOTAL, "surface", surface, "rail", rail).increment(fallbackCount);
+        }
     }
 
     private List<PeopleRecommendationTypes.Rail> parseRails(String railsRaw) {
