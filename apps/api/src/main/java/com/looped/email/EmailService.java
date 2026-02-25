@@ -300,7 +300,7 @@ public class EmailService {
 
     private String buildTextBody(String communityName, String code, String link, int ttlSeconds) {
         StringBuilder out = new StringBuilder();
-        out.append(code).append(" is your Looped verification code.\n\n");
+        out.append("Use the verification code ").append(code).append(" to continue. See below as well.\n\n");
         if (communityName != null && !communityName.isBlank()) {
             out.append("Use this code to verify your ").append(communityName).append(" email.\n");
         } else {
@@ -331,10 +331,7 @@ public class EmailService {
         } else {
             out.append("<tr><td style=\"font-size:22px;font-weight:700;color:#1f2937;padding-bottom:8px;\">Verify your Looped signup</td></tr>");
         }
-        out.append("<tr><td style=\"font-size:14px;color:#6b7280;padding-bottom:12px;\">Use the verification code below to continue.</td></tr>");
-        out.append("<tr><td align=\"center\" style=\"font-size:28px;letter-spacing:4px;color:#111827;font-weight:700;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;padding-bottom:12px;\">")
-                .append(escapedCode)
-                .append("</td></tr>");
+        out.append("<tr><td style=\"font-size:14px;color:#6b7280;padding-bottom:20px;\">Use the code below to finish verifying your email.</td></tr>");
         out.append("<tr><td align=\"center\" style=\"padding-bottom:16px;\">");
         out.append(buildCodeBoxes(code));
         out.append("</td></tr>");
