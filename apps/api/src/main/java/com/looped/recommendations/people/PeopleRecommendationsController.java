@@ -221,7 +221,7 @@ class PeopleRecommendationsController {
         Map<String, Object> user = new HashMap<>();
         user.put("id", row.userId);
         user.put("handle", row.handle);
-        user.put("display_name", row.displayName);
+        user.put("display_name", resolvedDisplayName(row.displayName, row.handle));
         user.put("avatar_url", ProfileImageUrls.resolve(row.profileImageUrl, defaultProfileImageUrl));
         user.put("headline", row.bio);
         if (row.displayCommunityId != null || row.displayCommunityName != null) {
@@ -245,6 +245,11 @@ class PeopleRecommendationsController {
                 "position", item.position()
         ));
         return payload;
+    }
+
+    private String resolvedDisplayName(String displayName, String handle) {
+        if (displayName != null && !displayName.isBlank()) return displayName;
+        return handle == null ? "" : handle;
     }
 
     private List<PeopleRecommendationTypes.Rail> parseRails(String railsRaw) {

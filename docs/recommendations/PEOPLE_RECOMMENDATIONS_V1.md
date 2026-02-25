@@ -37,6 +37,8 @@ The mobile contract is documented in `docs/API_EXTENSIONS.md`.
   - if a rail is fully exhausted by exposure caps, backend retries candidate retrieval with relaxed exposure cap for that request to avoid all-empty rails in sparse graphs
 - Explanations:
   - reason codes + user-facing reason text per recommendation
+- Identity fields:
+  - recommendation `user.display_name` is always present in API responses; server falls back to `handle` when profile display name is null/blank
 - Controls:
   - feedback endpoint supports `impression`, `profile_open`, `connect_request_sent`, `connect_accepted`, `hide`, `less_like_this`
   - `hide` and `less_like_this` apply immediate suppressions

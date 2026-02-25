@@ -144,6 +144,7 @@
     - `items[*]`:
       - `recommendation_id`
       - `user: { id, handle, display_name, avatar_url, headline, community? }`
+      - `user.display_name` is always populated by backend (falls back to `handle` when profile display name is missing)
       - `reasons: [{ code, text }]`
       - `actions: { can_connect, can_hide, can_less_like_this }`
       - `tracking: { token, position }`

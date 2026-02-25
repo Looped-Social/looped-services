@@ -264,6 +264,40 @@ class PeopleRecommendationsIntegrationTest extends PostgresTestBase {
     }
 
     @Test
+    void rail_falls_back_to_handle_when_candidate_display_name_is_null() throws Exception {
+        long companyId = jdbc.queryForObject(
+                "INSERT INTO companies(name, domain) VALUES ('RecoNameCo', 'reconame.co') RETURNING id",
+                Long.class
+        );
+
+        long viewerId = insertUser("uid-reco-name-viewer", "reco_name_viewer", companyId, null);
+        long candidateId = insertUser("uid-reco-name-cand", "reco_name_cand", companyId, null);
+        long commonId = insertUser("uid-reco-name-common", "reco_name_common", companyId, null);
+
+        long viewerPrincipalId = insertPrincipal(viewerId);
+        long candidatePrincipalId = insertPrincipal(candidateId);
+        long commonPrincipalId = insertPrincipal(commonId);
+
+        jdbc.update("INSERT INTO principal_follows(follower_principal_id, followee_principal_id) VALUES (?,?)",
+                viewerPrincipalId, commonPrincipalId);
+        jdbc.update("INSERT INTO principal_follows(follower_principal_id, followee_principal_id) VALUES (?,?)",
+                candidatePrincipalId, commonPrincipalId);
+
+        jdbc.update("UPDATE users SET display_name = NULL WHERE id = ?", candidateId);
+
+        String auth = "Bearer " + token("uid-reco-name-viewer");
+
+        mockMvc.perform(get("/v1/recommendations/people/pymk")
+                        .param("surface", "search")
+                        .header("Authorization", auth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items", hasSize(1)))
+                .andExpect(jsonPath("$.items[0].user.id", equalTo((int) candidateId)))
+                .andExpect(jsonPath("$.items[0].user.handle", equalTo("reco_name_cand")))
+                .andExpect(jsonPath("$.items[0].user.display_name", equalTo("reco_name_cand")));
+    }
+
+    @Test
     void invalid_cursor_returns_400() throws Exception {
         long companyId = jdbc.queryForObject(
                 "INSERT INTO companies(name, domain) VALUES ('RecoCursorCo', 'recocursor.co') RETURNING id",
