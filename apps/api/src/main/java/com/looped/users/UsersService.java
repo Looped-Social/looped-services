@@ -327,6 +327,7 @@ public class UsersService {
         }
 
         users.updateProfile(actor.get().id, displayName, bio, isAnonymous, showFollowerCount, normalizedPermission, profileImageUrl);
+        users.markProfileCompletionCompletedIfEligible(actor.get().id);
         var updated = users.findById(actor.get().id).orElse(actor.get());
         var verification = verifications.findByUserId(actor.get().id).orElse(null);
         return UpdateProfileResult.ok(buildProfile(updated, verification));
@@ -370,6 +371,7 @@ public class UsersService {
         }
 
         users.updateDisplaySpecialization(actor.get().id, specializationId);
+        users.markProfileCompletionCompletedIfEligible(actor.get().id);
         var updated = users.findById(actor.get().id).orElse(actor.get());
         var verification = verifications.findByUserId(actor.get().id).orElse(null);
         return UpdateDisplaySpecializationResult.ok(buildProfile(updated, verification));
@@ -571,6 +573,42 @@ public class UsersService {
         return Optional.of(buildProfile(user.get(), verification));
     }
 
+    public Optional<ProfileCompletionStatus> profileCompletionStatus(String firebaseUid) {
+        var user = requireProvisionedUser(firebaseUid);
+        if (user.isEmpty()) return Optional.empty();
+        var verification = verifications.findByUserId(user.get().id).orElse(null);
+        var profile = buildProfile(user.get(), verification);
+        boolean onboardingComplete = user.get().onboardingCompletedAt != null;
+        return Optional.of(profileCompletionStatus(onboardingComplete, profile));
+    }
+
+    public DismissProfileCompletionResult dismissProfileCompletionPrompt(String firebaseUid) {
+        var user = requireProvisionedUser(firebaseUid);
+        if (user.isEmpty()) return DismissProfileCompletionResult.userNotProvisioned();
+        users.markProfileCompletionDismissed(user.get().id);
+        var updated = users.findById(user.get().id).orElse(user.get());
+        var verification = verifications.findByUserId(user.get().id).orElse(null);
+        var profile = buildProfile(updated, verification);
+        boolean onboardingComplete = updated.onboardingCompletedAt != null;
+        return DismissProfileCompletionResult.ok(profileCompletionStatus(onboardingComplete, profile));
+    }
+
+    public ProfileCompletionStatus profileCompletionStatus(boolean onboardingComplete, UserProfile profile) {
+        boolean missingPhoto = profile.profileImageUrl() == null || profile.profileImageUrl().isBlank();
+        boolean missingBio = profile.bio() == null || profile.bio().trim().isEmpty();
+        boolean missingSpecialization = profile.displaySpecialization() == null;
+        boolean dismissed = profile.profileCompletionDismissedAt() != null;
+        boolean shouldPrompt = onboardingComplete && (missingPhoto || missingBio || missingSpecialization) && !dismissed;
+        return new ProfileCompletionStatus(
+                profile.profileCompletionDismissedAt(),
+                profile.profileCompletionCompletedAt(),
+                missingPhoto,
+                missingBio,
+                missingSpecialization,
+                shouldPrompt
+        );
+    }
+
     private static final String ONBOARDING_STEP_PROFILE_SETUP = OnboardingV2Stages.LEGACY_PROFILE_SETUP;
     private static final String ONBOARDING_STEP_SELECT_COMPANY = OnboardingV2Stages.LEGACY_SELECT_COMPANY;
     private static final String ONBOARDING_STEP_VERIFICATION = OnboardingV2Stages.LEGACY_VERIFICATION;
@@ -613,6 +651,7 @@ public class UsersService {
 
         if (ONBOARDING_STEP_VERIFICATION_NOTIFICATIONS.equals(normalized)) {
             users.markOnboardingComplete(actor.get().id);
+            users.markProfileCompletionCompletedIfEligible(actor.get().id);
             onboardingV2.syncFromLegacyStep(actor.get().id, normalized, OffsetDateTime.now());
             return UpdateOnboardingResult.ok(new OnboardingState(true, ONBOARDING_STEP_VERIFICATION_NOTIFICATIONS));
         }
@@ -769,7 +808,9 @@ public class UsersService {
                 verificationData,
                 displayCommunity,
                 displaySpecialization,
-                stats
+                stats,
+                row.profileCompletionDismissedAt,
+                row.profileCompletionCompletedAt
         );
     }
 
@@ -882,6 +923,25 @@ public class UsersService {
 
     public record OnboardingState(boolean onboardingComplete, String onboardingStep) {}
 
+    public record ProfileCompletionStatus(
+            OffsetDateTime dismissedAt,
+            OffsetDateTime completedAt,
+            boolean missingPhoto,
+            boolean missingBio,
+            boolean missingSpecialization,
+            boolean shouldPrompt
+    ) {}
+
+    public record DismissProfileCompletionResult(Status status, ProfileCompletionStatus profileCompletion) {
+        static DismissProfileCompletionResult ok(ProfileCompletionStatus profileCompletion) {
+            return new DismissProfileCompletionResult(Status.OK, profileCompletion);
+        }
+
+        static DismissProfileCompletionResult userNotProvisioned() {
+            return new DismissProfileCompletionResult(Status.USER_NOT_PROVISIONED, null);
+        }
+    }
+
     public enum UpdateOnboardingStatus { OK, USER_NOT_PROVISIONED, INVALID_STEP }
 
     public record UpdateOnboardingResult(UpdateOnboardingStatus status, OnboardingState state,
@@ -920,7 +980,9 @@ public class UsersService {
                               String displayName, String bio, boolean isAnonymous, boolean showFollowerCount,
                               String messagePermission, boolean hideAnonymousPosts, Long companyId, OffsetDateTime createdAt, String profileImageUrl,
                               Verification verification, DisplayCommunity displayCommunity,
-                              DisplaySpecialization displaySpecialization, ProfileStats stats) {}
+                              DisplaySpecialization displaySpecialization, ProfileStats stats,
+                              OffsetDateTime profileCompletionDismissedAt,
+                              OffsetDateTime profileCompletionCompletedAt) {}
 
     public record DisplayCommunity(long id, String name, String shortName, String kind, String specializationType) {}
 

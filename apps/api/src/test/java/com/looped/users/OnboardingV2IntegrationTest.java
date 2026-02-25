@@ -226,6 +226,77 @@ class OnboardingV2IntegrationTest extends PostgresTestBase {
                 fieldId
         );
         org.junit.jupiter.api.Assertions.assertEquals(1, joined.intValue());
+
+        Long displaySpecializationId = jdbc.queryForObject(
+                "SELECT display_specialization_id FROM users WHERE id = ?",
+                Long.class,
+                userId
+        );
+        org.junit.jupiter.api.Assertions.assertEquals(fieldId, displaySpecializationId);
+    }
+
+    @Test
+    void email_branch_finalize_preserves_existing_display_specialization() throws Exception {
+        long companyId = company("EmailKeepCo", "emailkeepco.com");
+        long userId = user("uid-onb-v2-email-keep", "emailerkeep", companyId);
+        long orgId = community("company", "Email Keep Org");
+        long onboardingSpecializationId = specialization("field", "Onboarding Selected");
+        long existingSpecializationId = specialization("major", "Already Chosen");
+
+        jdbc.update(
+                "INSERT INTO specialization_joins(user_id, specialization_id) VALUES (?, ?)",
+                userId,
+                existingSpecializationId
+        );
+        jdbc.update(
+                "UPDATE users SET display_specialization_id = ? WHERE id = ?",
+                existingSpecializationId,
+                userId
+        );
+
+        String auth = auth("uid-onb-v2-email-keep");
+
+        mockMvc.perform(post("/v1/users/me/onboarding-v2/info-screen/viewed").header("Authorization", auth))
+                .andExpect(status().isOk());
+        mockMvc.perform(put("/v1/users/me/onboarding-v2/org")
+                        .header("Authorization", auth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"orgId\":" + orgId + "}"))
+                .andExpect(status().isOk());
+        mockMvc.perform(put("/v1/users/me/onboarding-v2/verification-choice")
+                        .header("Authorization", auth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"verificationPath\":\"email\"}"))
+                .andExpect(status().isOk());
+
+        jdbc.update(
+                "INSERT INTO community_verifications(user_id, community_id, method, verified, verified_at) VALUES (?,?,?,?,now())",
+                userId,
+                orgId,
+                "email",
+                true
+        );
+
+        mockMvc.perform(post("/v1/users/me/onboarding-v2/email-verification/success")
+                        .header("Authorization", auth))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(post("/v1/users/me/onboarding-v2/specialization")
+                        .header("Authorization", auth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"specializationId\":" + onboardingSpecializationId + "}"))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(post("/v1/users/me/onboarding-v2/finalize")
+                        .header("Authorization", auth))
+                .andExpect(status().isOk());
+
+        Long displaySpecializationId = jdbc.queryForObject(
+                "SELECT display_specialization_id FROM users WHERE id = ?",
+                Long.class,
+                userId
+        );
+        org.junit.jupiter.api.Assertions.assertEquals(existingSpecializationId, displaySpecializationId);
     }
 
     @Test

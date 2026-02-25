@@ -9,6 +9,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.HashMap;
@@ -77,6 +78,10 @@ public class MeController {
         }
         resp.put("provisioned", true);
         resp.put("user", UserPayloads.fromProfile(profile.get(), true, true, appConfig.defaultProfileImageUrl()));
+        resp.put("profile_completion", profileCompletionPayload(users.profileCompletionStatus(
+                onboarding.onboardingComplete(),
+                profile.get()
+        )));
         if (!onboarding.onboardingComplete()) {
             var allowedNextStagesV2 = OnboardingV2Stages.allowedNextStages(onboardingV2.onboardingStageV2());
             resp.put("error", "onboarding_incomplete");
@@ -87,6 +92,31 @@ public class MeController {
             return ResponseEntity.status(HttpStatus.CONFLICT).body(resp);
         }
         return ResponseEntity.ok(resp);
+    }
+
+    @PostMapping("/v1/me/profile-completion/dismiss")
+    public ResponseEntity<?> dismissProfileCompletion(@AuthenticationPrincipal Jwt jwt) {
+        var result = users.dismissProfileCompletionPrompt(jwt.getSubject());
+        if (result.status() == UsersService.Status.USER_NOT_PROVISIONED) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
+                    "error", "user_not_provisioned",
+                    "message", "Complete onboarding before dismissing profile completion prompt"
+            ));
+        }
+        return ResponseEntity.ok(Map.of(
+                "profile_completion", profileCompletionPayload(result.profileCompletion())
+        ));
+    }
+
+    private Map<String, Object> profileCompletionPayload(UsersService.ProfileCompletionStatus profileCompletion) {
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("dismissed_at", profileCompletion.dismissedAt());
+        payload.put("completed_at", profileCompletion.completedAt());
+        payload.put("missing_photo", profileCompletion.missingPhoto());
+        payload.put("missing_bio", profileCompletion.missingBio());
+        payload.put("missing_specialization", profileCompletion.missingSpecialization());
+        payload.put("should_prompt", profileCompletion.shouldPrompt());
+        return payload;
     }
 
     private String signInProvider(Jwt jwt) {

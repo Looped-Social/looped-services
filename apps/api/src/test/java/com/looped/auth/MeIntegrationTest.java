@@ -17,7 +17,9 @@ import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.util.List;
 
+import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -86,6 +88,7 @@ class MeIntegrationTest extends PostgresTestBase {
                 .andExpect(jsonPath("$.provisioned").value(true))
                 .andExpect(jsonPath("$.onboarding_complete").value(false))
                 .andExpect(jsonPath("$.onboarding_step").value("verification"))
+                .andExpect(jsonPath("$.profile_completion.should_prompt").value(false))
                 .andExpect(jsonPath("$.user.handle").value("alice"));
     }
 
@@ -104,6 +107,63 @@ class MeIntegrationTest extends PostgresTestBase {
                 .andExpect(jsonPath("$.onboarding_complete").value(true))
                 .andExpect(jsonPath("$.onboarding_step").value("verification_notifications"))
                 .andExpect(jsonPath("$.user.handle").value("alice_done"));
+    }
+
+    @Test
+    void me_returns_profile_completion_state_for_prompting() throws Exception {
+        long companyId = jdbc.queryForObject(
+                "INSERT INTO companies(name, domain) VALUES ('AcmeProfilePrompt', 'acmeprofileprompt.com') RETURNING id",
+                Long.class
+        );
+        jdbc.update(
+                "INSERT INTO users(firebase_uid, handle, company_id, onboarding_completed_at) VALUES (?,?,?,now())",
+                "uid-profile-prompt",
+                "profile_prompt_user",
+                companyId
+        );
+
+        String t = token("uid-profile-prompt");
+        mockMvc.perform(get("/v1/me").header("Authorization", "Bearer " + t))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.profile_completion.should_prompt").value(true))
+                .andExpect(jsonPath("$.profile_completion.missing_photo").value(true))
+                .andExpect(jsonPath("$.profile_completion.missing_bio").value(true))
+                .andExpect(jsonPath("$.profile_completion.missing_specialization").value(true))
+                .andExpect(jsonPath("$.profile_completion.dismissed_at").value(nullValue()))
+                .andExpect(jsonPath("$.profile_completion.completed_at").value(nullValue()));
+    }
+
+    @Test
+    void dismiss_profile_completion_prompt_persists_and_suppresses_prompt() throws Exception {
+        long companyId = jdbc.queryForObject(
+                "INSERT INTO companies(name, domain) VALUES ('AcmeProfileDismiss', 'acmeprofiledismiss.com') RETURNING id",
+                Long.class
+        );
+        long userId = jdbc.queryForObject(
+                "INSERT INTO users(firebase_uid, handle, company_id, onboarding_completed_at) VALUES (?,?,?,now()) RETURNING id",
+                Long.class,
+                "uid-profile-dismiss",
+                "profile_dismiss_user",
+                companyId
+        );
+
+        String t = token("uid-profile-dismiss");
+        mockMvc.perform(post("/v1/me/profile-completion/dismiss").header("Authorization", "Bearer " + t))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.profile_completion.should_prompt").value(false))
+                .andExpect(jsonPath("$.profile_completion.dismissed_at").isNotEmpty());
+
+        OffsetDateTime dismissedAt = jdbc.queryForObject(
+                "SELECT profile_completion_dismissed_at FROM users WHERE id = ?",
+                OffsetDateTime.class,
+                userId
+        );
+        org.junit.jupiter.api.Assertions.assertNotNull(dismissedAt);
+
+        mockMvc.perform(get("/v1/me").header("Authorization", "Bearer " + t))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.profile_completion.should_prompt").value(false))
+                .andExpect(jsonPath("$.profile_completion.dismissed_at").isNotEmpty());
     }
 
     @Test

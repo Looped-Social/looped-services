@@ -333,6 +333,7 @@ public class OnboardingV2Service {
             return Result.invalidStage(bundle);
         }
 
+        Long onboardingDefaultSpecializationId = null;
         switch (path) {
             case "skip" -> {
                 if (!OnboardingV2Stages.SKIP_EXPLAINER.equals(bundle.state.stageV2)
@@ -352,6 +353,7 @@ public class OnboardingV2Service {
                 if (!specializationJoins.exists(bundle.user.id, bundle.state.selectedSpecializationId)) {
                     return Result.conflict("specialization_not_joined", snapshot(bundle.user, bundle.state));
                 }
+                onboardingDefaultSpecializationId = bundle.state.selectedSpecializationId;
                 bundle.state.completionReason = "email_verified_and_joined";
             }
             case "photo_id" -> {
@@ -370,7 +372,12 @@ public class OnboardingV2Service {
         bundle.state.finalizedAt = OffsetDateTime.now();
         bundle.state.requiresSpecializationSelection = false;
         onboardingV2.update(bundle.state);
+        if (onboardingDefaultSpecializationId != null) {
+            // Onboarding-only default: do not overwrite a user-selected display specialization.
+            users.setDisplaySpecializationIfAbsent(bundle.user.id, onboardingDefaultSpecializationId);
+        }
         users.markOnboardingComplete(bundle.user.id);
+        users.markProfileCompletionCompletedIfEligible(bundle.user.id);
 
         var refreshedUser = users.findById(bundle.user.id).orElse(bundle.user);
         var refreshedState = ensureState(refreshedUser);
@@ -397,6 +404,7 @@ public class OnboardingV2Service {
         bundle.state.finalizedAt = OffsetDateTime.now();
         onboardingV2.update(bundle.state);
         users.markOnboardingComplete(bundle.user.id);
+        users.markProfileCompletionCompletedIfEligible(bundle.user.id);
 
         var refreshedUser = users.findById(bundle.user.id).orElse(bundle.user);
         var refreshedState = ensureState(refreshedUser);
