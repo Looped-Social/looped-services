@@ -28,11 +28,13 @@ class UsersServiceDeleteTest {
     @Test
     void hard_delete_falls_back_to_self_deleted_when_local_delete_fails() {
         UserRepository users = mock(UserRepository.class);
+        UserDeletionOperationRepository deletionOps = mock(UserDeletionOperationRepository.class);
         FirebaseAdminService firebaseAdmin = mock(FirebaseAdminService.class);
-        UsersService service = newService(users, firebaseAdmin);
+        UsersService service = newService(users, deletionOps, firebaseAdmin);
 
         var row = userRow(7L, "uid-zombie");
         when(users.findByFirebaseUidIncludingDeleted("uid-zombie")).thenReturn(Optional.of(row));
+        when(deletionOps.create("uid-zombie", 7L, null, "hard")).thenReturn(java.util.UUID.randomUUID());
         when(firebaseAdmin.deleteUser("uid-zombie")).thenReturn(
                 new FirebaseAdminService.DeleteResult(FirebaseAdminService.DeleteStatus.OK, null)
         );
@@ -42,16 +44,19 @@ class UsersServiceDeleteTest {
 
         assertThat(res.status()).isEqualTo(UsersService.DeleteStatus.OK);
         assertThat(res.error()).isEqualTo("local_delete_pending");
+        assertThat(res.operationState()).isEqualTo(UsersService.DeleteOperationState.PENDING);
         verify(users).repairMissingAuthorIdsForUser(7L);
         verify(users).markDeletedSelf(7L, 7L, "hard_delete_failed");
         verify(users, never()).insertTombstone(any());
+        verify(deletionOps).markPending(any(), eq("local_delete_pending"), any());
     }
 
     @Test
     void on_login_keeps_self_deleted_accounts_in_terminal_state() {
         UserRepository users = mock(UserRepository.class);
+        UserDeletionOperationRepository deletionOps = mock(UserDeletionOperationRepository.class);
         FirebaseAdminService firebaseAdmin = mock(FirebaseAdminService.class);
-        UsersService service = newService(users, firebaseAdmin);
+        UsersService service = newService(users, deletionOps, firebaseAdmin);
 
         var row = userRow(9L, "uid-self");
         row.deletedAt = OffsetDateTime.now().minusDays(1);
@@ -64,7 +69,9 @@ class UsersServiceDeleteTest {
         verify(users, never()).reactivate(anyLong());
     }
 
-    private UsersService newService(UserRepository users, FirebaseAdminService firebaseAdmin) {
+    private UsersService newService(UserRepository users,
+                                    UserDeletionOperationRepository deletionOps,
+                                    FirebaseAdminService firebaseAdmin) {
         VerificationRepository verifications = mock(VerificationRepository.class);
         PostRepository posts = mock(PostRepository.class);
         PrincipalRepository principals = mock(PrincipalRepository.class);
@@ -84,6 +91,7 @@ class UsersServiceDeleteTest {
 
         return new UsersService(
                 users,
+                deletionOps,
                 verifications,
                 posts,
                 principals,

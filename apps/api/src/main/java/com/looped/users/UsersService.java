@@ -28,11 +28,13 @@ import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
+import java.util.UUID;
 
 @Service
 public class UsersService {
     private static final Logger log = LoggerFactory.getLogger(UsersService.class);
     private final UserRepository users;
+    private final UserDeletionOperationRepository deletionOperations;
     private final VerificationRepository verifications;
     private final PostRepository posts;
     private final PrincipalRepository principals;
@@ -56,6 +58,7 @@ public class UsersService {
     private final String cloudfrontDomain;
 
     public UsersService(UserRepository users,
+                        UserDeletionOperationRepository deletionOperations,
                         VerificationRepository verifications,
                         PostRepository posts,
                         PrincipalRepository principals,
@@ -78,6 +81,7 @@ public class UsersService {
                         @Value("${onboarding.default-company-domain:looped.global}") String defaultCompanyDomain,
                         @Value("${cloudfront.domain:}") String cloudfrontDomain) {
         this.users = users;
+        this.deletionOperations = deletionOperations;
         this.verifications = verifications;
         this.posts = posts;
         this.principals = principals;
@@ -414,6 +418,9 @@ public class UsersService {
         if (firebaseUid == null || firebaseUid.isBlank()) return OnboardResult.badRequest("invalid_user");
         if (email == null || email.isBlank()) return OnboardResult.badRequest("email_required");
         if (users.isFirebaseUidTombstoned(firebaseUid)) return OnboardResult.conflict("account_deleted");
+        if (deletionOperations.existsActiveByFirebaseUidOrEmail(firebaseUid, email)) {
+            return OnboardResult.conflict("account_delete_pending");
+        }
         var existing = users.findByFirebaseUidIncludingDeleted(firebaseUid);
         if (existing.isPresent()) return OnboardResult.conflict("already_onboarded");
 
@@ -693,6 +700,9 @@ public class UsersService {
             if (claimed.isPresent()) {
                 return LoginStatus.ACTIVE;
             }
+            if (deletionOperations.existsActiveByFirebaseUidOrEmail(firebaseUid, email)) {
+                return LoginStatus.DELETE_PENDING;
+            }
             return users.isFirebaseUidTombstoned(firebaseUid) ? LoginStatus.PURGED : LoginStatus.MISSING;
         }
         if (existing.get().deletedAt == null) return LoginStatus.ACTIVE;
@@ -711,6 +721,7 @@ public class UsersService {
             }
             var deleted = users.deleteByFirebaseUidIfDeletedBefore(firebaseUid, cutoff);
             deleted.ifPresent(users::insertTombstone);
+            deleted.ifPresent(ignored -> deletionOperations.markCompletedByFirebaseUid(firebaseUid));
             return deleted.isPresent() ? LoginStatus.PURGED : LoginStatus.MISSING;
         }
         users.reactivate(existing.get().id);
@@ -733,7 +744,10 @@ public class UsersService {
                 }
                 var deleted = users.deleteById(row.id);
                 deleted.ifPresent(users::insertTombstone);
-                if (deleted.isPresent()) deletedCount += 1;
+                if (deleted.isPresent()) {
+                    deletionOperations.markCompletedByFirebaseUid(row.firebaseUid);
+                    deletedCount += 1;
+                }
             }
             if (deletedCount == 0) {
                 break;
@@ -1030,21 +1044,46 @@ public class UsersService {
         static PostsResult forbidden() { return new PostsResult(Status.FORBIDDEN, List.of(), null); }
     }
 
+    public DeleteOperationStatusResult deleteStatus(String firebaseUid) {
+        if (firebaseUid == null || firebaseUid.isBlank()) {
+            return DeleteOperationStatusResult.none();
+        }
+        var latest = deletionOperations.latestByFirebaseUid(firebaseUid);
+        if (latest.isPresent()) {
+            return toDeleteOperationStatus(latest.get());
+        }
+        if (users.isFirebaseUidTombstoned(firebaseUid)) {
+            return DeleteOperationStatusResult.legacyCompleted();
+        }
+        var existing = users.findByFirebaseUidIncludingDeleted(firebaseUid);
+        if (existing.isPresent()
+                && existing.get().deletedAt != null
+                && "self".equalsIgnoreCase(existing.get().deletedSource)
+                && "hard_delete_failed".equalsIgnoreCase(existing.get().deletedReason)) {
+            return DeleteOperationStatusResult.legacyPending(existing.get().deletedAt);
+        }
+        return DeleteOperationStatusResult.none();
+    }
+
     public DeleteResult deleteMe(String firebaseUid, DeleteMode mode) {
         var userOpt = users.findByFirebaseUidIncludingDeleted(firebaseUid);
         if (userOpt.isEmpty()) {
             if (mode == DeleteMode.SOFT) {
-                return DeleteResult.ok(FirebaseDeleteStatus.NOT_REQUESTED, null);
+                return DeleteResult.ok(FirebaseDeleteStatus.NOT_REQUESTED, null, null, DeleteOperationState.NONE);
             }
+            UUID operationId = deletionOperations.create(firebaseUid, null, null, "hard");
             var firebaseResult = firebaseAdmin.deleteUser(firebaseUid);
-            return handleFirebaseOnlyDelete(firebaseResult);
+            return handleFirebaseOnlyDelete(firebaseResult, operationId);
         }
         var user = userOpt.get();
         if (mode == DeleteMode.SOFT) {
-            if (user.deletedAt != null) return DeleteResult.ok(FirebaseDeleteStatus.NOT_REQUESTED, null);
+            if (user.deletedAt != null) {
+                return DeleteResult.ok(FirebaseDeleteStatus.NOT_REQUESTED, null, null, DeleteOperationState.NONE);
+            }
             users.softDelete(user.id, user.id);
-            return DeleteResult.ok(FirebaseDeleteStatus.NOT_REQUESTED, null);
+            return DeleteResult.ok(FirebaseDeleteStatus.NOT_REQUESTED, null, null, DeleteOperationState.NONE);
         }
+        UUID operationId = deletionOperations.create(firebaseUid, user.id, user.email, "hard");
         int repairedPosts = users.repairMissingAuthorIdsForUser(user.id);
         int repairedComments = users.repairMissingCommentUserIdsForUser(user.id);
         int repairedCommentLikes = users.repairMissingCommentLikeUserIdsForUser(user.id);
@@ -1053,20 +1092,47 @@ public class UsersService {
                     firebaseUid, user.id, repairedPosts, repairedComments, repairedCommentLikes);
         }
         var firebaseResult = firebaseAdmin.deleteUser(firebaseUid);
-        var firebaseHandled = handleFirebaseResult(firebaseResult);
+        var firebaseHandled = handleFirebaseResult(firebaseResult, operationId);
         if (firebaseHandled.status() != DeleteStatus.OK) {
             return firebaseHandled;
         }
         try {
             var deleted = users.deleteById(user.id);
             deleted.ifPresent(users::insertTombstone);
-            return DeleteResult.ok(firebaseHandled.firebaseStatus, firebaseHandled.error);
+            deletionOperations.markCompleted(operationId);
+            return DeleteResult.ok(firebaseHandled.firebaseStatus, firebaseHandled.error, operationId, DeleteOperationState.COMPLETED);
         } catch (DataAccessException e) {
             users.markDeletedSelf(user.id, user.id, "hard_delete_failed");
+            deletionOperations.markPending(operationId, "local_delete_pending", e.getMessage());
             log.error("hard_delete_failed_fallback_to_self_deleted uid={} user_id={} error={}",
                     firebaseUid, user.id, e.getMessage());
-            return DeleteResult.ok(firebaseHandled.firebaseStatus, "local_delete_pending");
+            return DeleteResult.ok(firebaseHandled.firebaseStatus, "local_delete_pending", operationId, DeleteOperationState.PENDING);
         }
+    }
+
+    private DeleteOperationStatusResult toDeleteOperationStatus(UserDeletionOperationRepository.OperationRow row) {
+        if (row == null) return DeleteOperationStatusResult.none();
+        DeleteOperationState state = parseDeleteOperationState(row.state);
+        return new DeleteOperationStatusResult(
+                state,
+                row.operationId,
+                row.requestedAt,
+                row.updatedAt,
+                row.completedAt,
+                row.errorCode
+        );
+    }
+
+    private DeleteOperationState parseDeleteOperationState(String raw) {
+        if (raw == null || raw.isBlank()) return DeleteOperationState.NONE;
+        String normalized = raw.trim().toLowerCase(Locale.ROOT);
+        return switch (normalized) {
+            case "in_progress" -> DeleteOperationState.IN_PROGRESS;
+            case "pending" -> DeleteOperationState.PENDING;
+            case "completed" -> DeleteOperationState.COMPLETED;
+            case "failed" -> DeleteOperationState.FAILED;
+            default -> DeleteOperationState.NONE;
+        };
     }
 
     public enum DeleteMode { HARD, SOFT }
@@ -1075,46 +1141,87 @@ public class UsersService {
 
     public enum FirebaseDeleteStatus { OK, SKIPPED, FAILED, NOT_REQUESTED }
 
-    public record DeleteResult(DeleteStatus status, FirebaseDeleteStatus firebaseStatus, String error) {
-        static DeleteResult ok(FirebaseDeleteStatus firebaseStatus, String error) {
-            return new DeleteResult(DeleteStatus.OK, firebaseStatus, error);
+    public enum DeleteOperationState { NONE, IN_PROGRESS, PENDING, COMPLETED, FAILED }
+
+    public record DeleteResult(DeleteStatus status,
+                               FirebaseDeleteStatus firebaseStatus,
+                               String error,
+                               UUID operationId,
+                               DeleteOperationState operationState) {
+        static DeleteResult ok(FirebaseDeleteStatus firebaseStatus, String error, UUID operationId, DeleteOperationState operationState) {
+            return new DeleteResult(DeleteStatus.OK, firebaseStatus, error, operationId, operationState);
         }
-        static DeleteResult firebaseDeleteFailed(String error) {
-            return new DeleteResult(DeleteStatus.FIREBASE_DELETE_FAILED, FirebaseDeleteStatus.FAILED, error);
+        static DeleteResult firebaseDeleteFailed(String error, UUID operationId) {
+            return new DeleteResult(DeleteStatus.FIREBASE_DELETE_FAILED, FirebaseDeleteStatus.FAILED, error, operationId, DeleteOperationState.FAILED);
         }
-        static DeleteResult firebaseDeleteSkipped(String error) {
-            return new DeleteResult(DeleteStatus.FIREBASE_DELETE_SKIPPED, FirebaseDeleteStatus.SKIPPED, error);
+        static DeleteResult firebaseDeleteSkipped(String error, UUID operationId) {
+            return new DeleteResult(DeleteStatus.FIREBASE_DELETE_SKIPPED, FirebaseDeleteStatus.SKIPPED, error, operationId, DeleteOperationState.FAILED);
         }
     }
 
-    public enum LoginStatus { ACTIVE, REACTIVATED, PURGED, MISSING, PURGE_FAILED }
+    public record DeleteOperationStatusResult(DeleteOperationState state,
+                                              UUID operationId,
+                                              OffsetDateTime requestedAt,
+                                              OffsetDateTime updatedAt,
+                                              OffsetDateTime completedAt,
+                                              String errorCode) {
+        static DeleteOperationStatusResult none() {
+            return new DeleteOperationStatusResult(DeleteOperationState.NONE, null, null, null, null, null);
+        }
 
-    private DeleteResult handleFirebaseResult(FirebaseAdminService.DeleteResult firebaseResult) {
-        return handleFirebaseResult(firebaseResult, false);
+        static DeleteOperationStatusResult legacyCompleted() {
+            return new DeleteOperationStatusResult(DeleteOperationState.COMPLETED, null, null, null, null, null);
+        }
+
+        static DeleteOperationStatusResult legacyPending(OffsetDateTime deletedAt) {
+            return new DeleteOperationStatusResult(DeleteOperationState.PENDING, null, deletedAt, deletedAt, null, "local_delete_pending");
+        }
     }
 
-    private DeleteResult handleFirebaseOnlyDelete(FirebaseAdminService.DeleteResult firebaseResult) {
-        return handleFirebaseResult(firebaseResult, true);
+    public enum LoginStatus { ACTIVE, REACTIVATED, PURGED, MISSING, PURGE_FAILED, DELETE_PENDING }
+
+    private DeleteResult handleFirebaseResult(FirebaseAdminService.DeleteResult firebaseResult, UUID operationId) {
+        return handleFirebaseResult(firebaseResult, false, operationId);
     }
 
-    private DeleteResult handleFirebaseResult(FirebaseAdminService.DeleteResult firebaseResult, boolean firebaseOnly) {
+    private DeleteResult handleFirebaseOnlyDelete(FirebaseAdminService.DeleteResult firebaseResult, UUID operationId) {
+        return handleFirebaseResult(firebaseResult, true, operationId);
+    }
+
+    private DeleteResult handleFirebaseResult(FirebaseAdminService.DeleteResult firebaseResult, boolean firebaseOnly, UUID operationId) {
         if (firebaseResult.status() == FirebaseAdminService.DeleteStatus.OK) {
-            return DeleteResult.ok(FirebaseDeleteStatus.OK, null);
+            if (firebaseOnly) {
+                deletionOperations.markCompleted(operationId);
+                return DeleteResult.ok(FirebaseDeleteStatus.OK, null, operationId, DeleteOperationState.COMPLETED);
+            }
+            return DeleteResult.ok(FirebaseDeleteStatus.OK, null, operationId, DeleteOperationState.IN_PROGRESS);
         }
         if (firebaseResult.status() == FirebaseAdminService.DeleteStatus.SKIPPED) {
             if (firebaseAdmin.isRequired()) {
-                return DeleteResult.firebaseDeleteSkipped(firebaseResult.error());
+                deletionOperations.markFailed(operationId, "firebase_delete_skipped", firebaseResult.error());
+                return DeleteResult.firebaseDeleteSkipped(firebaseResult.error(), operationId);
             }
-            return DeleteResult.ok(FirebaseDeleteStatus.SKIPPED, firebaseResult.error());
+            if (firebaseOnly) {
+                deletionOperations.markCompleted(operationId);
+                return DeleteResult.ok(FirebaseDeleteStatus.SKIPPED, firebaseResult.error(), operationId, DeleteOperationState.COMPLETED);
+            }
+            return DeleteResult.ok(FirebaseDeleteStatus.SKIPPED, firebaseResult.error(), operationId, DeleteOperationState.IN_PROGRESS);
         }
         if (firebaseResult.status() == FirebaseAdminService.DeleteStatus.FAILED) {
             if (firebaseAdmin.isRequired()) {
-                return DeleteResult.firebaseDeleteFailed(firebaseResult.error());
+                deletionOperations.markFailed(operationId, "firebase_delete_failed", firebaseResult.error());
+                return DeleteResult.firebaseDeleteFailed(firebaseResult.error(), operationId);
             }
-            return DeleteResult.ok(FirebaseDeleteStatus.FAILED, firebaseResult.error());
+            if (firebaseOnly) {
+                deletionOperations.markCompleted(operationId);
+                return DeleteResult.ok(FirebaseDeleteStatus.FAILED, firebaseResult.error(), operationId, DeleteOperationState.COMPLETED);
+            }
+            return DeleteResult.ok(FirebaseDeleteStatus.FAILED, firebaseResult.error(), operationId, DeleteOperationState.IN_PROGRESS);
         }
-        return firebaseOnly
-                ? DeleteResult.ok(FirebaseDeleteStatus.NOT_REQUESTED, null)
-                : DeleteResult.ok(FirebaseDeleteStatus.NOT_REQUESTED, null);
+        if (firebaseOnly) {
+            deletionOperations.markCompleted(operationId);
+            return DeleteResult.ok(FirebaseDeleteStatus.NOT_REQUESTED, null, operationId, DeleteOperationState.COMPLETED);
+        }
+        return DeleteResult.ok(FirebaseDeleteStatus.NOT_REQUESTED, null, operationId, DeleteOperationState.IN_PROGRESS);
     }
 }

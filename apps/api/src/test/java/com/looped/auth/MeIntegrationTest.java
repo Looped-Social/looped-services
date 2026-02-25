@@ -262,6 +262,29 @@ class MeIntegrationTest extends PostgresTestBase {
     }
 
     @Test
+    void me_reports_account_delete_pending_when_active_delete_operation_exists_for_email() throws Exception {
+        String email = "pending-delete@looped.co";
+        jdbc.update(
+                "INSERT INTO user_deletion_operations(operation_id, firebase_uid, requested_email, mode, state, requested_at, updated_at) " +
+                        "VALUES (?,?,?,?,?,?,?)",
+                java.util.UUID.randomUUID(),
+                "uid-legacy-delete",
+                email,
+                "hard",
+                "pending",
+                OffsetDateTime.now(),
+                OffsetDateTime.now()
+        );
+
+        String t = token("uid-new-pending", email, true);
+        mockMvc.perform(get("/v1/me").header("Authorization", "Bearer " + t))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error").value("account_delete_pending"))
+                .andExpect(jsonPath("$.provisioned").value(false))
+                .andExpect(jsonPath("$.account_delete_pending").value(true));
+    }
+
+    @Test
     void feed_rejects_non_provisioned_user() throws Exception {
         String t = token("uid-feed-missing");
         mockMvc.perform(get("/v1/feed").header("Authorization", "Bearer " + t))

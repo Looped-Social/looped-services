@@ -159,7 +159,8 @@ public class UserAccountStatusFilter extends OncePerRequestFilter {
         String method = request.getMethod();
         return allowRoute(method, path, HttpMethod.DELETE, "/v1/users/me")
                 || allowRoute(method, path, HttpMethod.POST, "/v1/users/me/delete")
-                || allowRoute(method, path, HttpMethod.POST, "/v1/users/me/deactivate");
+                || allowRoute(method, path, HttpMethod.POST, "/v1/users/me/deactivate")
+                || allowRoute(method, path, HttpMethod.GET, "/v1/users/me/delete-status");
     }
 
     private boolean isOnboardingRestrictedRoute(HttpServletRequest request) {

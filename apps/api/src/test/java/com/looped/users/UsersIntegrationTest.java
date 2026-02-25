@@ -202,6 +202,9 @@ class UsersIntegrationTest extends PostgresTestBase {
                         .header("Authorization", auth))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status", equalTo("deleted")))
+                .andExpect(jsonPath("$.deletion_status", equalTo("completed")))
+                .andExpect(jsonPath("$.operation_id", notNullValue()))
+                .andExpect(jsonPath("$.status_endpoint", equalTo("/v1/users/me/delete-status")))
                 .andExpect(jsonPath("$.firebase_deleted", equalTo(false)))
                 .andExpect(jsonPath("$.firebase_status", equalTo("skipped")));
 
@@ -213,6 +216,9 @@ class UsersIntegrationTest extends PostgresTestBase {
                         .header("Authorization", auth))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status", equalTo("deleted")))
+                .andExpect(jsonPath("$.deletion_status", equalTo("completed")))
+                .andExpect(jsonPath("$.operation_id", notNullValue()))
+                .andExpect(jsonPath("$.status_endpoint", equalTo("/v1/users/me/delete-status")))
                 .andExpect(jsonPath("$.firebase_deleted", equalTo(false)))
                 .andExpect(jsonPath("$.firebase_status", equalTo("skipped")));
     }
@@ -264,12 +270,68 @@ class UsersIntegrationTest extends PostgresTestBase {
                         .header("Authorization", auth))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status", equalTo("deleted")))
+                .andExpect(jsonPath("$.deletion_status", equalTo("completed")))
+                .andExpect(jsonPath("$.operation_id", notNullValue()))
+                .andExpect(jsonPath("$.status_endpoint", equalTo("/v1/users/me/delete-status")))
                 .andExpect(jsonPath("$.firebase_deleted", equalTo(false)))
                 .andExpect(jsonPath("$.firebase_status", equalTo("skipped")));
 
         Integer count = jdbc.queryForObject("SELECT COUNT(*) FROM users WHERE firebase_uid='uid-delete-ui'", Integer.class);
         org.junit.jupiter.api.Assertions.assertNotNull(count);
         org.junit.jupiter.api.Assertions.assertEquals(0, count.intValue());
+    }
+
+    @Test
+    void delete_status_reports_completed_after_hard_delete() throws Exception {
+        long companyId = jdbc.queryForObject("INSERT INTO companies(name, domain) VALUES ('DelStatus','delstatus.co') RETURNING id", Long.class);
+        jdbc.update("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?)", "uid-delete-status", "miles", companyId);
+
+        String auth = "Bearer " + token("uid-delete-status");
+
+        mockMvc.perform(post("/v1/users/me/delete")
+                        .header("Authorization", auth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.deletion_status", equalTo("completed")));
+
+        mockMvc.perform(get("/v1/users/me/delete-status")
+                        .header("Authorization", auth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.deletion_status", equalTo("completed")))
+                .andExpect(jsonPath("$.delete_pending", equalTo(false)))
+                .andExpect(jsonPath("$.operation_id", notNullValue()))
+                .andExpect(jsonPath("$.completed_at", notNullValue()));
+    }
+
+    @Test
+    void onboard_blocked_when_delete_is_pending_for_same_email() throws Exception {
+        String pendingEmail = "pending@reuse.co";
+        jdbc.update(
+                "INSERT INTO user_deletion_operations(operation_id, firebase_uid, requested_email, mode, state, requested_at, updated_at) " +
+                        "VALUES (?,?,?,?,?,?,?)",
+                java.util.UUID.randomUUID(),
+                "uid-old-pending",
+                pendingEmail,
+                "hard",
+                "pending",
+                java.time.OffsetDateTime.now(),
+                java.time.OffsetDateTime.now()
+        );
+
+        String onboardBody = """
+                {
+                  "username": "newpending",
+                  "firstName": "New",
+                  "lastName": "Pending",
+                  "dateOfBirth": "1993-01-01"
+                }
+                """;
+
+        mockMvc.perform(post("/v1/users/onboard")
+                        .header("Authorization", "Bearer " + tokenWithEmail("uid-new-pending", pendingEmail, true))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(onboardBody))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error", equalTo("account_delete_pending")));
     }
 
     @Test
@@ -283,6 +345,9 @@ class UsersIntegrationTest extends PostgresTestBase {
                         .header("Authorization", auth))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status", equalTo("deleted")))
+                .andExpect(jsonPath("$.deletion_status", equalTo("completed")))
+                .andExpect(jsonPath("$.operation_id", notNullValue()))
+                .andExpect(jsonPath("$.status_endpoint", equalTo("/v1/users/me/delete-status")))
                 .andExpect(jsonPath("$.firebase_deleted", equalTo(false)))
                 .andExpect(jsonPath("$.firebase_status", equalTo("skipped")));
 

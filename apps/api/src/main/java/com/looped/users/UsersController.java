@@ -259,24 +259,48 @@ public class UsersController {
         var res = service.deleteMe(jwt.getSubject(), deleteMode);
         if (res.status() == UsersService.DeleteStatus.FIREBASE_DELETE_FAILED) {
             return ResponseEntity.status(HttpStatus.BAD_GATEWAY).body(Map.of(
-                    "error", "firebase_delete_failed"
+                    "error", "firebase_delete_failed",
+                    "deletion_status", deletionStatus(res.operationState()),
+                    "operation_id", res.operationId() == null ? "" : res.operationId().toString()
             ));
         }
         if (res.status() == UsersService.DeleteStatus.FIREBASE_DELETE_SKIPPED) {
             return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(Map.of(
-                    "error", "firebase_admin_not_configured"
+                    "error", "firebase_admin_not_configured",
+                    "deletion_status", deletionStatus(res.operationState()),
+                    "operation_id", res.operationId() == null ? "" : res.operationId().toString()
             ));
         }
         if (deleteMode == UsersService.DeleteMode.SOFT) {
             return ResponseEntity.noContent().build();
         }
-        boolean deletePending = "local_delete_pending".equalsIgnoreCase(res.error());
-        return ResponseEntity.ok(Map.of(
-                "status", "deleted",
-                "delete_pending", deletePending,
-                "firebase_status", res.firebaseStatus() == null ? "unknown" : res.firebaseStatus().name().toLowerCase(java.util.Locale.ROOT),
-                "firebase_deleted", res.firebaseStatus() == UsersService.FirebaseDeleteStatus.OK
-        ));
+        return ResponseEntity.ok(deleteResponseBody(res));
+    }
+
+    @GetMapping("/me/delete-status")
+    public ResponseEntity<?> deleteStatus(@AuthenticationPrincipal Jwt jwt) {
+        var status = service.deleteStatus(jwt.getSubject());
+        Map<String, Object> body = new HashMap<>();
+        body.put("deletion_status", deletionStatus(status.state()));
+        body.put("delete_pending",
+                status.state() == UsersService.DeleteOperationState.IN_PROGRESS
+                        || status.state() == UsersService.DeleteOperationState.PENDING);
+        if (status.operationId() != null) {
+            body.put("operation_id", status.operationId().toString());
+        }
+        if (status.requestedAt() != null) {
+            body.put("requested_at", status.requestedAt());
+        }
+        if (status.updatedAt() != null) {
+            body.put("updated_at", status.updatedAt());
+        }
+        if (status.completedAt() != null) {
+            body.put("completed_at", status.completedAt());
+        }
+        if (status.errorCode() != null && !status.errorCode().isBlank()) {
+            body.put("error", status.errorCode());
+        }
+        return ResponseEntity.ok(body);
     }
 
     @PostMapping("/me/deactivate")
@@ -290,21 +314,42 @@ public class UsersController {
         var res = service.deleteMe(jwt.getSubject(), UsersService.DeleteMode.HARD);
         if (res.status() == UsersService.DeleteStatus.FIREBASE_DELETE_FAILED) {
             return ResponseEntity.status(HttpStatus.BAD_GATEWAY).body(Map.of(
-                    "error", "firebase_delete_failed"
+                    "error", "firebase_delete_failed",
+                    "deletion_status", deletionStatus(res.operationState()),
+                    "operation_id", res.operationId() == null ? "" : res.operationId().toString()
             ));
         }
         if (res.status() == UsersService.DeleteStatus.FIREBASE_DELETE_SKIPPED) {
             return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(Map.of(
-                    "error", "firebase_admin_not_configured"
+                    "error", "firebase_admin_not_configured",
+                    "deletion_status", deletionStatus(res.operationState()),
+                    "operation_id", res.operationId() == null ? "" : res.operationId().toString()
             ));
         }
-        boolean deletePending = "local_delete_pending".equalsIgnoreCase(res.error());
-        return ResponseEntity.ok(Map.of(
+        return ResponseEntity.ok(deleteResponseBody(res));
+    }
+
+    private Map<String, Object> deleteResponseBody(UsersService.DeleteResult res) {
+        boolean deletePending = res.operationState() == UsersService.DeleteOperationState.PENDING
+                || res.operationState() == UsersService.DeleteOperationState.IN_PROGRESS
+                || "local_delete_pending".equalsIgnoreCase(res.error());
+        Map<String, Object> body = new HashMap<>(Map.of(
                 "status", "deleted",
                 "delete_pending", deletePending,
+                "deletion_status", deletionStatus(res.operationState()),
+                "status_endpoint", "/v1/users/me/delete-status",
                 "firebase_status", res.firebaseStatus() == null ? "unknown" : res.firebaseStatus().name().toLowerCase(java.util.Locale.ROOT),
                 "firebase_deleted", res.firebaseStatus() == UsersService.FirebaseDeleteStatus.OK
         ));
+        if (res.operationId() != null) {
+            body.put("operation_id", res.operationId().toString());
+        }
+        return body;
+    }
+
+    private String deletionStatus(UsersService.DeleteOperationState state) {
+        if (state == null) return "none";
+        return state.name().toLowerCase(java.util.Locale.ROOT);
     }
 
     @GetMapping("/{id}/replies")

@@ -47,7 +47,8 @@ public class MeController {
             resp.put("error", "account_deleted");
             return ResponseEntity.status(HttpStatus.CONFLICT).body(resp);
         }
-        if (loginStatus == UsersService.LoginStatus.PURGE_FAILED) {
+        if (loginStatus == UsersService.LoginStatus.PURGE_FAILED
+                || loginStatus == UsersService.LoginStatus.DELETE_PENDING) {
             var onboardingV2 = users.onboardingStateV2(jwt.getSubject());
             resp.put("provisioned", false);
             resp.put("account_delete_pending", true);
