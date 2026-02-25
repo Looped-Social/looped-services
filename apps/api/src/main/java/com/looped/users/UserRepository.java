@@ -168,6 +168,13 @@ public class UserRepository {
         );
     }
 
+    public void setDisplayCommunityIfAbsent(long userId, long communityId) {
+        jdbcTemplate.update(
+                "UPDATE users SET display_community_id = ? WHERE id = ? AND display_community_id IS NULL",
+                communityId, userId
+        );
+    }
+
     public void updateDisplaySpecialization(long userId, Long specializationId) {
         jdbcTemplate.update(
                 "UPDATE users SET display_specialization_id = ? WHERE id = ?",

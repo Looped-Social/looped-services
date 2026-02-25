@@ -334,6 +334,7 @@ public class OnboardingV2Service {
         }
 
         Long onboardingDefaultSpecializationId = null;
+        Long onboardingDefaultDisplayCommunityId = null;
         switch (path) {
             case "skip" -> {
                 if (!OnboardingV2Stages.SKIP_EXPLAINER.equals(bundle.state.stageV2)
@@ -353,6 +354,7 @@ public class OnboardingV2Service {
                 if (!specializationJoins.exists(bundle.user.id, bundle.state.selectedSpecializationId)) {
                     return Result.conflict("specialization_not_joined", snapshot(bundle.user, bundle.state));
                 }
+                onboardingDefaultDisplayCommunityId = bundle.state.selectedOrgId;
                 onboardingDefaultSpecializationId = bundle.state.selectedSpecializationId;
                 bundle.state.completionReason = "email_verified_and_joined";
             }
@@ -372,6 +374,10 @@ public class OnboardingV2Service {
         bundle.state.finalizedAt = OffsetDateTime.now();
         bundle.state.requiresSpecializationSelection = false;
         onboardingV2.update(bundle.state);
+        if (onboardingDefaultDisplayCommunityId != null) {
+            // Onboarding-only default: do not overwrite a user-selected display community.
+            users.setDisplayCommunityIfAbsent(bundle.user.id, onboardingDefaultDisplayCommunityId);
+        }
         if (onboardingDefaultSpecializationId != null) {
             // Onboarding-only default: do not overwrite a user-selected display specialization.
             users.setDisplaySpecializationIfAbsent(bundle.user.id, onboardingDefaultSpecializationId);

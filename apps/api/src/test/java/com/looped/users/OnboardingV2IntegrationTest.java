@@ -233,6 +233,13 @@ class OnboardingV2IntegrationTest extends PostgresTestBase {
                 userId
         );
         org.junit.jupiter.api.Assertions.assertEquals(fieldId, displaySpecializationId);
+
+        Long displayCommunityId = jdbc.queryForObject(
+                "SELECT display_community_id FROM users WHERE id = ?",
+                Long.class,
+                userId
+        );
+        org.junit.jupiter.api.Assertions.assertEquals(orgId, displayCommunityId);
     }
 
     @Test
@@ -242,6 +249,7 @@ class OnboardingV2IntegrationTest extends PostgresTestBase {
         long orgId = community("company", "Email Keep Org");
         long onboardingSpecializationId = specialization("field", "Onboarding Selected");
         long existingSpecializationId = specialization("major", "Already Chosen");
+        long existingDisplayCommunityId = community("school", "Already Displayed School");
 
         jdbc.update(
                 "INSERT INTO specialization_joins(user_id, specialization_id) VALUES (?, ?)",
@@ -249,8 +257,9 @@ class OnboardingV2IntegrationTest extends PostgresTestBase {
                 existingSpecializationId
         );
         jdbc.update(
-                "UPDATE users SET display_specialization_id = ? WHERE id = ?",
+                "UPDATE users SET display_specialization_id = ?, display_community_id = ? WHERE id = ?",
                 existingSpecializationId,
+                existingDisplayCommunityId,
                 userId
         );
 
@@ -297,6 +306,13 @@ class OnboardingV2IntegrationTest extends PostgresTestBase {
                 userId
         );
         org.junit.jupiter.api.Assertions.assertEquals(existingSpecializationId, displaySpecializationId);
+
+        Long displayCommunityId = jdbc.queryForObject(
+                "SELECT display_community_id FROM users WHERE id = ?",
+                Long.class,
+                userId
+        );
+        org.junit.jupiter.api.Assertions.assertEquals(existingDisplayCommunityId, displayCommunityId);
     }
 
     @Test
@@ -343,6 +359,13 @@ class OnboardingV2IntegrationTest extends PostgresTestBase {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.onboarding_complete", equalTo(true)))
                 .andExpect(jsonPath("$.onboarding_context.completion_reason", equalTo("photo_pending")));
+
+        Long displayCommunityId = jdbc.queryForObject(
+                "SELECT display_community_id FROM users WHERE id = ?",
+                Long.class,
+                userId
+        );
+        org.junit.jupiter.api.Assertions.assertNull(displayCommunityId);
     }
 
     @Test
