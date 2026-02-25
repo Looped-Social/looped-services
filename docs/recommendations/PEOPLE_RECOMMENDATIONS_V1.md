@@ -32,6 +32,9 @@ The mobile contract is documented in `docs/API_EXTENSIONS.md`.
   - blocked either direction
   - reported/policy threshold
   - hidden/less-like-this suppressions during cooldown
+  - exposure cap per candidate in rolling 24h window (`RECO_PEOPLE_MAX_VIEWER_EXPOSURE_PER_CANDIDATE_24H`)
+- Empty-rail protection:
+  - if a rail is fully exhausted by exposure caps, backend retries candidate retrieval with relaxed exposure cap for that request to avoid all-empty rails in sparse graphs
 - Explanations:
   - reason codes + user-facing reason text per recommendation
 - Controls:

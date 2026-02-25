@@ -251,15 +251,7 @@ class PeopleRecommendationService {
         List<PeopleRecommendationRepository.CandidateRow> candidates;
         boolean degraded = false;
         try {
-            candidates = repo.findCandidates(
-                    rail,
-                    context,
-                    keyset,
-                    fetchLimit,
-                    props.getActiveWindowDays(),
-                    props.getOpenReportExclusionThreshold(),
-                    props.getMaxViewerExposurePerCandidate24h()
-            );
+            candidates = findCandidatesWithExposureFallback(rail, context, keyset, fetchLimit);
         } catch (DataAccessException e) {
             degraded = true;
             candidates = repo.findFallbackCandidates(
@@ -335,6 +327,37 @@ class PeopleRecommendationService {
                 nextCursor,
                 hasMore,
                 degraded
+        );
+    }
+
+    private List<PeopleRecommendationRepository.CandidateRow> findCandidatesWithExposureFallback(
+            PeopleRecommendationTypes.Rail rail,
+            PeopleRecommendationRepository.ViewerContext context,
+            PeopleRecommendationRepository.CursorKeyset keyset,
+            int fetchLimit) {
+        int configuredExposureCap = props.getMaxViewerExposurePerCandidate24h();
+        List<PeopleRecommendationRepository.CandidateRow> candidates = repo.findCandidates(
+                rail,
+                context,
+                keyset,
+                fetchLimit,
+                props.getActiveWindowDays(),
+                props.getOpenReportExclusionThreshold(),
+                configuredExposureCap
+        );
+        if (!candidates.isEmpty()) {
+            return candidates;
+        }
+
+        // Prevent all-empty rails in sparse graphs when every candidate is at the exposure cap.
+        return repo.findCandidates(
+                rail,
+                context,
+                keyset,
+                fetchLimit,
+                props.getActiveWindowDays(),
+                props.getOpenReportExclusionThreshold(),
+                Integer.MAX_VALUE
         );
     }
 

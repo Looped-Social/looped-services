@@ -208,6 +208,62 @@ class PeopleRecommendationsIntegrationTest extends PostgresTestBase {
     }
 
     @Test
+    void rail_relaxes_exposure_cap_when_all_candidates_are_filtered() throws Exception {
+        long companyId = jdbc.queryForObject(
+                "INSERT INTO companies(name, domain) VALUES ('RecoExposureCo', 'recoexposure.co') RETURNING id",
+                Long.class
+        );
+
+        long viewerId = insertUser("uid-reco-exposure-viewer", "reco_exposure_viewer", companyId, null);
+        long candidateId = insertUser("uid-reco-exposure-cand", "reco_exposure_cand", companyId, null);
+        long commonId = insertUser("uid-reco-exposure-common", "reco_exposure_common", companyId, null);
+
+        long viewerPrincipalId = insertPrincipal(viewerId);
+        long candidatePrincipalId = insertPrincipal(candidateId);
+        long commonPrincipalId = insertPrincipal(commonId);
+
+        jdbc.update("INSERT INTO principal_follows(follower_principal_id, followee_principal_id) VALUES (?,?)",
+                viewerPrincipalId, commonPrincipalId);
+        jdbc.update("INSERT INTO principal_follows(follower_principal_id, followee_principal_id) VALUES (?,?)",
+                candidatePrincipalId, commonPrincipalId);
+
+        // Seed three recent exposures to hit the configured 24h cap (default: 3).
+        for (int i = 0; i < 3; i++) {
+            jdbc.update(
+                    "INSERT INTO people_reco_served_audit(" +
+                            "request_id, viewer_user_id, candidate_user_id, rail, surface, recommendation_id, tracking_token, " +
+                            "reason_codes, reason_texts, rank_score, position, model_version, experiment_key, experiment_bucket, created_at" +
+                            ") VALUES (?,?,?,?,?,?,?, '[]'::jsonb, '[]'::jsonb, ?, ?, ?, ?, ?, now() - interval '1 hour')",
+                    UUID.randomUUID(),
+                    viewerId,
+                    candidateId,
+                    "pymk",
+                    "search",
+                    "rec_seed_" + i,
+                    "trk_seed_" + UUID.randomUUID(),
+                    100L,
+                    1,
+                    "people-v1-heuristic",
+                    "people_reco_v1",
+                    "A"
+            );
+        }
+
+        String auth = "Bearer " + token("uid-reco-exposure-viewer");
+
+        var response = mockMvc.perform(get("/v1/recommendations/people/pymk")
+                        .param("surface", "search")
+                        .header("Authorization", auth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items", hasSize(1)))
+                .andReturn();
+
+        JsonNode root = objectMapper.readTree(response.getResponse().getContentAsString());
+        long returnedCandidateId = root.get("items").get(0).get("user").get("id").asLong();
+        Assertions.assertEquals(candidateId, returnedCandidateId);
+    }
+
+    @Test
     void invalid_cursor_returns_400() throws Exception {
         long companyId = jdbc.queryForObject(
                 "INSERT INTO companies(name, domain) VALUES ('RecoCursorCo', 'recocursor.co') RETURNING id",

@@ -140,6 +140,7 @@
       - `request_id`, `surface`, optional `community`
       - `rails: [{ rail, title, items, next_cursor?, has_more, degraded }]`
       - `experiment: { key, bucket }`, `degraded`, `generated_at`
+    - If configured exposure caps would otherwise empty a rail, backend retries retrieval with relaxed exposure cap for that request.
     - `items[*]`:
       - `recommendation_id`
       - `user: { id, handle, display_name, avatar_url, headline, community? }`
