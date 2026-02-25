@@ -300,12 +300,12 @@ public class EmailService {
 
     private String buildTextBody(String communityName, String code, String link, int ttlSeconds) {
         StringBuilder out = new StringBuilder();
+        out.append(code).append(" is your Looped verification code.\n\n");
         if (communityName != null && !communityName.isBlank()) {
-            out.append("Verify your ").append(communityName).append(" email\n\n");
+            out.append("Use this code to verify your ").append(communityName).append(" email.\n");
         } else {
-            out.append("Verify your Looped signup\n\n");
+            out.append("Use this code to verify your Looped signup.\n");
         }
-        out.append("Your verification code: ").append(code).append("\n");
         out.append(expirySentence(ttlSeconds)).append("\n");
         if (link != null) {
             out.append("\nOr click this link:\n").append(link).append("\n");
@@ -315,8 +315,13 @@ public class EmailService {
     }
 
     private String buildHtmlBody(String communityName, String code, String link, int ttlSeconds) {
+        String escapedCode = escape(code);
         StringBuilder out = new StringBuilder();
         out.append("<html><body style=\"margin:0;padding:0;background-color:#ffffff;color:#1f2937;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Helvetica,Arial,sans-serif;\">");
+        out.append("<div style=\"display:none;max-height:0;overflow:hidden;opacity:0;color:transparent;\">")
+                .append(escapedCode)
+                .append(" is your Looped verification code.")
+                .append("</div>");
         out.append("<table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" width=\"100%\" style=\"background-color:#ffffff;\">");
         out.append("<tr><td align=\"center\" style=\"padding:32px 16px;\">");
         out.append("<table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" width=\"560\" style=\"width:560px;max-width:560px;\">");
@@ -326,7 +331,10 @@ public class EmailService {
         } else {
             out.append("<tr><td style=\"font-size:22px;font-weight:700;color:#1f2937;padding-bottom:8px;\">Verify your Looped signup</td></tr>");
         }
-        out.append("<tr><td style=\"font-size:14px;color:#6b7280;padding-bottom:20px;\">Use the code below to finish verifying your email.</td></tr>");
+        out.append("<tr><td style=\"font-size:14px;color:#6b7280;padding-bottom:12px;\">Use the verification code below to continue.</td></tr>");
+        out.append("<tr><td align=\"center\" style=\"font-size:28px;letter-spacing:4px;color:#111827;font-weight:700;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;padding-bottom:12px;\">")
+                .append(escapedCode)
+                .append("</td></tr>");
         out.append("<tr><td align=\"center\" style=\"padding-bottom:16px;\">");
         out.append(buildCodeBoxes(code));
         out.append("</td></tr>");
