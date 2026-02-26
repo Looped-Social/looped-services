@@ -22,7 +22,8 @@ class PostCollectionsControllerTest {
         PollsService polls = mock(PollsService.class);
         AppConfigService appConfig = mock(AppConfigService.class);
         PostViewerCapabilitiesService viewerCapabilities = mock(PostViewerCapabilitiesService.class);
-        var controller = new PostCollectionsController(service, polls, appConfig, viewerCapabilities);
+        PostViewCountsService postViewCounts = mock(PostViewCountsService.class);
+        var controller = new PostCollectionsController(service, polls, appConfig, viewerCapabilities, postViewCounts);
 
         var res = controller.reposted(null, null, 20);
 
@@ -37,8 +38,9 @@ class PostCollectionsControllerTest {
         PollsService polls = mock(PollsService.class);
         AppConfigService appConfig = mock(AppConfigService.class);
         PostViewerCapabilitiesService viewerCapabilities = mock(PostViewerCapabilitiesService.class);
+        PostViewCountsService postViewCounts = mock(PostViewCountsService.class);
         when(appConfig.defaultProfileImageUrl()).thenReturn(null);
-        var controller = new PostCollectionsController(service, polls, appConfig, viewerCapabilities);
+        var controller = new PostCollectionsController(service, polls, appConfig, viewerCapabilities, postViewCounts);
 
         Jwt jwt = Jwt.withTokenValue("t")
                 .header("alg", "none")

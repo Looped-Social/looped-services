@@ -22,7 +22,8 @@ class UserRepostsControllerTest {
         PollsService polls = mock(PollsService.class);
         AppConfigService appConfig = mock(AppConfigService.class);
         PostViewerCapabilitiesService viewerCapabilities = mock(PostViewerCapabilitiesService.class);
-        var controller = new UserRepostsController(service, polls, appConfig, viewerCapabilities);
+        PostViewCountsService postViewCounts = mock(PostViewCountsService.class);
+        var controller = new UserRepostsController(service, polls, appConfig, viewerCapabilities, postViewCounts);
 
         var res = controller.reposts(null, 123L, null, 20);
 
@@ -37,7 +38,8 @@ class UserRepostsControllerTest {
         PollsService polls = mock(PollsService.class);
         AppConfigService appConfig = mock(AppConfigService.class);
         PostViewerCapabilitiesService viewerCapabilities = mock(PostViewerCapabilitiesService.class);
-        var controller = new UserRepostsController(service, polls, appConfig, viewerCapabilities);
+        PostViewCountsService postViewCounts = mock(PostViewCountsService.class);
+        var controller = new UserRepostsController(service, polls, appConfig, viewerCapabilities, postViewCounts);
 
         var res = controller.myReposts(null, null, 20);
 
@@ -52,8 +54,9 @@ class UserRepostsControllerTest {
         PollsService polls = mock(PollsService.class);
         AppConfigService appConfig = mock(AppConfigService.class);
         PostViewerCapabilitiesService viewerCapabilities = mock(PostViewerCapabilitiesService.class);
+        PostViewCountsService postViewCounts = mock(PostViewCountsService.class);
         when(appConfig.defaultProfileImageUrl()).thenReturn(null);
-        var controller = new UserRepostsController(service, polls, appConfig, viewerCapabilities);
+        var controller = new UserRepostsController(service, polls, appConfig, viewerCapabilities, postViewCounts);
 
         Jwt jwt = Jwt.withTokenValue("t")
                 .header("alg", "none")
