@@ -26,17 +26,20 @@ public class PostsController {
     private final PollsService pollsService;
     private final AppConfigService appConfig;
     private final PostViewerCapabilitiesService viewerCapabilities;
+    private final PostViewCountsService postViewCounts;
 
     public PostsController(PostsService postsService,
                            PostSearchService postSearchService,
                            PollsService pollsService,
                            AppConfigService appConfig,
-                           PostViewerCapabilitiesService viewerCapabilities) {
+                           PostViewerCapabilitiesService viewerCapabilities,
+                           PostViewCountsService postViewCounts) {
         this.postsService = postsService;
         this.postSearchService = postSearchService;
         this.pollsService = pollsService;
         this.appConfig = appConfig;
         this.viewerCapabilities = viewerCapabilities;
+        this.postViewCounts = postViewCounts;
     }
 
     @GetMapping("/search")
@@ -64,11 +67,13 @@ public class PostsController {
                 List<Long> postIds = res.posts().stream().map(p -> p.id).toList();
                 var pollsByPostId = pollsService.viewsByPostId(viewerPrincipalId, postIds);
                 var capabilitiesByPostId = viewerCapabilities.byPostId(jwt.getSubject(), res.posts(), pollsByPostId);
+                var viewCountsByPostId = postViewCounts.authorVisibleUniqueViewCounts(jwt.getSubject(), res.posts());
                 List<Map<String, Object>> items = res.posts().stream().map(row -> {
                     Map<String, Object> payload = PostPayloads.search(row, defaultProfileImageUrl);
                     var poll = pollsByPostId.get(row.id);
                     if (poll != null) payload.put("poll", PollPayloads.from(poll));
                     PostPayloads.putViewerCapabilities(payload, capabilitiesByPostId.get(row.id));
+                    PostPayloads.putViewCount(payload, viewCountsByPostId.get(row.id));
                     return payload;
                 }).toList();
                 Map<String, Object> body = new HashMap<>();
@@ -221,7 +226,9 @@ public class PostsController {
                 var poll = pollsByPostId.get(res.post().id);
                 if (poll != null) payload.put("poll", PollPayloads.from(poll));
                 var capabilitiesByPostId = viewerCapabilities.byPostId(jwt == null ? null : jwt.getSubject(), List.of(res.post()), pollsByPostId);
+                var viewCountsByPostId = postViewCounts.authorVisibleUniqueViewCounts(jwt == null ? null : jwt.getSubject(), List.of(res.post()));
                 PostPayloads.putViewerCapabilities(payload, capabilitiesByPostId.get(res.post().id));
+                PostPayloads.putViewCount(payload, viewCountsByPostId.get(res.post().id));
                 if (res.milestonesAwarded() != null && !res.milestonesAwarded().isEmpty()) {
                     payload.put("milestones_awarded", res.milestonesAwarded());
                     payload.put("milestonesAwarded", res.milestonesAwarded());
@@ -251,7 +258,9 @@ public class PostsController {
                 var poll = pollsByPostId.get(res.post().id);
                 if (poll != null) payload.put("poll", PollPayloads.from(poll));
                 var capabilitiesByPostId = viewerCapabilities.byPostId(jwt.getSubject(), List.of(res.post()), pollsByPostId);
+                var viewCountsByPostId = postViewCounts.authorVisibleUniqueViewCounts(jwt.getSubject(), List.of(res.post()));
                 PostPayloads.putViewerCapabilities(payload, capabilitiesByPostId.get(res.post().id));
+                PostPayloads.putViewCount(payload, viewCountsByPostId.get(res.post().id));
                 yield ResponseEntity.ok(payload);
             }
             default -> ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
@@ -320,7 +329,9 @@ public class PostsController {
             case OK -> {
                 var payload = PostPayloads.from(res.post(), appConfig.defaultProfileImageUrl());
                 var capabilitiesByPostId = viewerCapabilities.byPostId(jwt == null ? null : jwt.getSubject(), List.of(res.post()), Map.of());
+                var viewCountsByPostId = postViewCounts.authorVisibleUniqueViewCounts(jwt == null ? null : jwt.getSubject(), List.of(res.post()));
                 PostPayloads.putViewerCapabilities(payload, capabilitiesByPostId.get(res.post().id));
+                PostPayloads.putViewCount(payload, viewCountsByPostId.get(res.post().id));
                 yield ResponseEntity.ok(payload);
             }
         };

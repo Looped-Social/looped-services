@@ -30,15 +30,18 @@ public class PostCollectionsController {
     private final PollsService pollsService;
     private final AppConfigService appConfig;
     private final PostViewerCapabilitiesService viewerCapabilities;
+    private final PostViewCountsService postViewCounts;
 
     public PostCollectionsController(PostCollectionsService service,
                                      PollsService pollsService,
                                      AppConfigService appConfig,
-                                     PostViewerCapabilitiesService viewerCapabilities) {
+                                     PostViewerCapabilitiesService viewerCapabilities,
+                                     PostViewCountsService postViewCounts) {
         this.service = service;
         this.pollsService = pollsService;
         this.appConfig = appConfig;
         this.viewerCapabilities = viewerCapabilities;
+        this.postViewCounts = postViewCounts;
     }
 
     @GetMapping("/liked")
@@ -234,11 +237,13 @@ public class PostCollectionsController {
         List<Long> postIds = posts == null ? List.of() : posts.stream().map(p -> p.id).toList();
         var pollsByPostId = pollsService.viewsByPostId(viewerPrincipalId, postIds);
         var capabilitiesByPostId = viewerCapabilities.byPostId(firebaseUid, posts, pollsByPostId);
+        var viewCountsByPostId = postViewCounts.authorVisibleUniqueViewCounts(firebaseUid, posts);
         List<Map<String, Object>> items = posts.stream().map(row -> {
             Map<String, Object> payload = PostPayloads.from(row, defaultProfileImageUrl);
             var poll = pollsByPostId.get(row.id);
             if (poll != null) payload.put("poll", PollPayloads.from(poll));
             PostPayloads.putViewerCapabilities(payload, capabilitiesByPostId.get(row.id));
+            PostPayloads.putViewCount(payload, viewCountsByPostId.get(row.id));
             return payload;
         }).toList();
         Map<String, Object> body = new HashMap<>();

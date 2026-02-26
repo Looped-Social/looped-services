@@ -25,15 +25,18 @@ public class UserRepostsController {
     private final PollsService pollsService;
     private final AppConfigService appConfig;
     private final PostViewerCapabilitiesService viewerCapabilities;
+    private final PostViewCountsService postViewCounts;
 
     public UserRepostsController(PostCollectionsService service,
                                  PollsService pollsService,
                                  AppConfigService appConfig,
-                                 PostViewerCapabilitiesService viewerCapabilities) {
+                                 PostViewerCapabilitiesService viewerCapabilities,
+                                 PostViewCountsService postViewCounts) {
         this.service = service;
         this.pollsService = pollsService;
         this.appConfig = appConfig;
         this.viewerCapabilities = viewerCapabilities;
+        this.postViewCounts = postViewCounts;
     }
 
     @GetMapping("/v1/users/me/reposts")
@@ -76,11 +79,13 @@ public class UserRepostsController {
                 List<Long> postIds = res.posts().stream().map(p -> p.id).toList();
                 var pollsByPostId = pollsService.viewsByPostId(viewerPrincipalId, postIds);
                 var capabilitiesByPostId = viewerCapabilities.byPostId(jwt.getSubject(), res.posts(), pollsByPostId);
+                var viewCountsByPostId = postViewCounts.authorVisibleUniqueViewCounts(jwt.getSubject(), res.posts());
                 List<Map<String, Object>> items = res.posts().stream().map(row -> {
                     Map<String, Object> payload = PostPayloads.from(row, defaultProfileImageUrl);
                     var poll = pollsByPostId.get(row.id);
                     if (poll != null) payload.put("poll", PollPayloads.from(poll));
                     PostPayloads.putViewerCapabilities(payload, capabilitiesByPostId.get(row.id));
+                    PostPayloads.putViewCount(payload, viewCountsByPostId.get(row.id));
                     return payload;
                 }).toList();
                 Map<String, Object> body = new HashMap<>();
@@ -136,11 +141,13 @@ public class UserRepostsController {
                 List<Long> postIds = res.posts().stream().map(p -> p.id).toList();
                 var pollsByPostId = pollsService.viewsByPostId(viewerPrincipalId, postIds);
                 var capabilitiesByPostId = viewerCapabilities.byPostId(jwt.getSubject(), res.posts(), pollsByPostId);
+                var viewCountsByPostId = postViewCounts.authorVisibleUniqueViewCounts(jwt.getSubject(), res.posts());
                 List<Map<String, Object>> items = res.posts().stream().map(row -> {
                     Map<String, Object> payload = PostPayloads.from(row, defaultProfileImageUrl);
                     var poll = pollsByPostId.get(row.id);
                     if (poll != null) payload.put("poll", PollPayloads.from(poll));
                     PostPayloads.putViewerCapabilities(payload, capabilitiesByPostId.get(row.id));
+                    PostPayloads.putViewCount(payload, viewCountsByPostId.get(row.id));
                     return payload;
                 }).toList();
                 Map<String, Object> body = new HashMap<>();

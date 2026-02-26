@@ -18,6 +18,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.List;
+import java.util.UUID;
 
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.hasSize;
@@ -177,6 +178,75 @@ class UsersIntegrationTest extends PostgresTestBase {
                 .andExpect(jsonPath("$.items", hasSize(1)))
                 .andExpect(jsonPath("$.items[0].content", equalTo("post-3")))
                 .andExpect(jsonPath("$.next_cursor").doesNotExist());
+    }
+
+    @Test
+    void user_posts_show_unique_view_count_only_to_author() throws Exception {
+        long companyId = jdbc.queryForObject("INSERT INTO companies(name, domain) VALUES ('AcmeView','acmeview.com') RETURNING id", Long.class);
+        long authorId = jdbc.queryForObject(
+                "INSERT INTO users(firebase_uid, handle, company_id) VALUES ('uid-author-views','authorviews',?) RETURNING id",
+                Long.class,
+                companyId
+        );
+        long viewerAId = jdbc.queryForObject(
+                "INSERT INTO users(firebase_uid, handle, company_id) VALUES ('uid-viewer-a-views','viewera',?) RETURNING id",
+                Long.class,
+                companyId
+        );
+        long viewerBId = jdbc.queryForObject(
+                "INSERT INTO users(firebase_uid, handle, company_id) VALUES ('uid-viewer-b-views','viewerb',?) RETURNING id",
+                Long.class,
+                companyId
+        );
+
+        long authorPrincipalId = jdbc.queryForObject("INSERT INTO principals(kind, user_id) VALUES ('user', ?) RETURNING id", Long.class, authorId);
+        long viewerAPrincipalId = jdbc.queryForObject("INSERT INTO principals(kind, user_id) VALUES ('user', ?) RETURNING id", Long.class, viewerAId);
+        long viewerBPrincipalId = jdbc.queryForObject("INSERT INTO principals(kind, user_id) VALUES ('user', ?) RETURNING id", Long.class, viewerBId);
+
+        long postId = jdbc.queryForObject(
+                "INSERT INTO posts(author_id, author_principal_id, company_id, content, created_at) VALUES (?,?,?,?, now()) RETURNING id",
+                Long.class,
+                authorId,
+                authorPrincipalId,
+                companyId,
+                "author post with views"
+        );
+
+        Instant occurred = Instant.now();
+        jdbc.update(
+                "INSERT INTO telemetry_events(user_id, principal_id, session_id, event_id, type, occurred_at, post_id, payload) " +
+                        "VALUES (?,?,?,?,?,?,?, '{}'::jsonb)",
+                viewerAId, viewerAPrincipalId, UUID.randomUUID(), UUID.randomUUID(), "post_open", Timestamp.from(occurred), postId
+        );
+        jdbc.update(
+                "INSERT INTO telemetry_events(user_id, principal_id, session_id, event_id, type, occurred_at, post_id, payload) " +
+                        "VALUES (?,?,?,?,?,?,?, '{}'::jsonb)",
+                viewerAId, viewerAPrincipalId, UUID.randomUUID(), UUID.randomUUID(), "post_open", Timestamp.from(occurred.plusSeconds(5)), postId
+        );
+        jdbc.update(
+                "INSERT INTO telemetry_events(user_id, principal_id, session_id, event_id, type, occurred_at, post_id, payload) " +
+                        "VALUES (?,?,?,?,?,?,?, '{}'::jsonb)",
+                viewerBId, viewerBPrincipalId, UUID.randomUUID(), UUID.randomUUID(), "post_open", Timestamp.from(occurred.plusSeconds(10)), postId
+        );
+        jdbc.update(
+                "INSERT INTO telemetry_events(user_id, principal_id, session_id, event_id, type, occurred_at, post_id, payload) " +
+                        "VALUES (?,?,?,?,?,?,?, '{}'::jsonb)",
+                authorId, authorPrincipalId, UUID.randomUUID(), UUID.randomUUID(), "post_open", Timestamp.from(occurred.plusSeconds(15)), postId
+        );
+
+        mockMvc.perform(get("/v1/users/" + authorId + "/posts")
+                        .header("Authorization", "Bearer " + token("uid-author-views")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].id", equalTo((int) postId)))
+                .andExpect(jsonPath("$.items[0].view_count", equalTo(2)))
+                .andExpect(jsonPath("$.items[0].viewCount", equalTo(2)));
+
+        mockMvc.perform(get("/v1/users/" + authorId + "/posts")
+                        .header("Authorization", "Bearer " + token("uid-viewer-a-views")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].id", equalTo((int) postId)))
+                .andExpect(jsonPath("$.items[0].view_count").doesNotExist())
+                .andExpect(jsonPath("$.items[0].viewCount").doesNotExist());
     }
 
     @Test

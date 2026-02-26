@@ -116,6 +116,12 @@ public final class PostPayloads {
         payload.put("viewer_capabilities", viewerCapabilities);
     }
 
+    public static void putViewCount(Map<String, Object> payload, Long viewCount) {
+        if (payload == null || viewCount == null) return;
+        payload.put("view_count", viewCount);
+        payload.put("viewCount", viewCount);
+    }
+
     public static Map<String, Object> search(PostRepository.PostRow row) {
         return search(row, null);
     }
