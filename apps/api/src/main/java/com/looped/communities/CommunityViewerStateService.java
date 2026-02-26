@@ -32,6 +32,14 @@ public class CommunityViewerStateService {
         if (state.cannotPostReason() != null) {
             out.put("cannot_post_reason", state.cannotPostReason().name());
         }
+        // Only meaningful for per-community verification (non-specializations).
+        if (community != null
+                && community.kind != null
+                && !"specialization".equalsIgnoreCase(community.kind)) {
+            var row = verifications.viewerVerificationRowForUserAndCommunity(userId, community.id);
+            out.put("verification_expires_at", row == null ? null : row.expiresAt());
+            out.put("verification_verified_at", row == null ? null : row.verifiedAt());
+        }
         return out;
     }
 
@@ -69,14 +77,17 @@ public class CommunityViewerStateService {
             return new ViewerState(VerificationStatus.none, false, reason);
         }
 
-        VerificationStatus verificationStatus = verificationStatus(userId, community.id);
-        boolean canPost = verifications.isVerified(userId, community.id);
+        var row = verifications.viewerVerificationRowForUserAndCommunity(userId, community.id);
+        VerificationStatus verificationStatus = verificationStatus(row);
+        OffsetDateTime now = OffsetDateTime.now();
+        boolean canPost = row != null
+                && Boolean.TRUE.equals(row.verified())
+                && (row.expiresAt() == null || row.expiresAt().isAfter(now));
         CannotPostReason cannotPostReason = canPost ? null : CannotPostReason.not_verified;
         return new ViewerState(verificationStatus, canPost, cannotPostReason);
     }
 
-    private VerificationStatus verificationStatus(long userId, long communityId) {
-        var row = verifications.viewerVerificationRowForUserAndCommunity(userId, communityId);
+    private VerificationStatus verificationStatus(CommunityVerificationsRepository.ViewerVerificationRow row) {
         OffsetDateTime now = OffsetDateTime.now();
         boolean active = row != null
                 && Boolean.TRUE.equals(row.verified())
@@ -101,4 +112,3 @@ public class CommunityViewerStateService {
                               boolean canPost,
                               CannotPostReason cannotPostReason) {}
 }
-

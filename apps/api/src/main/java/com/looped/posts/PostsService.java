@@ -12,6 +12,8 @@ import com.looped.notifications.NotificationPublisher;
 import com.looped.polls.PollRequests;
 import com.looped.polls.PollsService;
 import com.looped.principals.PrincipalRepository;
+import com.looped.milestones.MilestoneTypes;
+import com.looped.milestones.UserMilestonesRepository;
 import com.looped.shared.MentionParser;
 import com.looped.users.BlocksRepository;
 import com.looped.users.FollowsRepository;
@@ -51,6 +53,7 @@ public class PostsService {
     private final PollsService pollsService;
     private final ContentModerationService contentModeration;
     private final QuarantineService quarantine;
+    private final UserMilestonesRepository milestones;
 
     public PostsService(PostRepository posts,
                         UserRepository users,
@@ -70,7 +73,8 @@ public class PostsService {
                         PostStateService postState,
                         PollsService pollsService,
                         ContentModerationService contentModeration,
-                        QuarantineService quarantine) {
+                        QuarantineService quarantine,
+                        UserMilestonesRepository milestones) {
         this.posts = posts;
         this.users = users;
         this.principals = principals;
@@ -90,6 +94,7 @@ public class PostsService {
         this.pollsService = pollsService;
         this.contentModeration = contentModeration;
         this.quarantine = quarantine;
+        this.milestones = milestones;
     }
 
     @Transactional
@@ -122,6 +127,9 @@ public class PostsService {
             var proof = new AnonProofService.AnonPostProof(anonProfileId, anonCert, anonCertKid, anonSig);
             var verified = anonProofs.verifyPost(proof, communityId, content, anonTimestamp);
             if (verified.status() != AnonProofService.Status.OK) {
+                return CreateResult.invalidAnonProof();
+            }
+            if (verified.actor() == null || verified.actor().userId() == null) {
                 return CreateResult.invalidAnonProof();
             }
             var decision = contentModeration.evaluateTextForAnon(content);
@@ -168,7 +176,8 @@ public class PostsService {
             if (quarantinePost) {
                 return CreateResult.contentUnderReview();
             }
-            return CreateResult.ok(refreshed, true);
+            boolean awarded = milestones.awardIfAbsent(verified.actor().userId(), MilestoneTypes.FIRST_POST_EVER, refreshed.id, null);
+            return CreateResult.ok(refreshed, true, awarded ? List.of(MilestoneTypes.FIRST_POST_EVER) : List.of());
         }
 
         var u = users.findByFirebaseUid(firebaseUid);
@@ -244,7 +253,8 @@ public class PostsService {
                 } catch (RuntimeException ignored) {}
             }
             postState.applyForPrincipal(principal.id, java.util.List.of(refreshed));
-            return CreateResult.ok(refreshed, true);
+            boolean awarded = milestones.awardIfAbsent(userId, MilestoneTypes.FIRST_POST_EVER, refreshed.id, null);
+            return CreateResult.ok(refreshed, true, awarded ? List.of(MilestoneTypes.FIRST_POST_EVER) : List.of());
         } catch (DataAccessException e) {
             if (useIdem) {
                 try { redis.delete(redisKey); } catch (RuntimeException ignored) {}
@@ -506,32 +516,35 @@ public class PostsService {
     public record CreateResult(Status status,
                                PostRepository.PostRow post,
                                boolean created,
-                               CommunityInteractionLockService.LockEvaluation lock) {
-        static CreateResult ok(PostRepository.PostRow post, boolean created) {
-            return new CreateResult(Status.OK, post, created, null);
+                               CommunityInteractionLockService.LockEvaluation lock,
+                               List<String> milestonesAwarded) {
+        static CreateResult ok(PostRepository.PostRow post, boolean created, List<String> milestonesAwarded) {
+            List<String> awarded = milestonesAwarded == null ? List.of() : milestonesAwarded;
+            return new CreateResult(Status.OK, post, created, null, awarded);
         }
-        static CreateResult userNotProvisioned() { return new CreateResult(Status.USER_NOT_PROVISIONED, null, false, null); }
-        static CreateResult inFlight() { return new CreateResult(Status.IDEMPOTENCY_IN_FLIGHT, null, false, null); }
-        static CreateResult idempotencyRequired() { return new CreateResult(Status.IDEMPOTENCY_REQUIRED, null, false, null); }
-        static CreateResult contentRequired() { return new CreateResult(Status.CONTENT_REQUIRED, null, false, null); }
-        static CreateResult invalidPoll(String ignored) { return new CreateResult(Status.INVALID_POLL, null, false, null); }
-        static CreateResult invalidAnonProof() { return new CreateResult(Status.INVALID_ANON_PROOF, null, false, null); }
-        static CreateResult contentUnderReview() { return new CreateResult(Status.CONTENT_UNDER_REVIEW, null, false, null); }
-        static CreateResult anonMediaNotAllowed() { return new CreateResult(Status.ANON_MEDIA_NOT_ALLOWED, null, false, null); }
-        static CreateResult mediaTooMany() { return new CreateResult(Status.MEDIA_TOO_MANY, null, false, null); }
-        static CreateResult mediaNotFound() { return new CreateResult(Status.MEDIA_NOT_FOUND, null, false, null); }
-        static CreateResult mediaInvalid() { return new CreateResult(Status.MEDIA_INVALID, null, false, null); }
-        static CreateResult mediaNotOwned() { return new CreateResult(Status.MEDIA_NOT_OWNED, null, false, null); }
-        static CreateResult communityRequired() { return new CreateResult(Status.COMMUNITY_REQUIRED, null, false, null); }
-        static CreateResult communityNotFound() { return new CreateResult(Status.COMMUNITY_NOT_FOUND, null, false, null); }
+        static CreateResult ok(PostRepository.PostRow post, boolean created) { return ok(post, created, List.of()); }
+        static CreateResult userNotProvisioned() { return new CreateResult(Status.USER_NOT_PROVISIONED, null, false, null, List.of()); }
+        static CreateResult inFlight() { return new CreateResult(Status.IDEMPOTENCY_IN_FLIGHT, null, false, null, List.of()); }
+        static CreateResult idempotencyRequired() { return new CreateResult(Status.IDEMPOTENCY_REQUIRED, null, false, null, List.of()); }
+        static CreateResult contentRequired() { return new CreateResult(Status.CONTENT_REQUIRED, null, false, null, List.of()); }
+        static CreateResult invalidPoll(String ignored) { return new CreateResult(Status.INVALID_POLL, null, false, null, List.of()); }
+        static CreateResult invalidAnonProof() { return new CreateResult(Status.INVALID_ANON_PROOF, null, false, null, List.of()); }
+        static CreateResult contentUnderReview() { return new CreateResult(Status.CONTENT_UNDER_REVIEW, null, false, null, List.of()); }
+        static CreateResult anonMediaNotAllowed() { return new CreateResult(Status.ANON_MEDIA_NOT_ALLOWED, null, false, null, List.of()); }
+        static CreateResult mediaTooMany() { return new CreateResult(Status.MEDIA_TOO_MANY, null, false, null, List.of()); }
+        static CreateResult mediaNotFound() { return new CreateResult(Status.MEDIA_NOT_FOUND, null, false, null, List.of()); }
+        static CreateResult mediaInvalid() { return new CreateResult(Status.MEDIA_INVALID, null, false, null, List.of()); }
+        static CreateResult mediaNotOwned() { return new CreateResult(Status.MEDIA_NOT_OWNED, null, false, null, List.of()); }
+        static CreateResult communityRequired() { return new CreateResult(Status.COMMUNITY_REQUIRED, null, false, null, List.of()); }
+        static CreateResult communityNotFound() { return new CreateResult(Status.COMMUNITY_NOT_FOUND, null, false, null, List.of()); }
         static CreateResult fromLock(CommunityInteractionLockService.LockEvaluation lock) {
-            if (lock == null) return new CreateResult(Status.NOT_VERIFIED, null, false, null);
+            if (lock == null) return new CreateResult(Status.NOT_VERIFIED, null, false, null, List.of());
             return switch (lock.errorCode()) {
-                case "community_banned" -> new CreateResult(Status.COMMUNITY_BANNED, null, false, lock);
-                case "verification_expired" -> new CreateResult(Status.VERIFICATION_EXPIRED, null, false, lock);
-                case "specialization_not_joined" -> new CreateResult(Status.SPECIALIZATION_NOT_JOINED, null, false, lock);
-                case "specialization_verification_required" -> new CreateResult(Status.SPECIALIZATION_VERIFICATION_REQUIRED, null, false, lock);
-                default -> new CreateResult(Status.NOT_VERIFIED, null, false, lock);
+                case "community_banned" -> new CreateResult(Status.COMMUNITY_BANNED, null, false, lock, List.of());
+                case "verification_expired" -> new CreateResult(Status.VERIFICATION_EXPIRED, null, false, lock, List.of());
+                case "specialization_not_joined" -> new CreateResult(Status.SPECIALIZATION_NOT_JOINED, null, false, lock, List.of());
+                case "specialization_verification_required" -> new CreateResult(Status.SPECIALIZATION_VERIFICATION_REQUIRED, null, false, lock, List.of());
+                default -> new CreateResult(Status.NOT_VERIFIED, null, false, lock, List.of());
             };
         }
     }

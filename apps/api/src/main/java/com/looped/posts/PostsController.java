@@ -222,6 +222,10 @@ public class PostsController {
                 if (poll != null) payload.put("poll", PollPayloads.from(poll));
                 var capabilitiesByPostId = viewerCapabilities.byPostId(jwt == null ? null : jwt.getSubject(), List.of(res.post()), pollsByPostId);
                 PostPayloads.putViewerCapabilities(payload, capabilitiesByPostId.get(res.post().id));
+                if (res.milestonesAwarded() != null && !res.milestonesAwarded().isEmpty()) {
+                    payload.put("milestones_awarded", res.milestonesAwarded());
+                    payload.put("milestonesAwarded", res.milestonesAwarded());
+                }
                 yield new ResponseEntity<>(payload, res.created() ? HttpStatus.CREATED : HttpStatus.OK);
             }
             default -> ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(

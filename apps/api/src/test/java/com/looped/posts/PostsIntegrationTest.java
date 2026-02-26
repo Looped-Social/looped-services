@@ -91,6 +91,7 @@ class PostsIntegrationTest extends PostgresTestBase {
                         .content(body))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.id", notNullValue()))
+                .andExpect(jsonPath("$.milestones_awarded[0]").value("first_post_ever"))
                 .andReturn();
 
         String id = new com.fasterxml.jackson.databind.ObjectMapper()
@@ -104,7 +105,16 @@ class PostsIntegrationTest extends PostgresTestBase {
                         .header("Idempotency-Key", "k-1")
                         .content(body))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.id", equalTo(Integer.parseInt(id))));
+                .andExpect(jsonPath("$.id", equalTo(Integer.parseInt(id))))
+                .andExpect(jsonPath("$.milestones_awarded").doesNotExist());
+
+        mockMvc.perform(post("/v1/posts")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", auth)
+                        .header("Idempotency-Key", "k-2")
+                        .content(body))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.milestones_awarded").doesNotExist());
 
         mockMvc.perform(get("/v1/posts/" + id)
                         .header("Authorization", auth))

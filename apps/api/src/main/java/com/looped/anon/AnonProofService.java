@@ -54,7 +54,8 @@ public class AnonProofService {
                 || cert.issuer().scopeId != communityId) {
             return VerifyResult.invalidCert();
         }
-        if (!hasActiveCommunityEntitlement(cert.fingerprint(), communityId)) {
+        var entitlement = activeCommunityEntitlement(cert.fingerprint(), communityId).orElse(null);
+        if (entitlement == null) {
             return VerifyResult.invalidCert();
         }
         byte[] message = AnonCrypto.postMessage(communityId, content, timestampSeconds);
@@ -63,7 +64,7 @@ public class AnonProofService {
         }
         var principal = principals.findByAnonProfileId(profile.get().id)
                 .orElseGet(() -> principals.createForAnon(profile.get().id));
-        return VerifyResult.ok(new AnonActor(principal.id, profile.get().id, cert.issuer().companyId, profile.get().publicKey));
+        return VerifyResult.ok(new AnonActor(principal.id, profile.get().id, entitlement.userId(), cert.issuer().companyId, profile.get().publicKey));
     }
 
     public CertVerifyResult verifyCert(String anonCert, String anonCertKid, byte[] personaPubkey) {
@@ -110,7 +111,7 @@ public class AnonProofService {
                     || !cert.issuer().scopeId.equals(communityId)) {
                 return VerifyResult.invalidCert();
             }
-            if (!hasActiveCommunityEntitlement(cert.fingerprint(), communityId)) {
+            if (activeCommunityEntitlement(cert.fingerprint(), communityId).isEmpty()) {
                 return VerifyResult.invalidCert();
             }
         }
@@ -120,7 +121,13 @@ public class AnonProofService {
         }
         var principal = principals.findByAnonProfileId(profile.get().id)
                 .orElseGet(() -> principals.createForAnon(profile.get().id));
-        return VerifyResult.ok(new AnonActor(principal.id, profile.get().id, cert.issuer() == null ? null : cert.issuer().companyId, profile.get().publicKey));
+        return VerifyResult.ok(new AnonActor(
+                principal.id,
+                profile.get().id,
+                null,
+                cert.issuer() == null ? null : cert.issuer().companyId,
+                profile.get().publicKey
+        ));
     }
 
     private CertResult verifyCertSignature(String anonCertB64, String anonCertKid, byte[] personaPubkey) {
@@ -144,22 +151,22 @@ public class AnonProofService {
         return ok ? CertResult.ok(issuer.get(), fingerprint) : CertResult.invalidSignature();
     }
 
-    private boolean hasActiveCommunityEntitlement(byte[] certFingerprint, long communityId) {
-        if (certFingerprint == null || certFingerprint.length == 0) return false;
+    private Optional<AnonCertEntitlementsRepository.Row> activeCommunityEntitlement(byte[] certFingerprint, long communityId) {
+        if (certFingerprint == null || certFingerprint.length == 0) return Optional.empty();
         var entitlement = certEntitlements.find(certFingerprint).orElse(null);
-        if (entitlement == null) return false;
-        if (entitlement.communityId() != communityId) return false;
+        if (entitlement == null) return Optional.empty();
+        if (entitlement.communityId() != communityId) return Optional.empty();
         if (entitlement.certExpiresAt() != null && entitlement.certExpiresAt().isBefore(java.time.OffsetDateTime.now())) {
-            return false;
+            return Optional.empty();
         }
 
         var community = communities.findById(communityId).orElse(null);
-        if (community == null || community.kind == null) return false;
+        if (community == null || community.kind == null) return Optional.empty();
         if ("specialization".equalsIgnoreCase(community.kind)) {
-            if (!requiresSpecializationJoin(community.specializationType)) return true;
-            return specializationJoins.exists(entitlement.userId(), communityId);
+            if (!requiresSpecializationJoin(community.specializationType)) return Optional.of(entitlement);
+            return specializationJoins.exists(entitlement.userId(), communityId) ? Optional.of(entitlement) : Optional.empty();
         }
-        return communityVerifications.isVerified(entitlement.userId(), communityId);
+        return communityVerifications.isVerified(entitlement.userId(), communityId) ? Optional.of(entitlement) : Optional.empty();
     }
 
     private boolean requiresSpecializationJoin(String specializationType) {
@@ -187,7 +194,7 @@ public class AnonProofService {
         return Ed25519Verifier.verify(personaPubkey, message, sig);
     }
 
-    public record AnonActor(long principalId, long anonProfileId, Long companyId, byte[] personaPubkey) {}
+    public record AnonActor(long principalId, long anonProfileId, Long userId, Long companyId, byte[] personaPubkey) {}
 
     public enum Status { OK, NOT_FOUND, INVALID_CERT, INVALID_SIGNATURE, REVOKED }
 
