@@ -158,6 +158,8 @@ class PeopleRecommendationRepository {
                            p.id AS principal_id,
                            u.handle,
                            u.display_name,
+                           u.first_name,
+                           u.last_name,
                            u.bio,
                            u.profile_image_url,
                            u.display_community_id,
@@ -280,6 +282,8 @@ class PeopleRecommendationRepository {
             row.principalId = rs.getLong("principal_id");
             row.handle = rs.getString("handle");
             row.displayName = rs.getString("display_name");
+            row.firstName = rs.getString("first_name");
+            row.lastName = rs.getString("last_name");
             row.bio = rs.getString("bio");
             row.profileImageUrl = rs.getString("profile_image_url");
             Long displayCommunityId = rs.getLong("display_community_id");
@@ -362,6 +366,8 @@ class PeopleRecommendationRepository {
                        p.id AS principal_id,
                        u.handle,
                        u.display_name,
+                       u.first_name,
+                       u.last_name,
                        u.bio,
                        u.profile_image_url,
                        u.display_community_id,
@@ -431,6 +437,8 @@ class PeopleRecommendationRepository {
             row.principalId = rs.getLong("principal_id");
             row.handle = rs.getString("handle");
             row.displayName = rs.getString("display_name");
+            row.firstName = rs.getString("first_name");
+            row.lastName = rs.getString("last_name");
             row.bio = rs.getString("bio");
             row.profileImageUrl = rs.getString("profile_image_url");
             Long displayCommunityId = rs.getLong("display_community_id");
@@ -667,6 +675,8 @@ class PeopleRecommendationRepository {
         long principalId;
         String handle;
         String displayName;
+        String firstName;
+        String lastName;
         String bio;
         String profileImageUrl;
         Long displayCommunityId;

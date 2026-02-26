@@ -255,7 +255,10 @@ class PeopleRecommendationsController {
         Map<String, Object> user = new HashMap<>();
         user.put("id", row.userId);
         user.put("handle", row.handle);
-        user.put("display_name", resolvedDisplayName(row.displayName, row.handle));
+        user.put("username", row.handle);
+        user.put("first_name", row.firstName);
+        user.put("last_name", row.lastName);
+        user.put("display_name", resolvedDisplayName(row.displayName, row.firstName, row.lastName, row.handle));
         user.put("avatar_url", ProfileImageUrls.resolve(row.profileImageUrl, defaultProfileImageUrl));
         user.put("headline", row.bio);
         if (row.displayCommunityId != null || row.displayCommunityName != null) {
@@ -281,9 +284,29 @@ class PeopleRecommendationsController {
         return payload;
     }
 
-    private String resolvedDisplayName(String displayName, String handle) {
-        if (displayName != null && !displayName.isBlank()) return displayName;
-        return handle == null ? "" : handle;
+    private String resolvedDisplayName(String displayName, String firstName, String lastName, String handle) {
+        String fromDisplayName = normalizedOrNull(displayName);
+        if (fromDisplayName != null) return fromDisplayName;
+        String fromFullName = normalizedFullNameOrNull(firstName, lastName);
+        if (fromFullName != null) return fromFullName;
+        String fromHandle = normalizedOrNull(handle);
+        return fromHandle == null ? "" : fromHandle;
+    }
+
+    private String normalizedFullNameOrNull(String firstName, String lastName) {
+        String first = normalizedOrNull(firstName);
+        String last = normalizedOrNull(lastName);
+        if (first == null && last == null) return null;
+        if ("unknown".equalsIgnoreCase(first) && "user".equalsIgnoreCase(last)) return null;
+        if (first == null) return last;
+        if (last == null) return first;
+        return first + " " + last;
+    }
+
+    private String normalizedOrNull(String value) {
+        if (value == null) return null;
+        String normalized = value.trim();
+        return normalized.isEmpty() ? null : normalized;
     }
 
     private boolean isDisplayNameFallback(PeopleRecommendationService.RecommendationItem item) {

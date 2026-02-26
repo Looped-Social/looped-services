@@ -264,7 +264,7 @@ class PeopleRecommendationsIntegrationTest extends PostgresTestBase {
     }
 
     @Test
-    void rail_falls_back_to_handle_when_candidate_display_name_is_null() throws Exception {
+    void rail_falls_back_to_full_name_when_candidate_display_name_is_null() throws Exception {
         long companyId = jdbc.queryForObject(
                 "INSERT INTO companies(name, domain) VALUES ('RecoNameCo', 'reconame.co') RETURNING id",
                 Long.class
@@ -283,7 +283,8 @@ class PeopleRecommendationsIntegrationTest extends PostgresTestBase {
         jdbc.update("INSERT INTO principal_follows(follower_principal_id, followee_principal_id) VALUES (?,?)",
                 candidatePrincipalId, commonPrincipalId);
 
-        jdbc.update("UPDATE users SET display_name = NULL WHERE id = ?", candidateId);
+        jdbc.update("UPDATE users SET display_name = NULL, first_name = ?, last_name = ? WHERE id = ?",
+                "Andre", "Rastrelly", candidateId);
 
         String auth = "Bearer " + token("uid-reco-name-viewer");
 
@@ -294,7 +295,48 @@ class PeopleRecommendationsIntegrationTest extends PostgresTestBase {
                 .andExpect(jsonPath("$.items", hasSize(1)))
                 .andExpect(jsonPath("$.items[0].user.id", equalTo((int) candidateId)))
                 .andExpect(jsonPath("$.items[0].user.handle", equalTo("reco_name_cand")))
-                .andExpect(jsonPath("$.items[0].user.display_name", equalTo("reco_name_cand")));
+                .andExpect(jsonPath("$.items[0].user.username", equalTo("reco_name_cand")))
+                .andExpect(jsonPath("$.items[0].user.first_name", equalTo("Andre")))
+                .andExpect(jsonPath("$.items[0].user.last_name", equalTo("Rastrelly")))
+                .andExpect(jsonPath("$.items[0].user.display_name", equalTo("Andre Rastrelly")));
+    }
+
+    @Test
+    void rail_falls_back_to_handle_when_candidate_display_name_and_names_are_blank() throws Exception {
+        long companyId = jdbc.queryForObject(
+                "INSERT INTO companies(name, domain) VALUES ('RecoHandleCo', 'recohandle.co') RETURNING id",
+                Long.class
+        );
+
+        long viewerId = insertUser("uid-reco-handle-viewer", "reco_handle_viewer", companyId, null);
+        long candidateId = insertUser("uid-reco-handle-cand", "reco_handle_cand", companyId, null);
+        long commonId = insertUser("uid-reco-handle-common", "reco_handle_common", companyId, null);
+
+        long viewerPrincipalId = insertPrincipal(viewerId);
+        long candidatePrincipalId = insertPrincipal(candidateId);
+        long commonPrincipalId = insertPrincipal(commonId);
+
+        jdbc.update("INSERT INTO principal_follows(follower_principal_id, followee_principal_id) VALUES (?,?)",
+                viewerPrincipalId, commonPrincipalId);
+        jdbc.update("INSERT INTO principal_follows(follower_principal_id, followee_principal_id) VALUES (?,?)",
+                candidatePrincipalId, commonPrincipalId);
+
+        jdbc.update("UPDATE users SET display_name = NULL, first_name = ?, last_name = ? WHERE id = ?",
+                " ", "", candidateId);
+
+        String auth = "Bearer " + token("uid-reco-handle-viewer");
+
+        mockMvc.perform(get("/v1/recommendations/people/pymk")
+                        .param("surface", "search")
+                        .header("Authorization", auth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items", hasSize(1)))
+                .andExpect(jsonPath("$.items[0].user.id", equalTo((int) candidateId)))
+                .andExpect(jsonPath("$.items[0].user.handle", equalTo("reco_handle_cand")))
+                .andExpect(jsonPath("$.items[0].user.username", equalTo("reco_handle_cand")))
+                .andExpect(jsonPath("$.items[0].user.first_name", equalTo(" ")))
+                .andExpect(jsonPath("$.items[0].user.last_name", equalTo("")))
+                .andExpect(jsonPath("$.items[0].user.display_name", equalTo("reco_handle_cand")));
     }
 
     @Test
