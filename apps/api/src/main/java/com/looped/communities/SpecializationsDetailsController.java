@@ -24,6 +24,7 @@ public class SpecializationsDetailsController {
     private final SpecializationMembershipService specializationMemberships;
     private final CommunityMemberCountService memberCounts;
     private final UserCommunityBanRepository communityBans;
+    private final CommunityViewerStateService viewerState;
 
     public SpecializationsDetailsController(UserRepository users,
                                             CommunitiesRepository communities,
@@ -31,7 +32,8 @@ public class SpecializationsDetailsController {
                                             SpecializationJoinsRepository specializationJoins,
                                             SpecializationMembershipService specializationMemberships,
                                             CommunityMemberCountService memberCounts,
-                                            UserCommunityBanRepository communityBans) {
+                                            UserCommunityBanRepository communityBans,
+                                            CommunityViewerStateService viewerState) {
         this.users = users;
         this.communities = communities;
         this.follows = follows;
@@ -39,6 +41,7 @@ public class SpecializationsDetailsController {
         this.specializationMemberships = specializationMemberships;
         this.memberCounts = memberCounts;
         this.communityBans = communityBans;
+        this.viewerState = viewerState;
     }
 
     @GetMapping("/{id}")
@@ -66,6 +69,8 @@ public class SpecializationsDetailsController {
 
         var community = communityOpt.get();
         Map<String, Object> out = new HashMap<>();
+        Boolean specializationJoined = null;
+        SpecializationMembershipService.JoinLimitSnapshot joinLimitSnapshot = null;
         out.put("id", community.id);
         out.put("kind", community.kind);
         out.put("name", community.name);
@@ -82,8 +87,10 @@ public class SpecializationsDetailsController {
 
         String t = community.specializationType == null ? "" : community.specializationType.trim().toLowerCase(java.util.Locale.ROOT);
         if (t.equals("major") || t.equals("field")) {
-            out.put("is_joined", specializationJoins.exists(actor.get().id, id));
-            var snap = specializationMemberships.joinLimitSnapshotForUserId(actor.get().id, t);
+            specializationJoined = specializationJoins.exists(actor.get().id, id);
+            out.put("is_joined", specializationJoined);
+            joinLimitSnapshot = specializationMemberships.joinLimitSnapshotForUserId(actor.get().id, t);
+            var snap = joinLimitSnapshot;
             Map<String, Object> joinLimit = new HashMap<>();
             joinLimit.put("specialization_type", snap.specializationType());
             joinLimit.put("limit", snap.limit());
@@ -104,6 +111,7 @@ public class SpecializationsDetailsController {
             out.put("join_limit", joinLimit);
         }
 
+        out.put("viewer", viewerState.payload(actor.get().id, community, specializationJoined, joinLimitSnapshot));
         return ResponseEntity.ok(out);
     }
 

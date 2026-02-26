@@ -108,7 +108,10 @@ class CommunityDetailsIntegrationTest extends PostgresTestBase {
                 .andExpect(jsonPath("$.description").value("Public university"))
                 .andExpect(jsonPath("$.image_url").value("https://cdn.example.com/unc.png"))
                 .andExpect(jsonPath("$.member_count").value(2))
-                .andExpect(jsonPath("$.is_following").value(true));
+                .andExpect(jsonPath("$.is_following").value(true))
+                .andExpect(jsonPath("$.viewer.verification_status").value("none"))
+                .andExpect(jsonPath("$.viewer.can_post").value(false))
+                .andExpect(jsonPath("$.viewer.cannot_post_reason").value("not_verified"));
     }
 
     @Test
@@ -153,7 +156,9 @@ class CommunityDetailsIntegrationTest extends PostgresTestBase {
                 .andExpect(jsonPath("$.join_limit.remaining").value(1))
                 .andExpect(jsonPath("$.join_limit.cooldown_active").value(false))
                 .andExpect(jsonPath("$.join_limit.can_join").value(true))
-                .andExpect(jsonPath("$.join_limit.required_verification_kind").value("school"));
+                .andExpect(jsonPath("$.join_limit.required_verification_kind").value("school"))
+                .andExpect(jsonPath("$.viewer.verification_status").value("none"))
+                .andExpect(jsonPath("$.viewer.can_post").value(true));
 
         mockMvc.perform(get("/v1/me/specializations/join-limits?type=major")
                         .header("Authorization", auth))

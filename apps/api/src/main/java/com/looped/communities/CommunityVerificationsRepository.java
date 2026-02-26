@@ -237,6 +237,37 @@ public class CommunityVerificationsRepository {
         );
     }
 
+    public ViewerVerificationRow viewerVerificationRowForUserAndCommunity(long userId, long communityId) {
+        // Always return a single row (nullable fields) so callers can consistently map "none".
+        return jdbc.query(
+                "SELECT cv.verified, cv.verified_at, cv.expires_at, vr.status AS latest_request_status " +
+                        "FROM (SELECT 1) t " +
+                        "LEFT JOIN community_verifications cv ON cv.user_id = ? AND cv.community_id = ? " +
+                        "LEFT JOIN LATERAL (" +
+                        "  SELECT vr.status " +
+                        "  FROM verification_requests vr " +
+                        "  WHERE vr.user_id = ? AND vr.community_id = ? " +
+                        "  ORDER BY vr.submitted_at DESC, vr.id DESC " +
+                        "  LIMIT 1" +
+                        ") vr ON true",
+                rs -> {
+                    if (!rs.next()) {
+                        return new ViewerVerificationRow(null, null, null, null);
+                    }
+                    Boolean verified = null;
+                    boolean v = rs.getBoolean("verified");
+                    if (!rs.wasNull()) verified = v;
+                    return new ViewerVerificationRow(
+                            verified,
+                            rs.getObject("verified_at", OffsetDateTime.class),
+                            rs.getObject("expires_at", OffsetDateTime.class),
+                            rs.getString("latest_request_status")
+                    );
+                },
+                userId, communityId, userId, communityId
+        );
+    }
+
     public List<VerificationReminderRow> listActiveExpiringInDays(int days, long cursorUserId, long cursorCommunityId, int limit) {
         int lim = Math.max(1, Math.min(limit, 5_000));
         return jdbc.query(
@@ -293,6 +324,11 @@ public class CommunityVerificationsRepository {
                                           String communityName,
                                           String method,
                                           OffsetDateTime expiresAt) {}
+
+    public record ViewerVerificationRow(Boolean verified,
+                                        OffsetDateTime verifiedAt,
+                                        OffsetDateTime expiresAt,
+                                        String latestRequestStatus) {}
 
     public static class UserVerificationRow {
         public long communityId;
