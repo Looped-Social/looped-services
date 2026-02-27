@@ -132,7 +132,9 @@
     - `401` unauthorized
     - `409 { "error": "user_not_provisioned" }`
   - Client integration note:
-    - Call on app-active transitions, but debounce on iOS (for example: skip repeat calls within ~15-30s) to avoid noisy foreground/background churn.
+    - Call on app-active transitions with this policy:
+      - Send at most once per 20 seconds while repeatedly becoming active.
+      - Always send again after a true cold start.
 - **Account management**
   - Deactivate (soft delete): `POST /v1/users/me/deactivate` → `204`
   - Delete (hard delete): `POST /v1/users/me/delete` → `200`
@@ -342,8 +344,12 @@
   - `GET /v1/notifications/preferences` → `{ notifications: { channels: { in_app|push|email: { enabled, types: { follow, like, comment, reply, mention, post_from_followed, repost, message_request, dm_message, channel_message, since_away_highlights, trending_today, announcement, system } } }, privacy_mode: "generic" | "detailed" } }`
   - `PUT /v1/notifications/preferences` → same response; body updates any `enabled` or per-type flags.
   - Payload fields (by type): `notification_id` (UUID), `actor_principal_id`, `actor_user_id`, `actor_anon_profile_id`, `actor_is_anonymous`, `actor_display_name`, `actor_profile_image_url`, `post_id`, `comment_id`, `context`, `conversation_id`, `message_id`, `deeplink`, `action_deeplink`.
+  - `notification_id` contract:
+    - Top-level `item.notification_id` is canonical.
+    - `payload.notification_id` is redundant and MUST match top-level `notification_id`.
   - Engagement reminder payloads:
     - `since_away_highlights`: `new_posts_count`, `since`, `privacy_level`, `kind`
+      - `since` is the server-effective `last_app_open_at` used to compute `new_posts_count` (same timestamp used for eligibility/counting), not raw client-submitted `opened_at`.
     - `trending_today`: `post_id`, `community_id`, `community_name`, `reason`, `privacy_level`, `fallback_deeplink` (always present), `kind`
   - Privacy semantics:
     - `privacy_mode` is the user preference (`generic` or `detailed`).
