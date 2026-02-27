@@ -125,9 +125,14 @@
   - Response (200):
     - `last_app_open_at` (RFC3339 UTC)
     - `updated_communities`: `[{ community_id, seen_at }]` (verified communities only)
+  - Monotonic behavior:
+    - `last_app_open_at` never moves backwards (older client timestamps are ignored).
+    - `updated_communities[].seen_at` never moves backwards per `(user_id, community_id)`.
   - Errors:
     - `401` unauthorized
     - `409 { "error": "user_not_provisioned" }`
+  - Client integration note:
+    - Call on app-active transitions, but debounce on iOS (for example: skip repeat calls within ~15-30s) to avoid noisy foreground/background churn.
 - **Account management**
   - Deactivate (soft delete): `POST /v1/users/me/deactivate` → `204`
   - Delete (hard delete): `POST /v1/users/me/delete` → `200`
@@ -332,14 +337,17 @@
     - Mute hides `channel.*` notifications for that channel in `GET /v1/notifications`.
   - Anonymous profiles are blocked with `403 { "error": "anonymous_not_allowed" }`.
 - **Notifications**
-  - `GET /v1/notifications?cursor=&limit=` → `{ items: [{ id, type, created_at, unread, payload }], next_cursor }`
+  - `GET /v1/notifications?cursor=&limit=` → `{ items: [{ id, notification_id, type, created_at, unread, payload }], next_cursor }`
   - `POST /v1/notifications/{id}/read` → `{ "read": true }` (idempotent/no-op safe for stale or already-removed IDs)
   - `GET /v1/notifications/preferences` → `{ notifications: { channels: { in_app|push|email: { enabled, types: { follow, like, comment, reply, mention, post_from_followed, repost, message_request, dm_message, channel_message, since_away_highlights, trending_today, announcement, system } } }, privacy_mode: "generic" | "detailed" } }`
   - `PUT /v1/notifications/preferences` → same response; body updates any `enabled` or per-type flags.
-  - Payload fields (by type): `actor_principal_id`, `actor_user_id`, `actor_anon_profile_id`, `actor_is_anonymous`, `actor_display_name`, `actor_profile_image_url`, `post_id`, `comment_id`, `context`, `conversation_id`, `message_id`, `deeplink`, `action_deeplink`.
+  - Payload fields (by type): `notification_id` (UUID), `actor_principal_id`, `actor_user_id`, `actor_anon_profile_id`, `actor_is_anonymous`, `actor_display_name`, `actor_profile_image_url`, `post_id`, `comment_id`, `context`, `conversation_id`, `message_id`, `deeplink`, `action_deeplink`.
   - Engagement reminder payloads:
     - `since_away_highlights`: `new_posts_count`, `since`, `privacy_level`, `kind`
-    - `trending_today`: `community_id`, `community_name`, `reason`, `privacy_level`, `fallback_deeplink`, `kind`
+    - `trending_today`: `post_id`, `community_id`, `community_name`, `reason`, `privacy_level`, `fallback_deeplink` (always present), `kind`
+  - Privacy semantics:
+    - `privacy_mode` is the user preference (`generic` or `detailed`).
+    - `privacy_level` is the level the server applied to a specific notification payload/copy.
   - Push throttles:
     - Direct (`reply`, `mention`, DM/message request): deduped in a short window (default 3 minutes)
     - Non-direct (`post_from_followed`, `since_away_highlights`, `trending_today`): max 1 per 6h and max 2/day
@@ -362,6 +370,8 @@
     - `looped://feed?mode=highlights&since={iso}` (`since_away_highlights`)
     - `looped://post/{post_id}` with `fallback_deeplink=looped://feed?tab=trending&community_id={id}` (`trending_today`)
     - `looped://announcement/{notification_id}` (announcement/system)
+  - Client routing safety:
+    - iOS should allowlist known `looped://` routes only; when `deeplink` or `fallback_deeplink` is missing/invalid, default to `looped://feed`.
   - Invite notification conventions (payload is passed through):
     - `type: "loopInvite"`: include `community_id` (or `loop_id`) and `action_deeplink`
     - `type: "groupInvite"`: include `channel_id` and `action_deeplink`

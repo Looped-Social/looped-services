@@ -6,9 +6,11 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.*;
 
+import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 @RestController
 @RequestMapping("/v1/notifications")
@@ -80,6 +82,8 @@ public class NotificationsController {
         map.put("type", row.type);
         map.put("created_at", row.createdAt);
         map.put("unread", row.readAt == null && row.dismissedAt == null);
+        String notificationUuid = resolveNotificationId(row);
+        map.put("notification_id", notificationUuid);
         if (row.payload != null && !row.payload.isEmpty()) {
             Map<String, Object> payload = new HashMap<>(row.payload);
             String deeplink = payload.get("deeplink") instanceof String s ? s : null;
@@ -89,8 +93,22 @@ public class NotificationsController {
             } else if (action != null && !action.isBlank() && (deeplink == null || deeplink.isBlank())) {
                 payload.put("deeplink", action);
             }
+            payload.put("notification_id", notificationUuid);
             map.put("payload", payload);
+        } else {
+            map.put("payload", Map.of("notification_id", notificationUuid));
         }
         return map;
+    }
+
+    private String resolveNotificationId(NotificationRepository.NotificationRow row) {
+        if (row != null && row.payload != null) {
+            Object existing = row.payload.get("notification_id");
+            if (existing instanceof String s && !s.isBlank()) {
+                return s;
+            }
+        }
+        long id = row == null ? 0L : row.id;
+        return UUID.nameUUIDFromBytes(("notification:" + id).getBytes(StandardCharsets.UTF_8)).toString();
     }
 }

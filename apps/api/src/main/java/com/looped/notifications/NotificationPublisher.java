@@ -312,6 +312,7 @@ public class NotificationPublisher {
         if (!allowInApp && !sendPush) return;
 
         Map<String, Object> enriched = new HashMap<>(payload);
+        ensureNotificationId(enriched);
         applyDeeplink(enriched, type, null);
         long notificationId = notifications.insert(userId, type.value(), enriched);
         if (notificationId <= 0) return;
@@ -339,6 +340,7 @@ public class NotificationPublisher {
 
         Map<String, Object> enriched = new HashMap<>(payload);
         enriched.put("event_key", eventKey);
+        ensureNotificationId(enriched);
         applyDeeplink(enriched, type, null);
         long notificationId = notifications.insertIdempotent(userId, type.value(), enriched, eventKey);
         if (notificationId <= 0) return;
@@ -364,6 +366,7 @@ public class NotificationPublisher {
             if (!allowInApp && !sendPush) continue;
 
             Map<String, Object> enriched = new HashMap<>(payload);
+            ensureNotificationId(enriched);
             applyDeeplink(enriched, type, null);
             long notificationId = notifications.insert(userId, type.value(), enriched);
             if (notificationId <= 0) continue;
@@ -396,6 +399,7 @@ public class NotificationPublisher {
 
             Map<String, Object> enriched = new HashMap<>(payload);
             enriched.put("event_key", eventKey);
+            ensureNotificationId(enriched);
             applyDeeplink(enriched, type, null);
             long notificationId = notifications.insertIdempotent(userId, type.value(), enriched, eventKey);
             if (notificationId <= 0) continue;
@@ -635,6 +639,9 @@ public class NotificationPublisher {
             return null;
         }
         Map<String, Object> out = new LinkedHashMap<>();
+        if (payload.get("notification_id") instanceof String s && !s.isBlank()) {
+            out.put("notification_uuid", s);
+        }
         copyIfPresent(payload, out, "kind");
         copyIfPresent(payload, out, "privacy_level");
         copyIfPresent(payload, out, "community_id");
@@ -657,6 +664,12 @@ public class NotificationPublisher {
     private String urlEncode(String value) {
         if (value == null || value.isBlank()) return "";
         return URLEncoder.encode(value, StandardCharsets.UTF_8);
+    }
+
+    private void ensureNotificationId(Map<String, Object> payload) {
+        if (payload == null) return;
+        if (payload.get("notification_id") instanceof String s && !s.isBlank()) return;
+        payload.put("notification_id", UUID.randomUUID().toString());
     }
 
     private String normalizeReason(String raw) {

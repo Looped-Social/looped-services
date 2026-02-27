@@ -214,16 +214,20 @@ public class WidgetSummaryRepository {
         return Boolean.TRUE.equals(exists);
     }
 
-    public void upsertCommunitySeen(long userId, long communityId, OffsetDateTime seenAt) {
-        jdbc.update(
+    public OffsetDateTime upsertCommunitySeen(long userId, long communityId, OffsetDateTime seenAt) {
+        var rows = jdbc.query(
                 "INSERT INTO widget_community_state(user_id, community_id, last_seen_at, updated_at) " +
                         "VALUES (?,?,?, now()) " +
                         "ON CONFLICT (user_id, community_id) DO UPDATE SET " +
-                        "last_seen_at = EXCLUDED.last_seen_at, updated_at = now()",
+                        "last_seen_at = GREATEST(widget_community_state.last_seen_at, EXCLUDED.last_seen_at), " +
+                        "updated_at = now() " +
+                        "RETURNING last_seen_at",
+                (rs, rowNum) -> rs.getObject("last_seen_at", OffsetDateTime.class),
                 userId,
                 communityId,
                 seenAt
         );
+        return rows.isEmpty() ? seenAt : rows.get(0);
     }
 
     public record InboxCounts(int unreadMessages, int messageRequests, int unreadMentions) {

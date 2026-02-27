@@ -149,8 +149,8 @@ public class WidgetSummaryService {
         }
 
         OffsetDateTime seenAt = OffsetDateTime.now(ZoneOffset.UTC);
-        repo.upsertCommunitySeen(actor.get().id, communityId, seenAt);
-        return MarkCommunitySeenResult.ok(new CommunitySeenResponse(communityId, seenAt));
+        OffsetDateTime effectiveSeenAt = repo.upsertCommunitySeen(actor.get().id, communityId, seenAt);
+        return MarkCommunitySeenResult.ok(new CommunitySeenResponse(communityId, effectiveSeenAt == null ? seenAt : effectiveSeenAt));
     }
 
     private Optional<UserRepository.UserRow> requireProvisionedUser(String firebaseUid) {

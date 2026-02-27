@@ -30,7 +30,10 @@ public class AppOpenService {
         if (actor.isEmpty()) return AppOpenResult.userNotProvisioned();
 
         OffsetDateTime openedAt = normalizeOpenedAt(request == null ? null : request.openedAt());
-        users.updateLastAppOpenAt(actor.get().id, openedAt);
+        OffsetDateTime effectiveOpenedAt = users.updateLastAppOpenAt(actor.get().id, openedAt);
+        if (effectiveOpenedAt == null) {
+            effectiveOpenedAt = openedAt;
+        }
 
         LinkedHashSet<Long> communityIds = new LinkedHashSet<>();
         if (request != null) {
@@ -50,11 +53,11 @@ public class AppOpenService {
         for (Long communityId : communityIds) {
             if (communityId == null || communityId <= 0) continue;
             if (!widgetSummary.isActiveVerifiedCommunity(actor.get().id, communityId)) continue;
-            widgetSummary.upsertCommunitySeen(actor.get().id, communityId, openedAt);
-            updated.add(new CommunitySeen(communityId, openedAt));
+            OffsetDateTime seenAt = widgetSummary.upsertCommunitySeen(actor.get().id, communityId, effectiveOpenedAt);
+            updated.add(new CommunitySeen(communityId, seenAt == null ? effectiveOpenedAt : seenAt));
         }
 
-        return AppOpenResult.ok(new AppOpenResponse(openedAt, updated));
+        return AppOpenResult.ok(new AppOpenResponse(effectiveOpenedAt, updated));
     }
 
     private OffsetDateTime normalizeOpenedAt(OffsetDateTime openedAt) {

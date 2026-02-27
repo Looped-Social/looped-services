@@ -273,13 +273,22 @@ public class UserRepository {
         );
     }
 
-    public void updateLastAppOpenAt(long userId, OffsetDateTime openedAt) {
-        if (openedAt == null) return;
-        jdbcTemplate.update(
-                "UPDATE users SET last_app_open_at = ? WHERE id = ?",
+    public OffsetDateTime updateLastAppOpenAt(long userId, OffsetDateTime openedAt) {
+        if (openedAt == null || userId <= 0) return null;
+        var rows = jdbcTemplate.query(
+                "UPDATE users " +
+                        "SET last_app_open_at = CASE " +
+                        "  WHEN last_app_open_at IS NULL OR ? > last_app_open_at THEN ? " +
+                        "  ELSE last_app_open_at " +
+                        "END " +
+                        "WHERE id = ? " +
+                        "RETURNING last_app_open_at",
+                (rs, rowNum) -> rs.getObject("last_app_open_at", OffsetDateTime.class),
+                openedAt,
                 openedAt,
                 userId
         );
+        return rows.isEmpty() ? null : rows.get(0);
     }
 
     public java.util.List<UserRow> searchCompanyUsers(long companyId, String query, java.time.OffsetDateTime cursorTs, Long cursorId, int limit) {
