@@ -120,6 +120,24 @@ sqs:
   region: ${AWS_REGION:us-east-1}
 
 notifications:
+  push-throttles:
+    direct-dedup-minutes: ${NOTIFICATIONS_PUSH_DIRECT_DEDUP_MINUTES:3}
+    non-direct-window-hours: ${NOTIFICATIONS_PUSH_NON_DIRECT_WINDOW_HOURS:6}
+    non-direct-daily-max: ${NOTIFICATIONS_PUSH_NON_DIRECT_DAILY_MAX:2}
+  engagement:
+    enabled: ${NOTIFICATIONS_ENGAGEMENT_ENABLED:true}
+    cron: "${NOTIFICATIONS_ENGAGEMENT_CRON:0 20 * * * *}"
+    since-away:
+      enabled: ${NOTIFICATIONS_ENGAGEMENT_SINCE_AWAY_ENABLED:true}
+      min-away-hours: ${NOTIFICATIONS_ENGAGEMENT_SINCE_AWAY_MIN_AWAY_HOURS:6}
+      min-new-posts: ${NOTIFICATIONS_ENGAGEMENT_SINCE_AWAY_MIN_NEW_POSTS:6}
+      batch-size: ${NOTIFICATIONS_ENGAGEMENT_SINCE_AWAY_BATCH_SIZE:200}
+    trending:
+      enabled: ${NOTIFICATIONS_ENGAGEMENT_TRENDING_ENABLED:true}
+      min-away-hours: ${NOTIFICATIONS_ENGAGEMENT_TRENDING_MIN_AWAY_HOURS:6}
+      min-engagements: ${NOTIFICATIONS_ENGAGEMENT_TRENDING_MIN_ENGAGEMENTS:10}
+      batch-size: ${NOTIFICATIONS_ENGAGEMENT_TRENDING_BATCH_SIZE:100}
+      max-users-per-run: ${NOTIFICATIONS_ENGAGEMENT_TRENDING_MAX_USERS_PER_RUN:500}
   celebrations:
     enabled: ${NOTIFICATIONS_CELEBRATIONS_ENABLED:true}
     birthday-enabled: ${NOTIFICATIONS_BIRTHDAY_ENABLED:true}

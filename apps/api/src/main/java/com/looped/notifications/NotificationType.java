@@ -11,6 +11,8 @@ public enum NotificationType {
     MESSAGE_REQUEST("message_request"),
     DM_MESSAGE("dm_message"),
     CHANNEL_MESSAGE("channel_message"),
+    SINCE_AWAY_HIGHLIGHTS("since_away_highlights"),
+    TRENDING_TODAY("trending_today"),
     ANNOUNCEMENT("announcement"),
     SYSTEM("system");
 

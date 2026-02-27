@@ -152,6 +152,35 @@ public class NotificationRepository {
         );
     }
 
+    public boolean existsByUserAndTypeSince(long userId, String type, OffsetDateTime since) {
+        if (userId <= 0 || type == null || type.isBlank() || since == null) return false;
+        Boolean exists = jdbc.queryForObject(
+                "SELECT EXISTS(" +
+                        "SELECT 1 FROM notifications WHERE user_id = ? AND type = ? AND created_at >= ?" +
+                        ")",
+                Boolean.class,
+                userId,
+                type,
+                since
+        );
+        return Boolean.TRUE.equals(exists);
+    }
+
+    public int countByUserAndTypesSince(long userId, java.util.List<String> types, OffsetDateTime since) {
+        if (userId <= 0 || types == null || types.isEmpty() || since == null) return 0;
+        String placeholders = String.join(",", java.util.Collections.nCopies(types.size(), "?"));
+        String sql = "SELECT COUNT(*) FROM notifications " +
+                "WHERE user_id = ? AND created_at >= ? AND type IN (" + placeholders + ")";
+        Object[] params = new Object[types.size() + 2];
+        params[0] = userId;
+        params[1] = since;
+        for (int i = 0; i < types.size(); i++) {
+            params[i + 2] = types.get(i);
+        }
+        Integer count = jdbc.queryForObject(sql, Integer.class, params);
+        return count == null ? 0 : count;
+    }
+
     private String toJson(Map<String, Object> payload) {
         if (payload == null || payload.isEmpty()) return "{}";
         try {

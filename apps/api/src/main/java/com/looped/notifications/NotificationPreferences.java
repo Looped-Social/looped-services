@@ -6,9 +6,11 @@ import java.util.Objects;
 
 public final class NotificationPreferences {
     private final Map<String, ChannelPreferences> channels;
+    private final PrivacyMode privacyMode;
 
-    public NotificationPreferences(Map<String, ChannelPreferences> channels) {
+    public NotificationPreferences(Map<String, ChannelPreferences> channels, PrivacyMode privacyMode) {
         this.channels = Map.copyOf(channels);
+        this.privacyMode = privacyMode == null ? PrivacyMode.GENERIC : privacyMode;
     }
 
     public static NotificationPreferences defaults() {
@@ -16,20 +18,26 @@ public final class NotificationPreferences {
         channels.put(NotificationChannel.IN_APP.value(), new ChannelPreferences(true, defaultTypes(true)));
         channels.put(NotificationChannel.PUSH.value(), new ChannelPreferences(true, defaultTypes(true)));
         channels.put(NotificationChannel.EMAIL.value(), new ChannelPreferences(false, defaultTypes(false)));
-        return new NotificationPreferences(channels);
+        return new NotificationPreferences(channels, PrivacyMode.GENERIC);
     }
 
     public static NotificationPreferences from(Map<String, Object> raw) {
         NotificationPreferences base = defaults();
         if (raw == null || raw.isEmpty()) return base;
-        Object channelsRaw = raw.get("channels");
-        if (!(channelsRaw instanceof Map<?, ?> channelMap)) return base;
-        NotificationPreferencesUpdate update = NotificationPreferencesUpdate.from(channelMap);
+        NotificationPreferencesUpdate update = NotificationPreferencesUpdate.from(raw);
         return base.applyUpdate(update);
     }
 
     public NotificationPreferences applyUpdate(NotificationPreferencesUpdate update) {
-        if (update == null || update.channels().isEmpty()) return this;
+        if (update == null) return this;
+        PrivacyMode mergedPrivacyMode = privacyMode;
+        if (update.privacyMode() != null) {
+            mergedPrivacyMode = PrivacyMode.fromValue(update.privacyMode()).orElse(privacyMode);
+        }
+        if (update.channels().isEmpty()) {
+            if (mergedPrivacyMode == privacyMode) return this;
+            return new NotificationPreferences(channels, mergedPrivacyMode);
+        }
         Map<String, ChannelPreferences> merged = new LinkedHashMap<>();
         for (var entry : channels.entrySet()) {
             merged.put(entry.getKey(), entry.getValue());
@@ -51,7 +59,7 @@ public final class NotificationPreferences {
             }
             merged.put(channel, new ChannelPreferences(enabled, types));
         }
-        return new NotificationPreferences(merged);
+        return new NotificationPreferences(merged, mergedPrivacyMode);
     }
 
     public boolean allows(NotificationChannel channel, NotificationType type) {
@@ -75,7 +83,12 @@ public final class NotificationPreferences {
             channelsOut.put(entry.getKey(), channelMap);
         }
         out.put("channels", channelsOut);
+        out.put("privacy_mode", privacyMode.value());
         return out;
+    }
+
+    public PrivacyMode privacyMode() {
+        return privacyMode;
     }
 
     private static Map<String, Boolean> defaultTypes(boolean enabled) {
@@ -90,6 +103,29 @@ public final class NotificationPreferences {
     public record ChannelPreferences(boolean enabled, Map<String, Boolean> types) {
         public ChannelPreferences {
             Objects.requireNonNull(types, "types");
+        }
+    }
+
+    public enum PrivacyMode {
+        GENERIC("generic"),
+        DETAILED("detailed");
+
+        private final String value;
+
+        PrivacyMode(String value) {
+            this.value = value;
+        }
+
+        public String value() {
+            return value;
+        }
+
+        public static java.util.Optional<PrivacyMode> fromValue(String value) {
+            if (value == null || value.isBlank()) return java.util.Optional.empty();
+            for (PrivacyMode mode : values()) {
+                if (mode.value.equalsIgnoreCase(value.trim())) return java.util.Optional.of(mode);
+            }
+            return java.util.Optional.empty();
         }
     }
 }

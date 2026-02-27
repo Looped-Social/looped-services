@@ -207,6 +207,17 @@ public class ConversationRepository {
         jdbc.update("UPDATE conversation_participants SET last_read_at = ? WHERE conversation_id = ? AND user_id = ?", ts, conversationId, userId);
     }
 
+    public int countMessagesSince(long conversationId, OffsetDateTime since) {
+        if (conversationId <= 0 || since == null) return 0;
+        Integer count = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM conversation_messages WHERE conversation_id = ? AND created_at >= ?",
+                Integer.class,
+                conversationId,
+                since
+        );
+        return count == null ? 0 : count;
+    }
+
     public static class ConversationSummary {
         public long id;
         public long companyId;

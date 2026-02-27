@@ -115,6 +115,19 @@
     - `404 { "error": "community_not_found" }`
     - `409 { "error": "user_not_provisioned" }`
     - `429 { "error": "rate_limited" }`
+- **App open state**
+  - `POST /v1/app/open` (auth required: `Authorization: Bearer <firebase_jwt>`)
+  - Purpose: persist `last_app_open_at` for reminder eligibility and optionally update community seen cursors in the same call.
+  - Body (all fields optional):
+    - `opened_at` (RFC3339 timestamp): client-observed open time (server clamps bad clocks)
+    - `active_community_id` (long): one active community to mark seen when verified
+    - `seen_community_ids` (array<long>): additional communities to mark seen when verified
+  - Response (200):
+    - `last_app_open_at` (RFC3339 UTC)
+    - `updated_communities`: `[{ community_id, seen_at }]` (verified communities only)
+  - Errors:
+    - `401` unauthorized
+    - `409 { "error": "user_not_provisioned" }`
 - **Account management**
   - Deactivate (soft delete): `POST /v1/users/me/deactivate` → `204`
   - Delete (hard delete): `POST /v1/users/me/delete` → `200`
@@ -321,9 +334,15 @@
 - **Notifications**
   - `GET /v1/notifications?cursor=&limit=` → `{ items: [{ id, type, created_at, unread, payload }], next_cursor }`
   - `POST /v1/notifications/{id}/read` → `{ "read": true }` (idempotent/no-op safe for stale or already-removed IDs)
-  - `GET /v1/notifications/preferences` → `{ notifications: { channels: { in_app|push|email: { enabled, types: { follow, like, comment, reply, mention, post_from_followed, repost, message_request, dm_message, channel_message, announcement, system } } } } }`
+  - `GET /v1/notifications/preferences` → `{ notifications: { channels: { in_app|push|email: { enabled, types: { follow, like, comment, reply, mention, post_from_followed, repost, message_request, dm_message, channel_message, since_away_highlights, trending_today, announcement, system } } }, privacy_mode: "generic" | "detailed" } }`
   - `PUT /v1/notifications/preferences` → same response; body updates any `enabled` or per-type flags.
   - Payload fields (by type): `actor_principal_id`, `actor_user_id`, `actor_anon_profile_id`, `actor_is_anonymous`, `actor_display_name`, `actor_profile_image_url`, `post_id`, `comment_id`, `context`, `conversation_id`, `message_id`, `deeplink`, `action_deeplink`.
+  - Engagement reminder payloads:
+    - `since_away_highlights`: `new_posts_count`, `since`, `privacy_level`, `kind`
+    - `trending_today`: `community_id`, `community_name`, `reason`, `privacy_level`, `fallback_deeplink`, `kind`
+  - Push throttles:
+    - Direct (`reply`, `mention`, DM/message request): deduped in a short window (default 3 minutes)
+    - Non-direct (`post_from_followed`, `since_away_highlights`, `trending_today`): max 1 per 6h and max 2/day
   - Verification notifications are delivered as `type: "announcement"` with announcement-style payload (`title`, `body`, deeplink keys) plus metadata:
     - `category: "verification"`
     - `kind: "community_verification" | "user_verification"`
@@ -340,6 +359,8 @@
     - `looped://comment/{comment_id}?post_id={post_id}` (comment/reply/mention-in-comment; `post_id` optional)
     - `looped://user/{user_id}?anon=true|false` (follow)
     - `looped://conversations/{conversation_id}` (message_request)
+    - `looped://feed?mode=highlights&since={iso}` (`since_away_highlights`)
+    - `looped://post/{post_id}` with `fallback_deeplink=looped://feed?tab=trending&community_id={id}` (`trending_today`)
     - `looped://announcement/{notification_id}` (announcement/system)
   - Invite notification conventions (payload is passed through):
     - `type: "loopInvite"`: include `community_id` (or `loop_id`) and `action_deeplink`

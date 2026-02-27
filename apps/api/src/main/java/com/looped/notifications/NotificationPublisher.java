@@ -8,18 +8,40 @@ import com.looped.settings.AppConfigService;
 import com.looped.users.BlocksRepository;
 import com.looped.users.ProfileImageUrls;
 import com.looped.users.UserRepository;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
+import java.time.LocalDate;
 import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 @Service
 public class NotificationPublisher {
+    private static final Set<NotificationType> DIRECT_PUSH_TYPES = Set.of(
+            NotificationType.REPLY,
+            NotificationType.MENTION,
+            NotificationType.DM_MESSAGE,
+            NotificationType.MESSAGE_REQUEST
+    );
+    private static final Set<NotificationType> NON_DIRECT_PUSH_TYPES = Set.of(
+            NotificationType.POST_FROM_FOLLOWED,
+            NotificationType.SINCE_AWAY_HIGHLIGHTS,
+            NotificationType.TRENDING_TODAY
+    );
+    private static final List<String> NON_DIRECT_PUSH_TYPE_VALUES = NON_DIRECT_PUSH_TYPES.stream()
+            .map(NotificationType::value)
+            .toList();
+
     private final NotificationRepository notifications;
     private final NotificationPreferencesService preferences;
     private final PrincipalRepository principals;
@@ -28,6 +50,9 @@ public class NotificationPublisher {
     private final UserRepository users;
     private final AppConfigService appConfig;
     private final BlocksRepository blocks;
+    private final int directDedupMinutes;
+    private final int nonDirectWindowHours;
+    private final int nonDirectDailyMax;
 
     public NotificationPublisher(NotificationRepository notifications,
                                  NotificationPreferencesService preferences,
@@ -36,7 +61,10 @@ public class NotificationPublisher {
                                  PushQueuePublisher pushQueue,
                                  UserRepository users,
                                  AppConfigService appConfig,
-                                 BlocksRepository blocks) {
+                                 BlocksRepository blocks,
+                                 @Value("${notifications.push-throttles.direct-dedup-minutes:3}") int directDedupMinutes,
+                                 @Value("${notifications.push-throttles.non-direct-window-hours:6}") int nonDirectWindowHours,
+                                 @Value("${notifications.push-throttles.non-direct-daily-max:2}") int nonDirectDailyMax) {
         this.notifications = notifications;
         this.preferences = preferences;
         this.principals = principals;
@@ -45,6 +73,9 @@ public class NotificationPublisher {
         this.users = users;
         this.appConfig = appConfig;
         this.blocks = blocks;
+        this.directDedupMinutes = Math.max(1, Math.min(directDedupMinutes, 30));
+        this.nonDirectWindowHours = Math.max(1, Math.min(nonDirectWindowHours, 24));
+        this.nonDirectDailyMax = Math.max(1, Math.min(nonDirectDailyMax, 12));
     }
 
     public void notifyFollow(long targetUserId, long actorPrincipalId) {
@@ -108,6 +139,48 @@ public class NotificationPublisher {
         Map<String, Object> payload = new HashMap<>(actorPayload(authorPrincipalId));
         payload.put("post_id", postId);
         publishToUsers(followerUserIds, NotificationType.POST_FROM_FOLLOWED, payload);
+    }
+
+    public void notifySinceAwayHighlights(long userId, OffsetDateTime lastAppOpenAt, int newPostsCount) {
+        if (userId <= 0 || lastAppOpenAt == null || newPostsCount <= 0) return;
+        NotificationPreferences prefs = preferences.preferencesForUserId(userId);
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("kind", "since_away_highlights");
+        payload.put("new_posts_count", newPostsCount);
+        payload.put("since", lastAppOpenAt);
+        payload.put("privacy_level", prefs.privacyMode().value());
+        payload.put("action_deeplink", "looped://feed?mode=highlights&since=" + urlEncode(lastAppOpenAt.toInstant().toString()));
+        String eventKey = "since_away:" + lastAppOpenAt.toInstant().toEpochMilli();
+        publishToUserIdempotent(userId, NotificationType.SINCE_AWAY_HIGHLIGHTS, eventKey, payload);
+    }
+
+    public void notifyTrendingToday(long userId,
+                                    long postId,
+                                    Long communityId,
+                                    String communityName,
+                                    long score,
+                                    int engagements) {
+        if (userId <= 0 || postId <= 0) return;
+        NotificationPreferences prefs = preferences.preferencesForUserId(userId);
+        String privacyLevel = prefs.privacyMode().value();
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("kind", "trending_today");
+        payload.put("post_id", postId);
+        if (communityId != null && communityId > 0) payload.put("community_id", communityId);
+        if (communityName != null && !communityName.isBlank()) payload.put("community_name", communityName.trim());
+        payload.put("privacy_level", privacyLevel);
+        Map<String, Object> reason = new LinkedHashMap<>();
+        reason.put("trending_rank", 1);
+        reason.put("score", score);
+        reason.put("engagements", Math.max(0, engagements));
+        payload.put("reason", reason);
+        if (communityId != null && communityId > 0) {
+            payload.put("fallback_deeplink", "looped://feed?tab=trending&community_id=" + communityId);
+        } else {
+            payload.put("fallback_deeplink", "looped://feed?tab=trending");
+        }
+        String eventKey = "trending_today:" + LocalDate.now(ZoneOffset.UTC) + ":" + (communityId == null ? "all" : communityId);
+        publishToUserIdempotent(userId, NotificationType.TRENDING_TODAY, eventKey, payload);
     }
 
     public void notifyAnnouncement(List<Long> userIds, Map<String, Object> payload) {
@@ -235,7 +308,8 @@ public class NotificationPublisher {
         boolean allowInApp = prefs.allows(NotificationChannel.IN_APP, type);
         boolean allowPush = prefs.allows(NotificationChannel.PUSH, type);
         boolean pushEnabled = allowPush && pushQueue.enabled();
-        if (!allowInApp && !pushEnabled) return;
+        boolean sendPush = pushEnabled && allowPushByThrottle(userId, type);
+        if (!allowInApp && !sendPush) return;
 
         Map<String, Object> enriched = new HashMap<>(payload);
         applyDeeplink(enriched, type, null);
@@ -243,7 +317,7 @@ public class NotificationPublisher {
         if (notificationId <= 0) return;
         ensureDeeplink(notificationId, type, enriched);
 
-        if (pushEnabled) {
+        if (sendPush) {
             List<String> tokens = tokensForUser(userId);
             enqueuePush(userId, notificationId, type, enriched, tokens);
         }
@@ -260,7 +334,8 @@ public class NotificationPublisher {
         boolean allowInApp = prefs.allows(NotificationChannel.IN_APP, type);
         boolean allowPush = prefs.allows(NotificationChannel.PUSH, type);
         boolean pushEnabled = allowPush && pushQueue.enabled();
-        if (!allowInApp && !pushEnabled) return;
+        boolean sendPush = pushEnabled && allowPushByThrottle(userId, type);
+        if (!allowInApp && !sendPush) return;
 
         Map<String, Object> enriched = new HashMap<>(payload);
         enriched.put("event_key", eventKey);
@@ -269,7 +344,7 @@ public class NotificationPublisher {
         if (notificationId <= 0) return;
         ensureDeeplink(notificationId, type, enriched);
 
-        if (pushEnabled) {
+        if (sendPush) {
             List<String> tokens = tokensForUser(userId);
             enqueuePush(userId, notificationId, type, enriched, tokens);
         }
@@ -285,7 +360,8 @@ public class NotificationPublisher {
             boolean allowInApp = prefs.allows(NotificationChannel.IN_APP, type);
             boolean allowPush = prefs.allows(NotificationChannel.PUSH, type);
             boolean pushEnabled = allowPush && pushQueue.enabled();
-            if (!allowInApp && !pushEnabled) continue;
+            boolean sendPush = pushEnabled && allowPushByThrottle(userId, type);
+            if (!allowInApp && !sendPush) continue;
 
             Map<String, Object> enriched = new HashMap<>(payload);
             applyDeeplink(enriched, type, null);
@@ -293,7 +369,7 @@ public class NotificationPublisher {
             if (notificationId <= 0) continue;
             ensureDeeplink(notificationId, type, enriched);
 
-            if (pushEnabled) {
+            if (sendPush) {
                 List<String> tokens = tokensByUser.get(userId);
                 enqueuePush(userId, notificationId, type, enriched, tokens);
             }
@@ -315,7 +391,8 @@ public class NotificationPublisher {
             boolean allowInApp = prefs.allows(NotificationChannel.IN_APP, type);
             boolean allowPush = prefs.allows(NotificationChannel.PUSH, type);
             boolean pushEnabled = allowPush && pushQueue.enabled();
-            if (!allowInApp && !pushEnabled) continue;
+            boolean sendPush = pushEnabled && allowPushByThrottle(userId, type);
+            if (!allowInApp && !sendPush) continue;
 
             Map<String, Object> enriched = new HashMap<>(payload);
             enriched.put("event_key", eventKey);
@@ -325,7 +402,7 @@ public class NotificationPublisher {
             ensureDeeplink(notificationId, type, enriched);
             created += 1;
 
-            if (pushEnabled) {
+            if (sendPush) {
                 List<String> tokens = tokensByUser.get(userId);
                 enqueuePush(userId, notificationId, type, enriched, tokens);
             }
@@ -373,10 +450,11 @@ public class NotificationPublisher {
         String deeplink = payload.get("deeplink") instanceof String s ? s : null;
         String collapseId = buildCollapseId(type, payload);
         String traceId = UUID.randomUUID().toString();
+        Map<String, Object> userInfo = buildPushUserInfo(type, payload);
         for (String token : tokens) {
             if (token == null || token.isBlank()) continue;
             pushQueue.enqueueNotification(userId, token, type.value(), notificationId,
-                    content.title(), content.body(), deeplink, collapseId, traceId);
+                    content.title(), content.body(), deeplink, collapseId, traceId, null, userInfo);
         }
     }
 
@@ -490,6 +568,22 @@ public class NotificationPublisher {
                 }
                 return "looped://message-requests";
             }
+            case SINCE_AWAY_HIGHLIGHTS -> {
+                Object rawSince = payload.get("since");
+                if (rawSince instanceof OffsetDateTime ts) {
+                    return "looped://feed?mode=highlights&since=" + urlEncode(ts.toInstant().toString());
+                }
+                if (rawSince instanceof String since && !since.isBlank()) {
+                    return "looped://feed?mode=highlights&since=" + urlEncode(since);
+                }
+                return "looped://feed?mode=highlights";
+            }
+            case TRENDING_TODAY -> {
+                postId = asLong(payload.get("post_id"));
+                if (postId != null) return "looped://post/" + postId;
+                String fallback = payload.get("fallback_deeplink") instanceof String s ? s : null;
+                return (fallback == null || fallback.isBlank()) ? "looped://feed?tab=trending" : fallback;
+            }
             default -> {
                 return null;
             }
@@ -499,6 +593,70 @@ public class NotificationPublisher {
     private Long asLong(Object value) {
         if (value instanceof Number n) return n.longValue();
         return null;
+    }
+
+    private int asInt(Object value, int fallback) {
+        if (value instanceof Number n) return n.intValue();
+        return fallback;
+    }
+
+    private String asString(Object value) {
+        if (value instanceof String s && !s.isBlank()) return s;
+        return null;
+    }
+
+    private boolean allowPushByThrottle(long userId, NotificationType type) {
+        if (userId <= 0 || type == null) return false;
+        OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
+        if (DIRECT_PUSH_TYPES.contains(type)) {
+            OffsetDateTime since = now.minusMinutes(directDedupMinutes);
+            return !notifications.existsByUserAndTypeSince(userId, type.value(), since);
+        }
+        if (NON_DIRECT_PUSH_TYPES.contains(type)) {
+            int recentWindowCount = notifications.countByUserAndTypesSince(
+                    userId,
+                    NON_DIRECT_PUSH_TYPE_VALUES,
+                    now.minusHours(nonDirectWindowHours)
+            );
+            if (recentWindowCount >= 1) return false;
+            int recentDayCount = notifications.countByUserAndTypesSince(
+                    userId,
+                    NON_DIRECT_PUSH_TYPE_VALUES,
+                    now.minusHours(24)
+            );
+            return recentDayCount < nonDirectDailyMax;
+        }
+        return true;
+    }
+
+    private Map<String, Object> buildPushUserInfo(NotificationType type, Map<String, Object> payload) {
+        if (payload == null || payload.isEmpty()) return null;
+        if (type != NotificationType.SINCE_AWAY_HIGHLIGHTS && type != NotificationType.TRENDING_TODAY) {
+            return null;
+        }
+        Map<String, Object> out = new LinkedHashMap<>();
+        copyIfPresent(payload, out, "kind");
+        copyIfPresent(payload, out, "privacy_level");
+        copyIfPresent(payload, out, "community_id");
+        copyIfPresent(payload, out, "community_name");
+        copyIfPresent(payload, out, "post_id");
+        copyIfPresent(payload, out, "reason");
+        copyIfPresent(payload, out, "fallback_deeplink");
+        copyIfPresent(payload, out, "new_posts_count");
+        copyIfPresent(payload, out, "since");
+        return out.isEmpty() ? null : out;
+    }
+
+    private void copyIfPresent(Map<String, Object> from, Map<String, Object> to, String key) {
+        if (from == null || to == null || key == null) return;
+        if (!from.containsKey(key)) return;
+        Object value = from.get(key);
+        if (value != null) to.put(key, value);
+    }
+
+    private String urlEncode(String value) {
+        if (value == null || value.isBlank()) return "";
+        return URLEncoder.encode(value, StandardCharsets.UTF_8);
     }
 
     private String normalizeReason(String raw) {
@@ -531,15 +689,28 @@ public class NotificationPublisher {
     }
 
     private String buildCollapseId(NotificationType type, Map<String, Object> payload) {
-        if (type != NotificationType.ANNOUNCEMENT) return null;
-        Object companyId = payload.get("company_id");
-        if (companyId instanceof Number n) {
-            return "announcement-" + n.longValue();
+        if (type == NotificationType.ANNOUNCEMENT) {
+            Object companyId = payload.get("company_id");
+            if (companyId instanceof Number n) {
+                return "announcement-" + n.longValue();
+            }
+            if (payload.get("event_key") instanceof String s && !s.isBlank()) {
+                return "announcement-" + s.trim();
+            }
+            return "announcement";
         }
-        if (payload.get("event_key") instanceof String s && !s.isBlank()) {
-            return "announcement-" + s.trim();
+        if (DIRECT_PUSH_TYPES.contains(type)) {
+            return "direct-" + type.value();
         }
-        return "announcement";
+        if (type == NotificationType.SINCE_AWAY_HIGHLIGHTS) {
+            return "since-away";
+        }
+        if (type == NotificationType.TRENDING_TODAY) {
+            Object communityId = payload.get("community_id");
+            if (communityId instanceof Number n) return "trending-" + n.longValue();
+            return "trending";
+        }
+        return null;
     }
 
     private PushContent buildPushContent(NotificationType type, Map<String, Object> payload) {
@@ -568,6 +739,24 @@ public class NotificationPublisher {
             case POST_FROM_FOLLOWED -> new PushContent("New post", actor + " posted");
             case REPOST -> new PushContent("Repost", actor + " reposted your post");
             case MESSAGE_REQUEST -> new PushContent("Message request", actor + " wants to message you");
+            case SINCE_AWAY_HIGHLIGHTS -> {
+                int newPostsCount = asInt(payload.get("new_posts_count"), 0);
+                String body = newPostsCount <= 1
+                        ? "New posts since you were away. Want the highlights?"
+                        : newPostsCount + " new posts since you were away. Want the highlights?";
+                yield new PushContent("Highlights waiting", body);
+            }
+            case TRENDING_TODAY -> {
+                boolean detailed = "detailed".equalsIgnoreCase(asString(payload.get("privacy_level")));
+                String community = asString(payload.get("community_name"));
+                String body;
+                if (detailed && community != null && !community.isBlank()) {
+                    body = "Something is trending in " + community + ".";
+                } else {
+                    body = "Something is trending right now. Tap for the top post.";
+                }
+                yield new PushContent("Trending now", body);
+            }
             default -> null;
         };
     }

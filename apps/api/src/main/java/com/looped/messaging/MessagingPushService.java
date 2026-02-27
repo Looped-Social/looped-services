@@ -11,6 +11,7 @@ import com.looped.users.UserRepository;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
+import java.time.OffsetDateTime;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -34,6 +35,7 @@ public class MessagingPushService {
     private final BlocksRepository blocks;
     private final UserRepository users;
     private final int maxChannelPushRecipients;
+    private final int directDedupMinutes;
 
     public MessagingPushService(PushQueuePublisher pushQueue,
                                NotificationPreferencesService notificationPreferences,
@@ -46,7 +48,8 @@ public class MessagingPushService {
                                PrincipalRepository principals,
                                BlocksRepository blocks,
                                UserRepository users,
-                               @Value("${messaging.push.maxChannelRecipients:" + DEFAULT_MAX_CHANNEL_PUSH_RECIPIENTS + "}") int maxChannelPushRecipients) {
+                               @Value("${messaging.push.maxChannelRecipients:" + DEFAULT_MAX_CHANNEL_PUSH_RECIPIENTS + "}") int maxChannelPushRecipients,
+                               @Value("${notifications.push-throttles.direct-dedup-minutes:3}") int directDedupMinutes) {
         this.pushQueue = pushQueue;
         this.notificationPreferences = notificationPreferences;
         this.devices = devices;
@@ -59,6 +62,7 @@ public class MessagingPushService {
         this.blocks = blocks;
         this.users = users;
         this.maxChannelPushRecipients = Math.max(0, maxChannelPushRecipients);
+        this.directDedupMinutes = Math.max(1, Math.min(directDedupMinutes, 30));
     }
 
     public void onConversationMessageCreated(long conversationId, ConversationRepository.MessageRow message) {
@@ -68,6 +72,7 @@ public class MessagingPushService {
         long senderId = message.senderId;
         List<Long> recipients = conversations.listOtherParticipantIds(conversationId, senderId);
         if (recipients == null || recipients.isEmpty()) return;
+        if (shouldBatchConversationPush(conversationId, message.createdAt)) return;
 
         Set<Long> mutedUserIds = conversationPreferences.mutedUserIdsForConversation(conversationId);
 
@@ -240,5 +245,12 @@ public class MessagingPushService {
         String s = content.trim().replaceAll("\\s+", " ");
         if (s.length() <= 120) return s;
         return s.substring(0, 117) + "...";
+    }
+
+    private boolean shouldBatchConversationPush(long conversationId, OffsetDateTime messageCreatedAt) {
+        if (conversationId <= 0) return false;
+        OffsetDateTime createdAt = messageCreatedAt == null ? OffsetDateTime.now() : messageCreatedAt;
+        OffsetDateTime since = createdAt.minusMinutes(directDedupMinutes);
+        return conversations.countMessagesSince(conversationId, since) > 1;
     }
 }

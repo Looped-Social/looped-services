@@ -15,13 +15,13 @@ public class UserRepository {
     private static final String BASE_COLUMNS = "id, firebase_uid, handle, email, company_id, first_name, last_name, " +
             "date_of_birth, display_name, bio, is_anonymous, show_follower_count, message_permission, profile_image_url, " +
             "hide_anonymous_posts, display_community_id, display_specialization_id, onboarding_step, onboarding_completed_at, " +
-            "profile_completion_dismissed_at, profile_completion_completed_at, " +
+            "profile_completion_dismissed_at, profile_completion_completed_at, last_app_open_at, " +
             "created_at, disabled_at, disabled_reason, disabled_by_admin_id, " +
             "deleted_at, deleted_by, deleted_source, deleted_by_admin_id, deleted_reason";
     private static final String BASE_COLUMNS_U = "u.id, u.firebase_uid, u.handle, u.email, u.company_id, u.first_name, u.last_name, " +
             "u.date_of_birth, u.display_name, u.bio, u.is_anonymous, u.show_follower_count, u.message_permission, u.profile_image_url, " +
             "u.hide_anonymous_posts, u.display_community_id, u.display_specialization_id, u.onboarding_step, u.onboarding_completed_at, " +
-            "u.profile_completion_dismissed_at, u.profile_completion_completed_at, " +
+            "u.profile_completion_dismissed_at, u.profile_completion_completed_at, u.last_app_open_at, " +
             "u.created_at, u.disabled_at, u.disabled_reason, u.disabled_by_admin_id, " +
             "u.deleted_at, u.deleted_by, u.deleted_source, u.deleted_by_admin_id, u.deleted_reason";
 
@@ -57,6 +57,7 @@ public class UserRepository {
             row.onboardingCompletedAt = rs.getObject("onboarding_completed_at", OffsetDateTime.class);
             row.profileCompletionDismissedAt = rs.getObject("profile_completion_dismissed_at", OffsetDateTime.class);
             row.profileCompletionCompletedAt = rs.getObject("profile_completion_completed_at", OffsetDateTime.class);
+            row.lastAppOpenAt = rs.getObject("last_app_open_at", OffsetDateTime.class);
             row.createdAt = rs.getObject("created_at", OffsetDateTime.class);
             row.disabledAt = rs.getObject("disabled_at", OffsetDateTime.class);
             row.disabledReason = rs.getString("disabled_reason");
@@ -268,6 +269,15 @@ public class UserRepository {
                         "AND profile_image_url IS NOT NULL AND btrim(profile_image_url) <> '' " +
                         "AND bio IS NOT NULL AND btrim(bio) <> '' " +
                         "AND display_specialization_id IS NOT NULL",
+                userId
+        );
+    }
+
+    public void updateLastAppOpenAt(long userId, OffsetDateTime openedAt) {
+        if (openedAt == null) return;
+        jdbcTemplate.update(
+                "UPDATE users SET last_app_open_at = ? WHERE id = ?",
+                openedAt,
                 userId
         );
     }
@@ -1052,6 +1062,7 @@ public class UserRepository {
         public OffsetDateTime onboardingCompletedAt;
         public OffsetDateTime profileCompletionDismissedAt;
         public OffsetDateTime profileCompletionCompletedAt;
+        public OffsetDateTime lastAppOpenAt;
         public OffsetDateTime createdAt;
         public OffsetDateTime disabledAt;
         public String disabledReason;
