@@ -273,6 +273,18 @@ feed:
       sample-rate: ${FEED_METRICS_GLOBAL_FYP_SAMPLE_RATE:0.01}
       retention: ${FEED_METRICS_GLOBAL_FYP_RETENTION:PT72H}
 
+posts:
+  share-nudge:
+    delay-minutes: ${POST_SHARE_NUDGE_DELAY_MINUTES:45}
+    max-served-per-day: ${POST_SHARE_NUDGE_MAX_SERVED_PER_DAY:2}
+    min-minutes-between-serves: ${POST_SHARE_NUDGE_MIN_MINUTES_BETWEEN_SERVES:60}
+    max-combined-engagement: ${POST_SHARE_NUDGE_MAX_COMBINED_ENGAGEMENT:0}
+    enabled-by-default: ${POST_SHARE_NUDGE_ENABLED_BY_DEFAULT:true}
+    default-variant: ${POST_SHARE_NUDGE_DEFAULT_VARIANT:v1}
+    message-key: ${POST_SHARE_NUDGE_MESSAGE_KEY:share_nudge.low_traction}
+    cta-key: ${POST_SHARE_NUDGE_CTA_KEY:share_nudge.cta_share}
+    share-deeplink-format: ${POST_SHARE_NUDGE_DEEP_LINK_FORMAT:looped://posts/%d}
+
 telemetry:
   retention:
     enabled: ${TELEMETRY_RETENTION_ENABLED:true}

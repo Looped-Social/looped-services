@@ -1,6 +1,7 @@
 package com.looped.users;
 
 import com.looped.posts.PostPayloads;
+import com.looped.posts.PostShareNudgeService;
 import com.looped.posts.PostViewerCapabilitiesService;
 import com.looped.posts.PostViewCountsService;
 import com.looped.comments.CommentsService;
@@ -29,17 +30,20 @@ public class UsersController {
     private final AppConfigService appConfig;
     private final PostViewerCapabilitiesService viewerCapabilities;
     private final PostViewCountsService postViewCounts;
+    private final PostShareNudgeService shareNudges;
 
     public UsersController(UsersService service,
                            CommentsService commentsService,
                            AppConfigService appConfig,
                            PostViewerCapabilitiesService viewerCapabilities,
-                           PostViewCountsService postViewCounts) {
+                           PostViewCountsService postViewCounts,
+                           PostShareNudgeService shareNudges) {
         this.service = service;
         this.commentsService = commentsService;
         this.appConfig = appConfig;
         this.viewerCapabilities = viewerCapabilities;
         this.postViewCounts = postViewCounts;
+        this.shareNudges = shareNudges;
     }
 
     @PostMapping("/onboard")
@@ -543,10 +547,12 @@ public class UsersController {
                 String defaultProfileImageUrl = appConfig.defaultProfileImageUrl();
                 var capabilitiesByPostId = viewerCapabilities.byPostId(jwt.getSubject(), res.posts(), Map.of());
                 var viewCountsByPostId = postViewCounts.authorVisibleUniqueViewCounts(jwt.getSubject(), res.posts());
+                var shareNudgesByPostId = shareNudges.evaluateAndMaybeServe(jwt.getSubject(), res.posts());
                 List<Map<String, Object>> items = res.posts().stream().map(row -> {
                     Map<String, Object> payload = PostPayloads.from(row, defaultProfileImageUrl);
                     PostPayloads.putViewerCapabilities(payload, capabilitiesByPostId.get(row.id));
                     PostPayloads.putViewCount(payload, viewCountsByPostId.get(row.id));
+                    PostPayloads.putShareNudge(payload, shareNudgesByPostId.get(row.id));
                     return payload;
                 }).toList();
                 Map<String, Object> body = new HashMap<>();

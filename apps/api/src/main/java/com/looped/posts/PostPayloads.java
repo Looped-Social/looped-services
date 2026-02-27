@@ -107,6 +107,8 @@ public final class PostPayloads {
             out.put("repostedByFollowedUsersCount", row.repostedByFollowedUsersCount);
         }
         out.put("created_at", row.createdAt);
+        out.put("shareNudge", null);
+        out.put("share_nudge", null);
         return out;
     }
 
@@ -120,6 +122,12 @@ public final class PostPayloads {
         if (payload == null || viewCount == null) return;
         payload.put("view_count", viewCount);
         payload.put("viewCount", viewCount);
+    }
+
+    public static void putShareNudge(Map<String, Object> payload, Map<String, Object> shareNudge) {
+        if (payload == null) return;
+        payload.put("shareNudge", shareNudge);
+        payload.put("share_nudge", shareNudge);
     }
 
     public static Map<String, Object> search(PostRepository.PostRow row) {
@@ -192,6 +200,8 @@ public final class PostPayloads {
         out.put("comments_count", row.commentsCount);
         out.put("share_count", row.shareCount);
         out.put("created_at", row.createdAt);
+        out.put("shareNudge", null);
+        out.put("share_nudge", null);
         return out;
     }
 

@@ -8,6 +8,8 @@ public final class AppSettingsKeys {
     public static final String APP_MINIMUM_SUPPORTED_VERSION = "app.minimum_supported_version";
     public static final String APP_MINIMUM_SUPPORTED_VERSION_MESSAGE = "app.minimum_supported_version_message";
     public static final String APP_MINIMUM_SUPPORTED_VERSION_UPDATE_URL = "app.minimum_supported_version_update_url";
+    public static final String SHARE_NUDGE_ENABLED = "share_nudge_enabled";
+    public static final String SHARE_NUDGE_VARIANT = "share_nudge_variant";
 
     private AppSettingsKeys() {}
 }

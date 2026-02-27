@@ -31,17 +31,20 @@ public class PostCollectionsController {
     private final AppConfigService appConfig;
     private final PostViewerCapabilitiesService viewerCapabilities;
     private final PostViewCountsService postViewCounts;
+    private final PostShareNudgeService shareNudges;
 
     public PostCollectionsController(PostCollectionsService service,
                                      PollsService pollsService,
                                      AppConfigService appConfig,
                                      PostViewerCapabilitiesService viewerCapabilities,
-                                     PostViewCountsService postViewCounts) {
+                                     PostViewCountsService postViewCounts,
+                                     PostShareNudgeService shareNudges) {
         this.service = service;
         this.pollsService = pollsService;
         this.appConfig = appConfig;
         this.viewerCapabilities = viewerCapabilities;
         this.postViewCounts = postViewCounts;
+        this.shareNudges = shareNudges;
     }
 
     @GetMapping("/liked")
@@ -238,12 +241,14 @@ public class PostCollectionsController {
         var pollsByPostId = pollsService.viewsByPostId(viewerPrincipalId, postIds);
         var capabilitiesByPostId = viewerCapabilities.byPostId(firebaseUid, posts, pollsByPostId);
         var viewCountsByPostId = postViewCounts.authorVisibleUniqueViewCounts(firebaseUid, posts);
+        var shareNudgesByPostId = shareNudges.evaluateAndMaybeServe(firebaseUid, posts);
         List<Map<String, Object>> items = posts.stream().map(row -> {
             Map<String, Object> payload = PostPayloads.from(row, defaultProfileImageUrl);
             var poll = pollsByPostId.get(row.id);
             if (poll != null) payload.put("poll", PollPayloads.from(poll));
             PostPayloads.putViewerCapabilities(payload, capabilitiesByPostId.get(row.id));
             PostPayloads.putViewCount(payload, viewCountsByPostId.get(row.id));
+            PostPayloads.putShareNudge(payload, shareNudgesByPostId.get(row.id));
             return payload;
         }).toList();
         Map<String, Object> body = new HashMap<>();

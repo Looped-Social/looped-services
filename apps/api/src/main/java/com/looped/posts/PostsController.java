@@ -27,19 +27,22 @@ public class PostsController {
     private final AppConfigService appConfig;
     private final PostViewerCapabilitiesService viewerCapabilities;
     private final PostViewCountsService postViewCounts;
+    private final PostShareNudgeService shareNudges;
 
     public PostsController(PostsService postsService,
                            PostSearchService postSearchService,
                            PollsService pollsService,
                            AppConfigService appConfig,
                            PostViewerCapabilitiesService viewerCapabilities,
-                           PostViewCountsService postViewCounts) {
+                           PostViewCountsService postViewCounts,
+                           PostShareNudgeService shareNudges) {
         this.postsService = postsService;
         this.postSearchService = postSearchService;
         this.pollsService = pollsService;
         this.appConfig = appConfig;
         this.viewerCapabilities = viewerCapabilities;
         this.postViewCounts = postViewCounts;
+        this.shareNudges = shareNudges;
     }
 
     @GetMapping("/search")
@@ -68,12 +71,14 @@ public class PostsController {
                 var pollsByPostId = pollsService.viewsByPostId(viewerPrincipalId, postIds);
                 var capabilitiesByPostId = viewerCapabilities.byPostId(jwt.getSubject(), res.posts(), pollsByPostId);
                 var viewCountsByPostId = postViewCounts.authorVisibleUniqueViewCounts(jwt.getSubject(), res.posts());
+                var shareNudgesByPostId = shareNudges.evaluateAndMaybeServe(jwt.getSubject(), res.posts());
                 List<Map<String, Object>> items = res.posts().stream().map(row -> {
                     Map<String, Object> payload = PostPayloads.search(row, defaultProfileImageUrl);
                     var poll = pollsByPostId.get(row.id);
                     if (poll != null) payload.put("poll", PollPayloads.from(poll));
                     PostPayloads.putViewerCapabilities(payload, capabilitiesByPostId.get(row.id));
                     PostPayloads.putViewCount(payload, viewCountsByPostId.get(row.id));
+                    PostPayloads.putShareNudge(payload, shareNudgesByPostId.get(row.id));
                     return payload;
                 }).toList();
                 Map<String, Object> body = new HashMap<>();
@@ -229,6 +234,7 @@ public class PostsController {
                 var viewCountsByPostId = postViewCounts.authorVisibleUniqueViewCounts(jwt == null ? null : jwt.getSubject(), List.of(res.post()));
                 PostPayloads.putViewerCapabilities(payload, capabilitiesByPostId.get(res.post().id));
                 PostPayloads.putViewCount(payload, viewCountsByPostId.get(res.post().id));
+                PostPayloads.putShareNudge(payload, null);
                 if (res.milestonesAwarded() != null && !res.milestonesAwarded().isEmpty()) {
                     payload.put("milestones_awarded", res.milestonesAwarded());
                     payload.put("milestonesAwarded", res.milestonesAwarded());
@@ -261,6 +267,8 @@ public class PostsController {
                 var viewCountsByPostId = postViewCounts.authorVisibleUniqueViewCounts(jwt.getSubject(), List.of(res.post()));
                 PostPayloads.putViewerCapabilities(payload, capabilitiesByPostId.get(res.post().id));
                 PostPayloads.putViewCount(payload, viewCountsByPostId.get(res.post().id));
+                var shareNudgesByPostId = shareNudges.evaluateAndMaybeServe(jwt.getSubject(), List.of(res.post()));
+                PostPayloads.putShareNudge(payload, shareNudgesByPostId.get(res.post().id));
                 yield ResponseEntity.ok(payload);
             }
             default -> ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
@@ -332,6 +340,7 @@ public class PostsController {
                 var viewCountsByPostId = postViewCounts.authorVisibleUniqueViewCounts(jwt == null ? null : jwt.getSubject(), List.of(res.post()));
                 PostPayloads.putViewerCapabilities(payload, capabilitiesByPostId.get(res.post().id));
                 PostPayloads.putViewCount(payload, viewCountsByPostId.get(res.post().id));
+                PostPayloads.putShareNudge(payload, null);
                 yield ResponseEntity.ok(payload);
             }
         };
