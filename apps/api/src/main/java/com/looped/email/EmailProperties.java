@@ -7,6 +7,7 @@ import org.springframework.context.annotation.Configuration;
 @ConfigurationProperties(prefix = "email")
 public class EmailProperties {
     private boolean enabled = true;
+    private String displayName = "Looped Social";
     private String from;
     private String adminFrom;
     private String communityRequestFrom = "no-reply@mylooped.app";
@@ -28,6 +29,14 @@ public class EmailProperties {
 
     public void setFrom(String from) {
         this.from = from;
+    }
+
+    public String getDisplayName() {
+        return displayName;
+    }
+
+    public void setDisplayName(String displayName) {
+        this.displayName = displayName;
     }
 
     public String getAdminFrom() {

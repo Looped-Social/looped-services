@@ -56,6 +56,7 @@ public class EmailService {
 
     private void sendEmailFrom(String from, String to, String subject, String textBody, String htmlBody) {
         if (from == null || from.isBlank()) return;
+        String source = resolveSource(from);
         Destination destination = Destination.builder().toAddresses(to).build();
         Message message = Message.builder()
                 .subject(Content.builder().data(subject).charset("UTF-8").build())
@@ -65,7 +66,7 @@ public class EmailService {
                         .build())
                 .build();
         SendEmailRequest.Builder request = SendEmailRequest.builder()
-                .source(from)
+                .source(source)
                 .destination(destination)
                 .message(message);
         if (props.getReplyTo() != null && !props.getReplyTo().isBlank()) {
@@ -378,5 +379,21 @@ public class EmailService {
                 .replace("<", "&lt;")
                 .replace(">", "&gt;")
                 .replace("\"", "&quot;");
+    }
+
+    private String resolveSource(String from) {
+        String trimmed = from.trim();
+        if (trimmed.contains("<") && trimmed.contains(">")) {
+            return trimmed;
+        }
+        String displayName = props.getDisplayName();
+        if (displayName == null || displayName.isBlank()) {
+            return trimmed;
+        }
+        return quoteDisplayName(displayName.trim()) + " <" + trimmed + ">";
+    }
+
+    private String quoteDisplayName(String displayName) {
+        return "\"" + displayName.replace("\\", "\\\\").replace("\"", "\\\"") + "\"";
     }
 }

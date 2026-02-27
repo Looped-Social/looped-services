@@ -182,6 +182,7 @@ specializations:
 
 email:
   enabled: ${EMAIL_ENABLED:true}
+  display-name: ${EMAIL_DISPLAY_NAME:Looped Social}
   from: ${EMAIL_FROM:}
   admin-from: ${EMAIL_ADMIN_FROM:}
   community-request-from: ${EMAIL_COMMUNITY_REQUEST_FROM:no-reply@mylooped.app}
