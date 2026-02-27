@@ -11,6 +11,7 @@ import com.looped.polls.PollsService;
 import com.looped.posts.PostRepository;
 import com.looped.posts.PostStateService;
 import com.looped.posts.PostViewerCapabilitiesService;
+import com.looped.posts.PostViewCountsService;
 import com.looped.principals.PrincipalRepository;
 import com.looped.settings.AppConfigService;
 import com.looped.verification.VerificationRepository;
@@ -78,6 +79,7 @@ class UsersServiceDeleteTest {
         BlocksRepository blocks = mock(BlocksRepository.class);
         PostStateService postState = mock(PostStateService.class);
         PostViewerCapabilitiesService viewerCapabilities = mock(PostViewerCapabilitiesService.class);
+        PostViewCountsService postViewCounts = mock(PostViewCountsService.class);
         PollsService pollsService = mock(PollsService.class);
         CommentsRepository comments = mock(CommentsRepository.class);
         UserContentRepository content = mock(UserContentRepository.class);
@@ -98,6 +100,7 @@ class UsersServiceDeleteTest {
                 blocks,
                 postState,
                 viewerCapabilities,
+                postViewCounts,
                 pollsService,
                 comments,
                 content,

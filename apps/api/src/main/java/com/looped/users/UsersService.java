@@ -12,6 +12,7 @@ import com.looped.polls.PollsService;
 import com.looped.posts.PostRepository;
 import com.looped.posts.PostStateService;
 import com.looped.posts.PostViewerCapabilitiesService;
+import com.looped.posts.PostViewCountsService;
 import com.looped.principals.PrincipalRepository;
 import com.looped.settings.AppConfigService;
 import com.looped.shared.Pagination;
@@ -41,6 +42,7 @@ public class UsersService {
     private final BlocksRepository blocks;
     private final PostStateService postState;
     private final PostViewerCapabilitiesService viewerCapabilities;
+    private final PostViewCountsService postViewCounts;
     private final PollsService pollsService;
     private final CommentsRepository comments;
     private final UserContentRepository content;
@@ -65,6 +67,7 @@ public class UsersService {
                         BlocksRepository blocks,
                         PostStateService postState,
                         PostViewerCapabilitiesService viewerCapabilities,
+                        PostViewCountsService postViewCounts,
                         PollsService pollsService,
                         CommentsRepository comments,
                         UserContentRepository content,
@@ -88,6 +91,7 @@ public class UsersService {
         this.blocks = blocks;
         this.postState = postState;
         this.viewerCapabilities = viewerCapabilities;
+        this.postViewCounts = postViewCounts;
         this.pollsService = pollsService;
         this.comments = comments;
         this.content = content;
@@ -241,6 +245,9 @@ public class UsersService {
                     pollsByPostId
             );
         }
+        java.util.Map<Long, Long> viewCountsByPostId = allPosts.isEmpty()
+                ? java.util.Map.of()
+                : postViewCounts.authorVisibleUniqueViewCounts(actor.id, new java.util.ArrayList<>(allPosts.values()));
 
         String defaultProfileImageUrl = appConfig.defaultProfileImageUrl();
         java.util.List<java.util.Map<String, Object>> items = new java.util.ArrayList<>();
@@ -255,7 +262,8 @@ public class UsersService {
                                 com.looped.posts.PostPayloads.from(p, defaultProfileImageUrl),
                                 p.id,
                                 pollsByPostId,
-                                capabilitiesByPostId
+                                capabilitiesByPostId,
+                                viewCountsByPostId
                         )
                 ));
             } else if ("reply".equals(ref.type())) {
@@ -273,7 +281,8 @@ public class UsersService {
                                 com.looped.posts.PostPayloads.from(host, defaultProfileImageUrl),
                                 host.id,
                                 pollsByPostId,
-                                capabilitiesByPostId
+                                capabilitiesByPostId,
+                                viewCountsByPostId
                         ));
                     }
                 }
@@ -293,11 +302,13 @@ public class UsersService {
             java.util.Map<String, Object> postPayload,
             long postId,
             java.util.Map<Long, PollsService.PollView> pollsByPostId,
-            java.util.Map<Long, java.util.Map<String, Object>> capabilitiesByPostId
+            java.util.Map<Long, java.util.Map<String, Object>> capabilitiesByPostId,
+            java.util.Map<Long, Long> viewCountsByPostId
     ) {
         var poll = pollsByPostId.get(postId);
         if (poll != null) postPayload.put("poll", PollPayloads.from(poll));
         com.looped.posts.PostPayloads.putViewerCapabilities(postPayload, capabilitiesByPostId.get(postId));
+        com.looped.posts.PostPayloads.putViewCount(postPayload, viewCountsByPostId.get(postId));
         return postPayload;
     }
 

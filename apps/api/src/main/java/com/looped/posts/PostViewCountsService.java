@@ -26,7 +26,15 @@ public class PostViewCountsService {
         var viewer = users.findByFirebaseUid(firebaseUid);
         if (viewer.isEmpty()) return Map.of();
 
-        long viewerUserId = viewer.get().id;
+        return authorVisibleUniqueViewCounts(viewer.get().id, posts);
+    }
+
+    public Map<Long, Long> authorVisibleUniqueViewCounts(long viewerUserId,
+                                                         List<? extends PostRepository.PostRow> posts) {
+        if (posts == null || posts.isEmpty()) {
+            return Map.of();
+        }
+
         List<Long> authoredPostIds = posts.stream()
                 .filter(Objects::nonNull)
                 .filter(p -> p.authorId != null && p.authorId == viewerUserId)

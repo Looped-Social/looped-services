@@ -17,6 +17,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.List;
+import java.util.UUID;
 
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.hasSize;
@@ -151,5 +152,52 @@ class MyContentIntegrationTest extends PostgresTestBase {
                 .andExpect(jsonPath("$.items[1].post.poll.question", equalTo("My poll?")))
                 .andExpect(jsonPath("$.items[1].post.poll.options", hasSize(2)))
                 .andExpect(jsonPath("$.items[1].post.viewer_capabilities.canVote", equalTo(true)));
+    }
+
+    @Test
+    void me_content_includes_view_count_for_my_posts_only() throws Exception {
+        long companyId = jdbc.queryForObject("INSERT INTO companies(name, domain) VALUES ('AcmeViews','acmeviews.com') RETURNING id", Long.class);
+        long meId = jdbc.queryForObject("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?) RETURNING id",
+                Long.class, "uid-me-content-views", "meviews", companyId);
+        long mePrincipalId = jdbc.queryForObject("INSERT INTO principals(kind, user_id) VALUES ('user', ?) RETURNING id", Long.class, meId);
+
+        long viewerAId = jdbc.queryForObject("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?) RETURNING id",
+                Long.class, "uid-me-content-viewer-a", "viewera", companyId);
+        long viewerAPrincipalId = jdbc.queryForObject("INSERT INTO principals(kind, user_id) VALUES ('user', ?) RETURNING id", Long.class, viewerAId);
+        long viewerBId = jdbc.queryForObject("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?) RETURNING id",
+                Long.class, "uid-me-content-viewer-b", "viewerb", companyId);
+        long viewerBPrincipalId = jdbc.queryForObject("INSERT INTO principals(kind, user_id) VALUES ('user', ?) RETURNING id", Long.class, viewerBId);
+
+        long postId = jdbc.queryForObject(
+                "INSERT INTO posts(author_id, author_principal_id, company_id, content, created_at) VALUES (?,?,?,?, now()) RETURNING id",
+                Long.class,
+                meId,
+                mePrincipalId,
+                companyId,
+                "my viewed post"
+        );
+
+        Instant occurred = Instant.now();
+        jdbc.update(
+                "INSERT INTO telemetry_events(user_id, principal_id, session_id, event_id, type, occurred_at, post_id, payload) VALUES (?,?,?,?,?,?,?, '{}'::jsonb)",
+                viewerAId, viewerAPrincipalId, UUID.randomUUID(), UUID.randomUUID(), "post_open", Timestamp.from(occurred), postId
+        );
+        jdbc.update(
+                "INSERT INTO telemetry_events(user_id, principal_id, session_id, event_id, type, occurred_at, post_id, payload) VALUES (?,?,?,?,?,?,?, '{}'::jsonb)",
+                viewerAId, viewerAPrincipalId, UUID.randomUUID(), UUID.randomUUID(), "post_open", Timestamp.from(occurred.plusSeconds(5)), postId
+        );
+        jdbc.update(
+                "INSERT INTO telemetry_events(user_id, principal_id, session_id, event_id, type, occurred_at, post_id, payload) VALUES (?,?,?,?,?,?,?, '{}'::jsonb)",
+                viewerBId, viewerBPrincipalId, UUID.randomUUID(), UUID.randomUUID(), "post_open", Timestamp.from(occurred.plusSeconds(10)), postId
+        );
+
+        String auth = "Bearer " + token("uid-me-content-views");
+        mockMvc.perform(get("/v1/users/me/content?limit=10").header("Authorization", auth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items", hasSize(1)))
+                .andExpect(jsonPath("$.items[0].type", equalTo("post")))
+                .andExpect(jsonPath("$.items[0].post.id", equalTo((int) postId)))
+                .andExpect(jsonPath("$.items[0].post.view_count", equalTo(2)))
+                .andExpect(jsonPath("$.items[0].post.viewCount", equalTo(2)));
     }
 }
