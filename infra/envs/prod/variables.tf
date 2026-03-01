@@ -113,6 +113,30 @@ variable "app_minimum_supported_version_update_url" {
   default     = "https://apps.apple.com/us/app/looped-social/id6758413180"
 }
 
+variable "devices_app_attest_mode" {
+  type        = string
+  description = "App Attest rollout mode for the API (disabled, observe, enforce)."
+  default     = "disabled"
+}
+
+variable "devices_app_attest_challenge_ttl" {
+  type        = string
+  description = "Challenge TTL passed to the API (for example 5m)."
+  default     = "5m"
+}
+
+variable "devices_app_attest_trust_ttl" {
+  type        = string
+  description = "Trust TTL passed to the API (for example 30d)."
+  default     = "30d"
+}
+
+variable "devices_app_attest_allow_insecure_observed_trust" {
+  type        = bool
+  description = "Temporary rollout flag. When true, observed proofs can be treated as trusted without Apple verification."
+  default     = false
+}
+
 variable "universal_links_apple_team_id" {
   type        = string
   description = "Apple Developer Team ID for AASA appID."

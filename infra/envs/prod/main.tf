@@ -101,18 +101,22 @@ module "api" {
 
   redis_primary_endpoint = module.redis.primary_endpoint_address
 
-  email_from                               = var.email_from
-  email_admin_from                         = var.email_admin_from
-  email_reply_to                           = var.email_reply_to
-  email_configuration_set                  = var.email_configuration_set
-  email_verify_base_url                    = var.email_verify_base_url
-  app_minimum_supported_version            = var.app_minimum_supported_version
-  app_minimum_supported_version_message    = var.app_minimum_supported_version_message
-  app_minimum_supported_version_update_url = var.app_minimum_supported_version_update_url
-  universal_links_apple_team_id            = var.universal_links_apple_team_id
-  universal_links_ios_bundle_id            = var.universal_links_ios_bundle_id
-  universal_links_cache_max_age_seconds    = var.universal_links_cache_max_age_seconds
-  universal_links_aasa_version             = var.universal_links_aasa_version
+  email_from                                       = var.email_from
+  email_admin_from                                 = var.email_admin_from
+  email_reply_to                                   = var.email_reply_to
+  email_configuration_set                          = var.email_configuration_set
+  email_verify_base_url                            = var.email_verify_base_url
+  app_minimum_supported_version                    = var.app_minimum_supported_version
+  app_minimum_supported_version_message            = var.app_minimum_supported_version_message
+  app_minimum_supported_version_update_url         = var.app_minimum_supported_version_update_url
+  devices_app_attest_mode                          = var.devices_app_attest_mode
+  devices_app_attest_challenge_ttl                 = var.devices_app_attest_challenge_ttl
+  devices_app_attest_trust_ttl                     = var.devices_app_attest_trust_ttl
+  devices_app_attest_allow_insecure_observed_trust = var.devices_app_attest_allow_insecure_observed_trust
+  universal_links_apple_team_id                    = var.universal_links_apple_team_id
+  universal_links_ios_bundle_id                    = var.universal_links_ios_bundle_id
+  universal_links_cache_max_age_seconds            = var.universal_links_cache_max_age_seconds
+  universal_links_aasa_version                     = var.universal_links_aasa_version
 
   ssm_auth_audience_arn = module.ssm.auth_audience_parameter_arn
   ssm_auth_issuer_arn   = module.ssm.auth_issuer_parameter_arn

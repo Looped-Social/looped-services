@@ -27,6 +27,10 @@ email_verify_base_url   = ""
 app_minimum_supported_version = "1.0.3"
 app_minimum_supported_version_message = ""
 app_minimum_supported_version_update_url = "https://apps.apple.com/us/app/looped-social/id6758413180"
+devices_app_attest_mode = "observe"
+devices_app_attest_challenge_ttl = "5m"
+devices_app_attest_trust_ttl = "30d"
+devices_app_attest_allow_insecure_observed_trust = false
 
 # Universal Links (AASA)
 # appID will be "<universal_links_apple_team_id>.<universal_links_ios_bundle_id>"
