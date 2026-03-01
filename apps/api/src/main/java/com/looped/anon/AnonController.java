@@ -4,6 +4,7 @@ import com.fasterxml.jackson.annotation.JsonAlias;
 import com.looped.communities.CommunitiesRepository;
 import com.looped.communities.CommunityVerificationsRepository;
 import com.looped.communities.SpecializationJoinsRepository;
+import com.looped.devices.AppAttestService;
 import com.looped.principals.PrincipalRepository;
 import com.looped.anon.crypto.PemKeyUtils;
 import com.looped.users.UserRepository;
@@ -42,6 +43,7 @@ public class AnonController {
     private final AnonRevocationsRepository revocations;
     private final AnonIssueTokenRepository issueTokens;
     private final AnonCertEntitlementsRepository certEntitlements;
+    private final AppAttestService appAttest;
     private final SecureRandom issueTokenRandom = new SecureRandom();
 
     public AnonController(UserRepository users,
@@ -57,7 +59,8 @@ public class AnonController {
                           AnonProofService proofs,
                           AnonRevocationsRepository revocations,
                           AnonIssueTokenRepository issueTokens,
-                          AnonCertEntitlementsRepository certEntitlements) {
+                          AnonCertEntitlementsRepository certEntitlements,
+                          AppAttestService appAttest) {
         this.users = users;
         this.communities = communities;
         this.communityVerifications = communityVerifications;
@@ -72,10 +75,13 @@ public class AnonController {
         this.revocations = revocations;
         this.issueTokens = issueTokens;
         this.certEntitlements = certEntitlements;
+        this.appAttest = appAttest;
     }
 
     @PostMapping("/issue")
-    public ResponseEntity<?> issue(@AuthenticationPrincipal Jwt jwt, @Valid @RequestBody IssueRequest body) {
+    public ResponseEntity<?> issue(@AuthenticationPrincipal Jwt jwt,
+                                   @RequestHeader(value = "X-App-Attest-Key-Id", required = false) String appAttestKeyId,
+                                   @Valid @RequestBody IssueRequest body) {
         var user = users.findByFirebaseUid(jwt.getSubject());
         if (user.isEmpty()) {
             return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
@@ -124,6 +130,14 @@ public class AnonController {
                     "message", "Anonymous enrollment is blocked for this community"
             ));
         }
+        var attestDecision = appAttest.anonEnrollmentDecision(user.get().id, appAttestKeyId);
+        if (attestDecision.required() && !attestDecision.trusted()) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
+                    "error", "app_attest_required",
+                    "message", "A trusted iOS device attestation is required before anonymous enrollment",
+                    "app_attest_mode", attestDecision.mode().name().toLowerCase(java.util.Locale.ROOT)
+            ));
+        }
         byte[] blindedSignature = issuer.signBlinded(body.communityId(), user.get().companyId, blindedMessage);
         var info = issuer.issuerInfo(body.communityId(), user.get().companyId);
         String issueToken = AnonIssueTokenCodec.generateToken(issueTokenRandom);
@@ -141,6 +155,9 @@ public class AnonController {
         out.put("issueToken", issueToken);
         out.put("issue_token_expires_at", issueTokenExpiresAt);
         out.put("issueTokenExpiresAt", issueTokenExpiresAt);
+        out.put("app_attest_mode", attestDecision.mode().name().toLowerCase(java.util.Locale.ROOT));
+        out.put("app_attest_required", attestDecision.required());
+        out.put("app_attest_trusted", attestDecision.trusted());
         return ResponseEntity.ok(out);
     }
 

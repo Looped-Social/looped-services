@@ -45,7 +45,7 @@ public class SecurityConfig {
     @Value("${cors.allowed-methods:GET,POST,PATCH,PUT,DELETE,OPTIONS}")
     private String corsAllowedMethods;
 
-    @Value("${cors.allowed-headers:Authorization,Content-Type,Idempotency-Key,X-Actor,X-Media-Signature}")
+    @Value("${cors.allowed-headers:Authorization,Content-Type,Idempotency-Key,X-Actor,X-Media-Signature,X-App-Attest-Key-Id}")
     private String corsAllowedHeaders;
 
     @Value("${cors.allow-credentials:false}")

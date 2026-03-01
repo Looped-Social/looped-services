@@ -73,8 +73,15 @@ firebase:
 cors:
   allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173}
   allowed-methods: ${CORS_ALLOWED_METHODS:GET,POST,PATCH,PUT,DELETE,OPTIONS}
-  allowed-headers: ${CORS_ALLOWED_HEADERS:Authorization,Content-Type,Idempotency-Key,X-Actor,X-Media-Signature}
+  allowed-headers: ${CORS_ALLOWED_HEADERS:Authorization,Content-Type,Idempotency-Key,X-Actor,X-Media-Signature,X-App-Attest-Key-Id}
   allow-credentials: ${CORS_ALLOW_CREDENTIALS:false}
+
+devices:
+  app-attest:
+    mode: ${DEVICES_APP_ATTEST_MODE:disabled}
+    challenge-ttl: ${DEVICES_APP_ATTEST_CHALLENGE_TTL:5m}
+    trust-ttl: ${DEVICES_APP_ATTEST_TRUST_TTL:30d}
+    allow-insecure-observed-trust: ${DEVICES_APP_ATTEST_ALLOW_INSECURE_OBSERVED_TRUST:false}
 
 admin:
   edge-secret: ${ADMIN_EDGE_SECRET:}
