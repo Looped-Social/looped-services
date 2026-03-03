@@ -66,7 +66,7 @@ variable "max_capacity" {
 
 variable "cors_allowed_origins" {
   type    = string
-  default = "http://localhost:5173"
+  default = "http://localhost:5173,http://localhost:3000,https://admin-staging.mylooped.app,https://admin.mylooped.app,https://mylooped.app,https://www.mylooped.app,https://looped-social.com,https://www.looped-social.com"
 }
 
 variable "email_from" {

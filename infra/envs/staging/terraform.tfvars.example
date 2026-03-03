@@ -17,7 +17,7 @@ max_capacity  = 3
 # Staging default is single NAT gateway (cheaper). Consider enabling for prod-like HA testing.
 multi_az_nat = false
 
-cors_allowed_origins = "http://localhost:5173,https://admin-staging.mylooped.app"
+cors_allowed_origins = "http://localhost:5173,http://localhost:3000,https://admin-staging.mylooped.app,https://admin.mylooped.app,https://mylooped.app,https://www.mylooped.app,https://looped-social.com,https://www.looped-social.com"
 
 # App config
 email_from              = "verify@mylooped.app"

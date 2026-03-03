@@ -71,7 +71,7 @@ firebase:
     required: ${FIREBASE_ADMIN_REQUIRED:false}
 
 cors:
-  allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173}
+  allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173,http://localhost:3000,https://mylooped.app,https://www.mylooped.app,https://looped-social.com,https://www.looped-social.com}
   allowed-methods: ${CORS_ALLOWED_METHODS:GET,POST,PATCH,PUT,DELETE,OPTIONS}
   allowed-headers: ${CORS_ALLOWED_HEADERS:Authorization,Content-Type,Idempotency-Key,X-Actor,X-Media-Signature,X-App-Attest-Key-Id}
   allow-credentials: ${CORS_ALLOW_CREDENTIALS:false}

@@ -16,7 +16,7 @@ variable "aws_region" {
 
 variable "cors_allowed_origins" {
   type        = string
-  description = "Comma-separated list of allowed origins for browser-based direct S3 uploads (e.g. admin dash on localhost)."
+  description = "Comma-separated list of allowed origins for browser-based direct S3 uploads (for example both mylooped.app and looped-social.com during migration)."
 }
 
 variable "cloudfront_aliases" {

@@ -80,7 +80,8 @@ variable "extra_ok_actions" {
 }
 
 variable "cors_allowed_origins" {
-  type = string
+  type        = string
+  description = "Comma-separated allowed origins for API/browser clients and direct-upload flows (for example both mylooped.app and looped-social.com during migration)."
 }
 
 variable "cloudfront_domain" {
