@@ -12,6 +12,8 @@ import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
 
+import static com.looped.communities.CommunityVisibilityRules.isUserVisible;
+
 @RestController
 @RequestMapping("/v1/communities")
 public class CommunityDomainsController {
@@ -31,6 +33,9 @@ public class CommunityDomainsController {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "community_not_found"));
         }
         var community = communityOpt.get();
+        if (!isUserVisible(community.kind, community.specializationType) || "specialization".equalsIgnoreCase(community.kind)) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "community_not_found"));
+        }
         Set<String> unique = new TreeSet<>();
         unique.addAll(domains.listDomains(id));
         return ResponseEntity.ok(Map.of("items", List.copyOf(unique)));

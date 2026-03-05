@@ -25,6 +25,8 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
+import static com.looped.communities.CommunityVisibilityRules.isUserVisible;
+
 @RestController
 @RequestMapping("/v1")
 public class DiscoveryController {
@@ -66,12 +68,16 @@ public class DiscoveryController {
         }
         int lim = Math.max(1, Math.min(limit, 100));
         boolean kindProvided = kind != null && !kind.isBlank();
+        String rawKind = kind == null ? null : kind.trim().toLowerCase(Locale.ROOT);
+        if (kindProvided && ("school".equals(rawKind) || "major".equals(rawKind))) {
+            return ResponseEntity.ok(Map.of("items", List.of()));
+        }
         String normalizedKind = normalizeKind(kind);
         String specializationType = kind != null ? normalizeSpecializationTypeFromKind(kind) : null;
         if (kindProvided && normalizedKind == null) {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of(
                     "error", "invalid_kind",
-                    "message", "kind must be company, school, specialization, major, field, or unknown"
+                    "message", "kind must be company, specialization, field, or unknown"
             ));
         }
         if ("unknown".equals(normalizedKind)) {
@@ -84,20 +90,23 @@ public class DiscoveryController {
                     "message", "Complete onboarding before searching communities"
             ));
             case OK -> {
-                var fallback = logos.resolveFallbacks(res.items().stream()
+                List<CommunitiesRepository.CommunityRow> visibleRows = res.items().stream()
+                        .filter(row -> isUserVisible(row.kind, row.specializationType))
+                        .toList();
+                var fallback = logos.resolveFallbacks(visibleRows.stream()
                         .map(row -> new CommunityLogoResolver.CommunityRef(row.id, row.kind, row.imageUrl))
                         .toList());
                 Long userId = users.findByFirebaseUid(jwt.getSubject()).map(u -> u.id).orElse(null);
                 java.util.Set<Long> followedIds = userId == null ? java.util.Set.of()
-                        : follows.followedIds(userId, res.items().stream().map(r -> r.id).toList());
+                        : follows.followedIds(userId, visibleRows.stream().map(r -> r.id).toList());
                 java.util.Set<Long> joinedIds = userId == null ? java.util.Set.of()
-                        : specializationJoins.joinedIds(userId, res.items().stream().map(r -> r.id).toList());
+                        : specializationJoins.joinedIds(userId, visibleRows.stream().map(r -> r.id).toList());
                 var memberCounts = this.memberCounts.memberCountsByCommunityRefs(
-                        res.items().stream()
+                        visibleRows.stream()
                                 .map(r -> new CommunityMemberCountService.Ref(r.id, r.kind))
                                 .toList()
                 );
-                List<Map<String, Object>> items = res.items().stream()
+                List<Map<String, Object>> items = visibleRows.stream()
                         .map(row -> communityPayload(row, fallback,
                                 followedIds.contains(row.id),
                                 joinedIds.contains(row.id),
@@ -130,12 +139,16 @@ public class DiscoveryController {
     ) {
         int lim = Math.max(1, Math.min(limit, 50));
         boolean kindProvided = kind != null && !kind.isBlank();
+        String rawKind = kind == null ? null : kind.trim().toLowerCase(Locale.ROOT);
+        if (kindProvided && ("school".equals(rawKind) || "major".equals(rawKind))) {
+            return ResponseEntity.ok(Map.of("items", List.of()));
+        }
         String normalizedKind = normalizeKind(kind);
         String specializationType = kind != null ? normalizeSpecializationTypeFromKind(kind) : null;
         if (kindProvided && normalizedKind == null) {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of(
                     "error", "invalid_kind",
-                    "message", "kind must be company, school, specialization, major, field, or unknown"
+                    "message", "kind must be company, specialization, field, or unknown"
             ));
         }
         if ("unknown".equals(normalizedKind)) {
@@ -148,15 +161,18 @@ public class DiscoveryController {
                     "message", "Complete onboarding before viewing recommended communities"
             ));
             case OK -> {
-                var fallback = logos.resolveFallbacks(res.items().stream()
+                List<CommunitiesRepository.RecommendedRow> visibleRows = res.items().stream()
+                        .filter(row -> isUserVisible(row.kind, row.specializationType))
+                        .toList();
+                var fallback = logos.resolveFallbacks(visibleRows.stream()
                         .map(row -> new CommunityLogoResolver.CommunityRef(row.id, row.kind, row.imageUrl))
                         .toList());
                 var memberCounts = this.memberCounts.memberCountsByCommunityRefs(
-                        res.items().stream()
+                        visibleRows.stream()
                                 .map(r -> new CommunityMemberCountService.Ref(r.id, r.kind))
                                 .toList()
                 );
-                List<Map<String, Object>> items = res.items().stream()
+                List<Map<String, Object>> items = visibleRows.stream()
                         .map(row -> recommendedPayload(row, fallback, memberCounts.getOrDefault(row.id, 0)))
                         .toList();
                 Map<String, Object> body = new HashMap<>();
@@ -184,34 +200,27 @@ public class DiscoveryController {
                     "message", "type must be major, field, or all"
             ));
         }
+        if ("major".equals(normalized)) {
+            return ResponseEntity.ok(Map.of("items", List.of()));
+        }
 
         if ("all".equals(normalized)) {
-            var majorsRes = service.recommendedCommunities(jwt.getSubject(), "specialization", "major", lim);
             var fieldsRes = service.recommendedCommunities(jwt.getSubject(), "specialization", "field", lim);
             var fallback = logos.resolveFallbacks(
-                    java.util.stream.Stream.concat(
-                                    majorsRes.items().stream(),
-                                    fieldsRes.items().stream()
-                            )
+                    fieldsRes.items().stream()
                             .map(row -> new CommunityLogoResolver.CommunityRef(row.id, row.kind, row.imageUrl))
                             .toList()
             );
             var memberCounts = this.memberCounts.memberCountsByCommunityRefs(
-                    java.util.stream.Stream.concat(
-                                    majorsRes.items().stream(),
-                                    fieldsRes.items().stream()
-                            )
+                    fieldsRes.items().stream()
                             .map(row -> new CommunityMemberCountService.Ref(row.id, row.kind))
                             .toList()
             );
-            List<Map<String, Object>> majors = majorsRes.items().stream()
-                    .map(row -> recommendedPayload(row, fallback, memberCounts.getOrDefault(row.id, 0)))
-                    .toList();
             List<Map<String, Object>> fields = fieldsRes.items().stream()
                     .map(row -> recommendedPayload(row, fallback, memberCounts.getOrDefault(row.id, 0)))
                     .toList();
             return ResponseEntity.ok(Map.of(
-                    "majors", majors,
+                    "majors", List.of(),
                     "fields", fields
             ));
         }
@@ -247,6 +256,9 @@ public class DiscoveryController {
                     "message", "type must be major or field"
             ));
         }
+        if ("major".equals(normalized)) {
+            return ResponseEntity.ok(Map.of("items", List.of()));
+        }
 
         var res = service.browseSpecializations(jwt.getSubject(), normalized, cursor, lim);
         return switch (res.status()) {
@@ -255,15 +267,18 @@ public class DiscoveryController {
                     "message", "Complete onboarding before browsing specializations"
             ));
             case OK -> {
-                var fallback = logos.resolveFallbacks(res.items().stream()
+                List<CommunitiesRepository.CommunityRow> visibleRows = res.items().stream()
+                        .filter(row -> isUserVisible(row.kind, row.specializationType))
+                        .toList();
+                var fallback = logos.resolveFallbacks(visibleRows.stream()
                         .map(row -> new CommunityLogoResolver.CommunityRef(row.id, row.kind, row.imageUrl))
                         .toList());
                 Long userId = users.findByFirebaseUid(jwt.getSubject()).map(u -> u.id).orElse(null);
                 java.util.Set<Long> followedIds = userId == null ? java.util.Set.of()
-                        : follows.followedIds(userId, res.items().stream().map(r -> r.id).toList());
+                        : follows.followedIds(userId, visibleRows.stream().map(r -> r.id).toList());
                 java.util.Set<Long> joinedIds = userId == null ? java.util.Set.of()
-                        : specializationJoins.joinedIds(userId, res.items().stream().map(r -> r.id).toList());
-                List<Map<String, Object>> items = res.items().stream()
+                        : specializationJoins.joinedIds(userId, visibleRows.stream().map(r -> r.id).toList());
+                List<Map<String, Object>> items = visibleRows.stream()
                         .map(row -> communityPayload(
                                 row,
                                 fallback,
@@ -413,10 +428,10 @@ public class DiscoveryController {
         if (normalized.equals("unknown")) {
             return "unknown";
         }
-        if (normalized.equals("major") || normalized.equals("field")) {
+        if (normalized.equals("field")) {
             normalized = "specialization";
         }
-        if (!normalized.equals("company") && !normalized.equals("school")) {
+        if (!normalized.equals("company")) {
             if (!normalized.equals("specialization")) {
                 return null;
             }
@@ -428,7 +443,7 @@ public class DiscoveryController {
         if (raw == null) return null;
         String normalized = raw.trim().toLowerCase(Locale.ROOT);
         if (normalized.isBlank()) return null;
-        if (normalized.equals("major") || normalized.equals("field")) {
+        if (normalized.equals("field")) {
             return normalized;
         }
         return null;

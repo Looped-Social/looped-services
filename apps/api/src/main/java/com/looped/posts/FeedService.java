@@ -19,6 +19,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import static com.looped.communities.CommunityVisibilityRules.isUserVisible;
+
 @Service
 public class FeedService {
     private final PostRepository posts;
@@ -60,8 +62,11 @@ public class FeedService {
         if (u.isEmpty()) {
             return FeedResult.userNotProvisioned();
         }
-        if (communityId != null && communities.findById(communityId).isEmpty()) {
-            return FeedResult.communityNotFound();
+        if (communityId != null) {
+            var community = communities.findById(communityId);
+            if (community.isEmpty() || !isUserVisible(community.get().kind, community.get().specializationType)) {
+                return FeedResult.communityNotFound();
+            }
         }
         Mode resolved = Mode.from(mode);
         var principal = principals.createForUser(u.get().id);
@@ -85,7 +90,8 @@ public class FeedService {
         if (u.isEmpty()) {
             return FeedResult.userNotProvisioned();
         }
-        if (communities.findById(communityId).isEmpty()) {
+        var community = communities.findById(communityId);
+        if (community.isEmpty() || !isUserVisible(community.get().kind, community.get().specializationType)) {
             return FeedResult.communityNotFound();
         }
         if (communityBans.isBanned(u.get().id, communityId)) {
@@ -303,7 +309,9 @@ public class FeedService {
         }
         if (communityId != null) {
             var community = communities.findById(communityId);
-            if (community.isEmpty()) return TrendingResult.communityNotFound();
+            if (community.isEmpty() || !isUserVisible(community.get().kind, community.get().specializationType)) {
+                return TrendingResult.communityNotFound();
+            }
         }
         if (communityId != null && communityBans.isBanned(u.get().id, communityId)) {
             return TrendingResult.communityBanned();
@@ -351,10 +359,16 @@ public class FeedService {
     private Set<Long> eligibleCommunityIdsForUserId(long userId) {
         Set<Long> verified = communityVerifications.activeVerifiedCommunityIdsForUser(userId);
         Set<Long> joined = specializationJoins.joinedIdsForUser(userId);
-        if (verified.isEmpty()) return joined;
-        if (joined.isEmpty()) return verified;
-        Set<Long> out = new HashSet<>(verified);
-        out.addAll(joined);
+        Set<Long> candidate = new HashSet<>(verified);
+        candidate.addAll(joined);
+        if (candidate.isEmpty()) return Set.of();
+        var byId = communities.findByIds(candidate);
+        Set<Long> out = new HashSet<>();
+        for (var row : byId.values()) {
+            if (row == null) continue;
+            if (!isUserVisible(row.kind, row.specializationType)) continue;
+            out.add(row.id);
+        }
         return out;
     }
 

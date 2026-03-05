@@ -160,7 +160,7 @@ public class CommunityRequestsRepository {
         Boolean exists = jdbc.query(
                 "SELECT EXISTS (" +
                         "SELECT 1 FROM community_requests " +
-                        "WHERE user_id = ? AND status = 'pending' AND kind IN ('company', 'school')" +
+                        "WHERE user_id = ? AND status = 'pending' AND kind = 'company'" +
                         ")",
                 rs -> rs.next() ? rs.getBoolean(1) : Boolean.FALSE,
                 userId

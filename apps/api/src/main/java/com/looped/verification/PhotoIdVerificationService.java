@@ -13,6 +13,8 @@ import java.util.Locale;
 import java.util.Optional;
 import java.util.UUID;
 
+import static com.looped.communities.CommunityVisibilityRules.isUserVisible;
+
 @Service
 public class PhotoIdVerificationService {
     public enum Status { OK, USER_NOT_PROVISIONED, COMMUNITY_NOT_FOUND, BAD_REQUEST, FORBIDDEN, CONFLICT }
@@ -66,6 +68,9 @@ public class PhotoIdVerificationService {
             if (u.get().companyId == null) return StartResult.userNotProvisioned();
             var community = communities.findById(communityId);
             if (community.isEmpty()) return StartResult.communityNotFound();
+            if (!isUserVisible(community.get().kind, community.get().specializationType)) {
+                return StartResult.communityNotFound();
+            }
             if ("specialization".equalsIgnoreCase(community.get().kind)) {
                 return StartResult.badRequest("verification_not_supported");
             }
@@ -103,6 +108,9 @@ public class PhotoIdVerificationService {
             if (u.get().companyId == null) return PresignResult.userNotProvisioned();
             var community = communities.findById(communityId);
             if (community.isEmpty()) return PresignResult.communityNotFound();
+            if (!isUserVisible(community.get().kind, community.get().specializationType)) {
+                return PresignResult.communityNotFound();
+            }
             if ("specialization".equalsIgnoreCase(community.get().kind)) {
                 return PresignResult.badRequest("verification_not_supported");
             }
@@ -135,6 +143,9 @@ public class PhotoIdVerificationService {
             if (u.get().companyId == null) return SubmitResult.userNotProvisioned();
             var community = communities.findById(communityId);
             if (community.isEmpty()) return SubmitResult.communityNotFound();
+            if (!isUserVisible(community.get().kind, community.get().specializationType)) {
+                return SubmitResult.communityNotFound();
+            }
             if ("specialization".equalsIgnoreCase(community.get().kind)) {
                 return SubmitResult.badRequest("verification_not_supported");
             }
@@ -180,6 +191,9 @@ public class PhotoIdVerificationService {
             if (u.get().companyId == null) return StatusResult.userNotProvisioned();
             var community = communities.findById(communityId);
             if (community.isEmpty()) return StatusResult.communityNotFound();
+            if (!isUserVisible(community.get().kind, community.get().specializationType)) {
+                return StatusResult.communityNotFound();
+            }
             if ("specialization".equalsIgnoreCase(community.get().kind)) {
                 return StatusResult.badRequest("verification_not_supported");
             }

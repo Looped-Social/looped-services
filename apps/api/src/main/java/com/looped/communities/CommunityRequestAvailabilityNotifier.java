@@ -70,7 +70,7 @@ public class CommunityRequestAvailabilityNotifier {
     }
 
     private boolean supportsAvailabilityNotifications(String requestKind) {
-        return "company".equals(requestKind) || "school".equals(requestKind);
+        return "company".equals(requestKind);
     }
 
     private String resolveContactEmail(CommunityRequestsRepository.Row row) {
@@ -85,7 +85,7 @@ public class CommunityRequestAvailabilityNotifier {
         String normalized = requestKind.trim().toLowerCase(Locale.ROOT);
         if ("workplace".equals(normalized)) return "company";
         return switch (normalized) {
-            case "company", "school", "major", "field" -> normalized;
+            case "company", "field" -> normalized;
             default -> null;
         };
     }
@@ -160,4 +160,3 @@ public class CommunityRequestAvailabilityNotifier {
 
     public record NotifySummary(int matchedRequests, int sentEmails) {}
 }
-

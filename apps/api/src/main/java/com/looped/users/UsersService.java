@@ -31,6 +31,8 @@ import java.util.Locale;
 import java.util.Optional;
 import java.util.UUID;
 
+import static com.looped.communities.CommunityVisibilityRules.isUserVisible;
+
 @Service
 public class UsersService {
     private static final Logger log = LoggerFactory.getLogger(UsersService.class);
@@ -355,6 +357,9 @@ public class UsersService {
         if (communityId != null) {
             var community = communities.findById(communityId);
             if (community.isEmpty()) return UpdateDisplayCommunityResult.communityNotFound();
+            if (!isUserVisible(community.get().kind, community.get().specializationType)) {
+                return UpdateDisplayCommunityResult.communityNotFound();
+            }
             boolean verified = communityVerifications.isVerified(actor.get().id, communityId);
             if (!verified) return UpdateDisplayCommunityResult.communityNotVerified();
         }
@@ -871,8 +876,8 @@ public class UsersService {
         if (raw == null) return null;
         String normalized = raw.trim().toLowerCase(Locale.ROOT);
         if (normalized.isBlank()) return null;
-        if (!normalized.equals("major") && !normalized.equals("field")) return null;
-        return normalized;
+        if (!normalized.equals("field")) return null;
+        return "field";
     }
 
     private String normalizeMessagePermission(String raw) {

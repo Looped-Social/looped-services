@@ -197,7 +197,9 @@ public class UserRepository {
                         "JOIN community_verifications cv ON cv.user_id = u.id AND cv.community_id = u.display_community_id " +
                         "JOIN communities c ON c.id = cv.community_id " +
                         "WHERE u.id = ? AND cv.verified = true " +
-                        "AND (cv.expires_at IS NULL OR cv.expires_at > now())",
+                        "AND (cv.expires_at IS NULL OR cv.expires_at > now()) " +
+                        "AND lower(c.kind) <> 'school' " +
+                        "AND NOT (c.kind = 'specialization' AND lower(COALESCE(c.specialization_type, '')) = 'major')",
                 (rs, rowNum) -> {
                     DisplayCommunityRow row = new DisplayCommunityRow();
                     row.id = rs.getLong("id");
@@ -218,7 +220,7 @@ public class UserRepository {
                         "FROM users u " +
                         "JOIN communities c ON c.id = u.display_specialization_id " +
                         "WHERE u.id = ? AND c.kind = 'specialization' " +
-                        "AND c.specialization_type IN ('major','field')",
+                        "AND c.specialization_type = 'field'",
                 (rs, rowNum) -> {
                     DisplaySpecializationRow row = new DisplaySpecializationRow();
                     row.id = rs.getLong("id");

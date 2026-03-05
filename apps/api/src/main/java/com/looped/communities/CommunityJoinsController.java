@@ -14,6 +14,9 @@ import java.time.OffsetDateTime;
 import java.util.HashMap;
 import java.util.Map;
 
+import static com.looped.communities.CommunityVisibilityRules.isMajorSpecialization;
+import static com.looped.communities.CommunityVisibilityRules.isSchoolKind;
+
 @RestController
 @RequestMapping("/v1/communities")
 public class CommunityJoinsController {
@@ -36,6 +39,9 @@ public class CommunityJoinsController {
     public ResponseEntity<?> join(@AuthenticationPrincipal Jwt jwt, @PathVariable("id") long id) {
         var community = communities.findById(id);
         if (community.isEmpty()) return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "not_found"));
+        if (isSchoolKind(community.get().kind) || isMajorSpecialization(community.get().kind, community.get().specializationType)) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "not_found"));
+        }
 
         if ("specialization".equalsIgnoreCase(community.get().kind)) {
             var res = specializationMemberships.join(jwt.getSubject(), id);
@@ -44,7 +50,7 @@ public class CommunityJoinsController {
                 case NOT_FOUND -> ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "not_found"));
                 case INVALID_SPECIALIZATION -> ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of(
                         "error", "invalid_specialization",
-                        "message", "Specialization must be a major or field"
+                        "message", "Specialization must be a field"
                 ));
                 case VERIFICATION_REQUIRED -> ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
                         "error", "specialization_verification_required",
@@ -95,6 +101,9 @@ public class CommunityJoinsController {
     public ResponseEntity<?> unjoin(@AuthenticationPrincipal Jwt jwt, @PathVariable("id") long id) {
         var community = communities.findById(id);
         if (community.isEmpty()) return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "not_found"));
+        if (isSchoolKind(community.get().kind) || isMajorSpecialization(community.get().kind, community.get().specializationType)) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "not_found"));
+        }
 
         if ("specialization".equalsIgnoreCase(community.get().kind)) {
             var res = specializationMemberships.unjoin(jwt.getSubject(), id);
@@ -126,26 +135,22 @@ public class CommunityJoinsController {
 
     private String limitMessage(String specializationType, Integer limit) {
         if (specializationType == null || limit == null) return "Specialization join limit reached";
-        String label = specializationType.equals("major") ? "majors" : "fields";
-        return "You can only join up to " + limit + " " + label + ".";
+        return "You can only join up to " + limit + " fields.";
     }
 
     private String cooldownMessage(String specializationType, Integer cooldownMonths) {
         if (specializationType == null) return "You must wait before changing specializations.";
-        String label = specializationType.equals("major") ? "majors" : "fields";
         if (cooldownMonths == null || cooldownMonths <= 0) {
-            return "You must wait before changing " + label + ".";
+            return "You must wait before changing fields.";
         }
         String unit = cooldownMonths == 1 ? "month" : "months";
-        return "You must wait " + cooldownMonths + " " + unit + " before changing " + label + ".";
+        return "You must wait " + cooldownMonths + " " + unit + " before changing fields.";
     }
 
     private String verificationRequiredMessage(String specializationType, String requiredKind) {
         if (specializationType == null || requiredKind == null) {
             return "You must be verified before joining this specialization.";
         }
-        String label = specializationType.equals("major") ? "majors" : "fields";
-        String requiredLabel = requiredKind.equals("school") ? "school" : requiredKind;
-        return "Verify at least one " + requiredLabel + " before joining " + label + ".";
+        return "Verify at least one " + requiredKind + " before joining fields.";
     }
 }

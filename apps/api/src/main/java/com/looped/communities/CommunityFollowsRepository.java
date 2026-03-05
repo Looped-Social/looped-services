@@ -49,7 +49,8 @@ public class CommunityFollowsRepository {
                        c.name, c.short_name AS short_name, c.kind, c.specialization_type, c.member_count,
                        cf.created_at AS last_activity,
                        CASE
-                           WHEN c.kind = 'specialization' THEN true
+                           WHEN c.kind = 'specialization' THEN
+                               CASE WHEN lower(COALESCE(c.specialization_type, '')) = 'field' THEN sj.user_id IS NOT NULL ELSE true END
                            ELSE (COALESCE(cv.verified, false) AND (cv.expires_at IS NULL OR cv.expires_at > now()))
                        END AS can_post,
                        CASE WHEN sj.user_id IS NULL THEN false ELSE true END AS is_joined
@@ -60,6 +61,8 @@ public class CommunityFollowsRepository {
                 LEFT JOIN specialization_joins sj
                     ON sj.user_id = cf.user_id AND sj.specialization_id = cf.community_id
                 WHERE cf.user_id = ?
+                  AND lower(c.kind) <> 'school'
+                  AND NOT (c.kind = 'specialization' AND lower(COALESCE(c.specialization_type, '')) = 'major')
                 """;
         if (cursorTs == null || cursorId == null) {
             return jdbc.query(base + "ORDER BY cf.created_at DESC, cf.id DESC LIMIT ?", MAPPER, userId, limit);
@@ -78,7 +81,8 @@ public class CommunityFollowsRepository {
                            c.name, c.short_name AS short_name, c.kind, c.specialization_type, c.member_count,
                            COALESCE(lp.last_post_at, cf.created_at) AS last_activity,
                            CASE
-                               WHEN c.kind = 'specialization' THEN true
+                               WHEN c.kind = 'specialization' THEN
+                                   CASE WHEN lower(COALESCE(c.specialization_type, '')) = 'field' THEN sj.user_id IS NOT NULL ELSE true END
                                ELSE (COALESCE(cv.verified, false) AND (cv.expires_at IS NULL OR cv.expires_at > now()))
                            END AS can_post,
                            CASE WHEN sj.user_id IS NULL THEN false ELSE true END AS is_joined,
@@ -99,6 +103,8 @@ public class CommunityFollowsRepository {
                         LIMIT 1
                     ) lp ON true
                     WHERE cf.user_id = ?
+                      AND lower(c.kind) <> 'school'
+                      AND NOT (c.kind = 'specialization' AND lower(COALESCE(c.specialization_type, '')) = 'major')
                 )
                 SELECT * FROM rows
                 """;

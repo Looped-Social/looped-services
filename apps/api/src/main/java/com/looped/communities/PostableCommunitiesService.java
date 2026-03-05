@@ -12,6 +12,8 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
+import static com.looped.communities.CommunityVisibilityRules.isUserVisible;
+
 @Service
 public class PostableCommunitiesService {
     private final UserRepository users;
@@ -40,7 +42,7 @@ public class PostableCommunitiesService {
         if (actor.isEmpty()) return Result.userNotProvisioned();
 
         Set<Long> activeVerifiedCommunityIds = verifications.activeVerifiedCommunityIdsForUser(actor.get().id);
-        Set<Long> joinedSpecializationIds = specializationJoins.joinedIdsByTypes(actor.get().id, List.of("major", "field"));
+        Set<Long> joinedSpecializationIds = specializationJoins.joinedIdsByTypes(actor.get().id, List.of("field"));
 
         java.util.Set<Long> candidateIds = new java.util.HashSet<>();
         candidateIds.addAll(activeVerifiedCommunityIds);
@@ -52,6 +54,7 @@ public class PostableCommunitiesService {
         for (var entry : communitiesById.entrySet()) {
             var row = entry.getValue();
             if (row == null || row.kind == null) continue;
+            if (!isUserVisible(row.kind, row.specializationType)) continue;
             if ("specialization".equalsIgnoreCase(row.kind)) {
                 if (requiresSpecializationJoin(row.specializationType) && joinedSpecializationIds.contains(row.id)) {
                     postableIds.add(row.id);
@@ -129,7 +132,7 @@ public class PostableCommunitiesService {
     private boolean requiresSpecializationJoin(String specializationType) {
         if (specializationType == null) return false;
         String t = specializationType.trim().toLowerCase(Locale.ROOT);
-        return t.equals("major") || t.equals("field");
+        return t.equals("field");
     }
 
     private record Item(Map<String, Object> payload, boolean isPinned, Integer sortOrder, String name, long id) {}

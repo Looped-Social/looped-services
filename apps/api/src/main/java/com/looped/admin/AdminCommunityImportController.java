@@ -155,7 +155,7 @@ public class AdminCommunityImportController {
         if (rawKind == null) return null;
         String normalized = rawKind.trim().toLowerCase(Locale.ROOT);
         if (normalized.isBlank()) return null;
-        if (normalized.equals("major") || normalized.equals("field")) {
+        if (normalized.equals("field")) {
             return new KindResult("specialization", normalized);
         }
         if (normalized.equals("specialization")) {
@@ -183,8 +183,8 @@ public class AdminCommunityImportController {
         if (raw == null) return null;
         String normalized = raw.trim().toLowerCase(Locale.ROOT);
         if (normalized.isBlank()) return null;
-        if (!normalized.equals("major") && !normalized.equals("field")) return null;
-        return normalized;
+        if (!normalized.equals("field")) return null;
+        return "field";
     }
 
     private List<String> parseDomains(String raw) {

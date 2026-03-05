@@ -7,6 +7,8 @@ import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
 
+import static com.looped.communities.CommunityVisibilityRules.isUserVisible;
+
 @Service
 public class CommunityViewerStateService {
     public enum VerificationStatus { active, pending, rejected, expired, none, unknown }
@@ -50,11 +52,14 @@ public class CommunityViewerStateService {
         if (community == null || community.kind == null || community.kind.isBlank()) {
             return new ViewerState(VerificationStatus.unknown, false, CannotPostReason.unknown);
         }
+        if (!isUserVisible(community.kind, community.specializationType)) {
+            return new ViewerState(VerificationStatus.unknown, false, CannotPostReason.unknown);
+        }
 
         String kind = community.kind.trim().toLowerCase(Locale.ROOT);
         if ("specialization".equals(kind)) {
             String t = community.specializationType == null ? "" : community.specializationType.trim().toLowerCase(Locale.ROOT);
-            boolean joinRequired = t.equals("major") || t.equals("field");
+            boolean joinRequired = t.equals("field");
             if (!joinRequired) {
                 return new ViewerState(VerificationStatus.none, true, null);
             }

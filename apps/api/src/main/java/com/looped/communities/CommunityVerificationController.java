@@ -23,6 +23,8 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 
+import static com.looped.communities.CommunityVisibilityRules.isUserVisible;
+
 @RestController
 @RequestMapping("/v1/communities")
 public class CommunityVerificationController {
@@ -133,6 +135,9 @@ public class CommunityVerificationController {
         }
         OffsetDateTime now = OffsetDateTime.now();
         List<Map<String, Object>> items = verifications.listForUser(actor.get().id).stream().map(row -> {
+            if (!isUserVisible(row.communityKind, null)) {
+                return null;
+            }
             boolean active = row.verified && (row.expiresAt == null || row.expiresAt.isAfter(now));
             boolean expired = row.verifiedAt != null && row.expiresAt != null && !row.expiresAt.isAfter(now);
             String status;
@@ -184,6 +189,9 @@ public class CommunityVerificationController {
         if (community.isEmpty()) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "community_not_found"));
         }
+        if (!isUserVisible(community.get().kind, community.get().specializationType)) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "community_not_found"));
+        }
         boolean isSpecialization = "specialization".equalsIgnoreCase(community.get().kind);
         boolean isJoinableSpecialization = isSpecialization && requiresSpecializationJoin(community.get().specializationType);
         boolean requiresVerification = !isSpecialization;
@@ -207,7 +215,7 @@ public class CommunityVerificationController {
     private boolean requiresSpecializationJoin(String specializationType) {
         if (specializationType == null) return false;
         String t = specializationType.trim().toLowerCase(java.util.Locale.ROOT);
-        return t.equals("major") || t.equals("field");
+        return t.equals("field");
     }
 
     @DeleteMapping("/{communityId}/verification")
@@ -217,7 +225,8 @@ public class CommunityVerificationController {
         if (actor.isEmpty() || actor.get().companyId == null) {
             return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "user_not_provisioned"));
         }
-        if (communities.findById(communityId).isEmpty()) {
+        var community = communities.findById(communityId);
+        if (community.isEmpty() || !isUserVisible(community.get().kind, community.get().specializationType)) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "community_not_found"));
         }
         verifications.unverifyAndReleaseEmail(actor.get().id, communityId);

@@ -242,7 +242,7 @@ public class OnboardingV2Service {
         }
         String kind = specialization.get().kind == null ? "" : specialization.get().kind.trim().toLowerCase(Locale.ROOT);
         String specType = specialization.get().specializationType == null ? "" : specialization.get().specializationType.trim().toLowerCase(Locale.ROOT);
-        if (!"specialization".equals(kind) || (!"major".equals(specType) && !"field".equals(specType))) {
+        if (!"specialization".equals(kind) || !"field".equals(specType)) {
             return Result.invalidInput("invalid_specialization", snapshot(bundle.user, bundle.state));
         }
 
@@ -515,7 +515,7 @@ public class OnboardingV2Service {
     private String normalizeOrgKind(String kind) {
         if (kind == null || kind.isBlank()) return null;
         String normalized = kind.trim().toLowerCase(Locale.ROOT);
-        if (!normalized.equals("company") && !normalized.equals("school")) return null;
+        if (!normalized.equals("company")) return null;
         return normalized;
     }
 

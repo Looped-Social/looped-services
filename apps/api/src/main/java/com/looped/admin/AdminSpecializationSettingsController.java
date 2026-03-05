@@ -44,13 +44,10 @@ public class AdminSpecializationSettingsController {
         long fallbackCooldown = specializationProps.getDefaultJoinCooldownMonths();
         long months = settings.findLong(AppSettingsKeys.SPECIALIZATIONS_DEFAULT_JOIN_COOLDOWN_MONTHS).orElse(fallbackCooldown);
 
-        long fallbackMaxMajor = specializationProps.getDefaultMaxJoinsMajor();
         long fallbackMaxField = specializationProps.getDefaultMaxJoinsField();
-        long maxMajor = settings.findLong(AppSettingsKeys.SPECIALIZATIONS_MAX_JOINS_MAJOR).orElse(fallbackMaxMajor);
         long maxField = settings.findLong(AppSettingsKeys.SPECIALIZATIONS_MAX_JOINS_FIELD).orElse(fallbackMaxField);
         return ResponseEntity.ok(Map.of(
                 "default_join_cooldown_months", months,
-                "max_joins_major", maxMajor,
                 "max_joins_field", maxField
         ));
     }
@@ -66,6 +63,12 @@ public class AdminSpecializationSettingsController {
         boolean hasCooldown = body != null && body.defaultJoinCooldownMonths() != null;
         boolean hasMaxMajor = body != null && body.maxJoinsMajor() != null;
         boolean hasMaxField = body != null && body.maxJoinsField() != null;
+        if (hasMaxMajor) {
+            return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of(
+                    "error", "major_not_supported",
+                    "message", "maxJoinsMajor is no longer supported"
+            ));
+        }
         if (!hasCooldown && !hasMaxMajor && !hasMaxField) {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of("error", "no_changes"));
         }
@@ -83,20 +86,6 @@ public class AdminSpecializationSettingsController {
             settings.upsertLong(AppSettingsKeys.SPECIALIZATIONS_DEFAULT_JOIN_COOLDOWN_MONTHS, months, authRes.admin().id);
             out.put("default_join_cooldown_months", months);
             meta.append("default_join_cooldown_months=").append(months);
-        }
-
-        if (hasMaxMajor) {
-            long max = body.maxJoinsMajor();
-            if (max < 1 || max > 20) {
-                return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of(
-                        "error", "invalid_max_joins_major",
-                        "message", "maxJoinsMajor must be between 1 and 20"
-                ));
-            }
-            settings.upsertLong(AppSettingsKeys.SPECIALIZATIONS_MAX_JOINS_MAJOR, max, authRes.admin().id);
-            out.put("max_joins_major", max);
-            if (meta.length() > 0) meta.append(",");
-            meta.append("max_joins_major=").append(max);
         }
 
         if (hasMaxField) {

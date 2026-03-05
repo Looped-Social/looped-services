@@ -17,6 +17,8 @@ import java.util.Locale;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
+import static com.looped.communities.CommunityVisibilityRules.isUserVisible;
+
 @Service
 public class CommunityVerificationService {
     public enum Method { email, video, thirdparty }
@@ -64,6 +66,9 @@ public class CommunityVerificationService {
         if (u.isEmpty() || u.get().companyId == null) return StartResult.userNotProvisioned();
         var community = communities.findById(communityId);
         if (community.isEmpty()) return StartResult.communityNotFound();
+        if (!isUserVisible(community.get().kind, community.get().specializationType)) {
+            return StartResult.communityNotFound();
+        }
         if ("specialization".equalsIgnoreCase(community.get().kind)) {
             return StartResult.badRequest("verification_not_supported");
         }
@@ -126,6 +131,9 @@ public class CommunityVerificationService {
         if (u.isEmpty() || u.get().companyId == null) return FinishResult.userNotProvisioned();
         var community = communities.findById(communityId);
         if (community.isEmpty()) return FinishResult.communityNotFound();
+        if (!isUserVisible(community.get().kind, community.get().specializationType)) {
+            return FinishResult.communityNotFound();
+        }
         if ("specialization".equalsIgnoreCase(community.get().kind)) {
             return FinishResult.badRequest("verification_not_supported");
         }

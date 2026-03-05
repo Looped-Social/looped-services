@@ -32,6 +32,8 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 
+import static com.looped.communities.CommunityVisibilityRules.isUserVisible;
+
 @Service
 public class PostsService {
     private final PostRepository posts;
@@ -104,7 +106,9 @@ public class PostsService {
         if (content == null) content = "";
         if (communityId == null) return CreateResult.communityRequired();
         var community = communities.findById(communityId);
-        if (community.isEmpty()) return CreateResult.communityNotFound();
+        if (community.isEmpty() || !isUserVisible(community.get().kind, community.get().specializationType)) {
+            return CreateResult.communityNotFound();
+        }
 
         var pollValidation = pollsService.validateCreate(poll);
         if (pollValidation.isPresent()) return CreateResult.invalidPoll(pollValidation.get());

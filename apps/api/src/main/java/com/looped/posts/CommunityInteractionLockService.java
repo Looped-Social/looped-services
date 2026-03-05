@@ -13,6 +13,8 @@ import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
 
+import static com.looped.communities.CommunityVisibilityRules.isUserVisible;
+
 @Service
 public class CommunityInteractionLockService {
     private final CommunitiesRepository communities;
@@ -57,6 +59,26 @@ public class CommunityInteractionLockService {
                     primaryUnlockAction("NONE", null, null, null)
             );
         }
+        if (!isUserVisible(community.kind, community.specializationType)) {
+            return LockEvaluation.locked(
+                    "UNKNOWN_RESTRICTION",
+                    "community_not_found",
+                    false,
+                    false,
+                    lockContext(
+                            community,
+                            null,
+                            null,
+                            null,
+                            null,
+                            null,
+                            null,
+                            null,
+                            null
+                    ),
+                    primaryUnlockAction("NONE", null, null, null)
+            );
+        }
 
         String communityKind = normalizeCommunityKind(community.kind);
         if (banned) {
@@ -82,7 +104,7 @@ public class CommunityInteractionLockService {
 
         if ("specialization".equals(communityKind)) {
             String specializationType = normalizeSpecializationType(community.specializationType);
-            boolean requiresJoin = "major".equals(specializationType) || "field".equals(specializationType);
+            boolean requiresJoin = "field".equals(specializationType);
             if (!requiresJoin) {
                 return LockEvaluation.allowed();
             }
@@ -282,7 +304,7 @@ public class CommunityInteractionLockService {
     private String normalizeCommunityKind(String kind) {
         if (kind == null || kind.isBlank()) return "unknown";
         String normalized = kind.trim().toLowerCase(Locale.ROOT);
-        if ("company".equals(normalized) || "school".equals(normalized) || "specialization".equals(normalized)) {
+        if ("company".equals(normalized) || "specialization".equals(normalized)) {
             return normalized;
         }
         return "unknown";
@@ -291,14 +313,14 @@ public class CommunityInteractionLockService {
     private String normalizeSpecializationType(String type) {
         if (type == null || type.isBlank()) return "unknown";
         String normalized = type.trim().toLowerCase(Locale.ROOT);
-        if ("major".equals(normalized) || "field".equals(normalized)) return normalized;
+        if ("field".equals(normalized)) return normalized;
         return "unknown";
     }
 
     private String normalizeRequiredVerificationKind(String kind) {
         if (kind == null || kind.isBlank()) return null;
         String normalized = kind.trim().toLowerCase(Locale.ROOT);
-        if ("company".equals(normalized) || "school".equals(normalized)) return normalized;
+        if ("company".equals(normalized)) return normalized;
         return null;
     }
 

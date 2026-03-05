@@ -25,6 +25,8 @@ import java.util.Map;
 import java.util.UUID;
 import java.security.SecureRandom;
 
+import static com.looped.communities.CommunityVisibilityRules.isUserVisible;
+
 @RestController
 @RequestMapping("/anon")
 @Validated
@@ -97,6 +99,12 @@ public class AnonController {
         }
         var community = communities.findById(body.communityId());
         if (community.isEmpty()) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of(
+                    "error", "community_not_found",
+                    "message", "Community not found"
+            ));
+        }
+        if (!isUserVisible(community.get().kind, community.get().specializationType)) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of(
                     "error", "community_not_found",
                     "message", "Community not found"
@@ -186,7 +194,14 @@ public class AnonController {
                     "message", "Complete onboarding before requesting issuer"
             ));
         }
-        if (communities.findById(communityId).isEmpty()) {
+        var community = communities.findById(communityId);
+        if (community.isEmpty()) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of(
+                    "error", "community_not_found",
+                    "message", "Community not found"
+            ));
+        }
+        if (!isUserVisible(community.get().kind, community.get().specializationType)) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of(
                     "error", "community_not_found",
                     "message", "Community not found"
@@ -203,7 +218,8 @@ public class AnonController {
     }
 
     private boolean requiresVerification(CommunitiesRepository.CommunityRow community) {
-        return community != null && !"specialization".equalsIgnoreCase(community.kind);
+        if (community == null || community.kind == null) return false;
+        return "company".equalsIgnoreCase(community.kind);
     }
 
     private boolean requiresSpecializationJoin(CommunitiesRepository.CommunityRow community) {
@@ -211,7 +227,7 @@ public class AnonController {
         if (!"specialization".equalsIgnoreCase(community.kind)) return false;
         if (community.specializationType == null) return false;
         String type = community.specializationType.trim().toLowerCase(java.util.Locale.ROOT);
-        return "major".equals(type) || "field".equals(type);
+        return "field".equals(type);
     }
 
     @PostMapping("/register")
@@ -299,6 +315,12 @@ public class AnonController {
         }
         var issuedCommunity = communities.findById(issuedCommunityId);
         if (issuedCommunity.isEmpty()) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of(
+                    "error", "community_not_found",
+                    "message", "Community not found"
+            ));
+        }
+        if (!isUserVisible(issuedCommunity.get().kind, issuedCommunity.get().specializationType)) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of(
                     "error", "community_not_found",
                     "message", "Community not found"

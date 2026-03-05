@@ -96,7 +96,7 @@ public class SpecializationMembershipService {
         if (communityOpt.isEmpty()) return JoinResult.notFound();
 
         var community = communityOpt.get();
-        String specializationType = requireMajorOrField(community);
+        String specializationType = requireField(community);
         if (specializationType == null) return JoinResult.invalidSpecialization();
 
         if (joins.exists(actor.get().id, specializationId)) {
@@ -143,7 +143,7 @@ public class SpecializationMembershipService {
         if (communityOpt.isEmpty()) return JoinResult.notFound();
 
         var community = communityOpt.get();
-        String specializationType = requireMajorOrField(community);
+        String specializationType = requireField(community);
         if (specializationType == null) return JoinResult.invalidSpecialization();
 
         boolean deleted = joins.delete(actor.get().id, specializationId);
@@ -187,10 +187,7 @@ public class SpecializationMembershipService {
     public JoinLimitSnapshotsResult joinLimitSnapshots(String firebaseUid) {
         var actor = provisionedUser(firebaseUid);
         if (actor.isEmpty()) return JoinLimitSnapshotsResult.userNotProvisioned();
-        return JoinLimitSnapshotsResult.ok(List.of(
-                joinLimitSnapshotForUserId(actor.get().id, "major"),
-                joinLimitSnapshotForUserId(actor.get().id, "field")
-        ));
+        return JoinLimitSnapshotsResult.ok(List.of(joinLimitSnapshotForUserId(actor.get().id, "field")));
     }
 
     public JoinLimitSnapshot joinLimitSnapshotForUserId(long userId, String specializationType) {
@@ -256,13 +253,11 @@ public class SpecializationMembershipService {
         if (normalizedType == null) return DEFAULT_MAX_PER_TYPE;
 
         long fallback = switch (normalizedType) {
-            case "major" -> specializationProps.getDefaultMaxJoinsMajor();
             case "field" -> specializationProps.getDefaultMaxJoinsField();
             default -> DEFAULT_MAX_PER_TYPE;
         };
 
         String key = switch (normalizedType) {
-            case "major" -> AppSettingsKeys.SPECIALIZATIONS_MAX_JOINS_MAJOR;
             case "field" -> AppSettingsKeys.SPECIALIZATIONS_MAX_JOINS_FIELD;
             default -> null;
         };
@@ -275,7 +270,6 @@ public class SpecializationMembershipService {
         String normalized = normalizeType(specializationType);
         if (normalized == null) return null;
         return switch (normalized) {
-            case "major" -> "school";
             case "field" -> "company";
             default -> null;
         };
@@ -293,7 +287,7 @@ public class SpecializationMembershipService {
         if (!"skip".equals(path) && !"photo_id".equals(path)) return null;
         if ("approved".equals(status)) return null;
         String orgKind = row.selectedOrgKind == null ? null : row.selectedOrgKind.trim().toLowerCase(Locale.ROOT);
-        if ("company".equals(orgKind) || "school".equals(orgKind)) {
+        if ("company".equals(orgKind)) {
             return orgKind;
         }
         return fallbackRequiredKind;
@@ -308,7 +302,7 @@ public class SpecializationMembershipService {
         return defaultJoinCooldownMonths();
     }
 
-    private String requireMajorOrField(CommunitiesRepository.CommunityRow community) {
+    private String requireField(CommunitiesRepository.CommunityRow community) {
         if (community == null) return null;
         if (community.kind == null || !"specialization".equalsIgnoreCase(community.kind)) return null;
         return normalizeType(community.specializationType);
@@ -318,8 +312,8 @@ public class SpecializationMembershipService {
         if (raw == null) return null;
         String normalized = raw.trim().toLowerCase(Locale.ROOT);
         if (normalized.isBlank()) return null;
-        if (!normalized.equals("major") && !normalized.equals("field")) return null;
-        return normalized;
+        if (!normalized.equals("field")) return null;
+        return "field";
     }
 
     private CursorParts decodeCursor(String cursor) {
