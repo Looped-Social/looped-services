@@ -177,6 +177,8 @@ public class WidgetSummaryRepository {
                 WHERE cv.user_id = ?
                 AND cv.verified = true
                 AND (cv.expires_at IS NULL OR cv.expires_at > now())
+                AND lower(c.kind) <> 'school'
+                AND NOT (c.kind = 'specialization' AND lower(COALESCE(c.specialization_type, '')) = 'major')
                 ORDER BY c.name ASC, c.id ASC
                 """,
                 (rs, rowNum) -> new VerifiedCommunityRow(
@@ -192,7 +194,12 @@ public class WidgetSummaryRepository {
 
     public boolean communityExists(long communityId) {
         Boolean exists = jdbc.queryForObject(
-                "SELECT EXISTS (SELECT 1 FROM communities WHERE id = ?)",
+                "SELECT EXISTS (" +
+                        "SELECT 1 FROM communities " +
+                        "WHERE id = ? " +
+                        "AND lower(kind) <> 'school' " +
+                        "AND NOT (kind = 'specialization' AND lower(COALESCE(specialization_type, '')) = 'major')" +
+                        ")",
                 Boolean.class,
                 communityId
         );
@@ -202,8 +209,11 @@ public class WidgetSummaryRepository {
     public boolean isActiveVerifiedCommunity(long userId, long communityId) {
         Boolean exists = jdbc.queryForObject(
                 "SELECT EXISTS (" +
-                        "SELECT 1 FROM community_verifications " +
-                        "WHERE user_id = ? AND community_id = ? " +
+                        "SELECT 1 FROM community_verifications cv " +
+                        "JOIN communities c ON c.id = cv.community_id " +
+                        "WHERE cv.user_id = ? AND cv.community_id = ? " +
+                        "AND lower(c.kind) <> 'school' " +
+                        "AND NOT (c.kind = 'specialization' AND lower(COALESCE(c.specialization_type, '')) = 'major') " +
                         "AND verified = true " +
                         "AND (expires_at IS NULL OR expires_at > now())" +
                         ")",

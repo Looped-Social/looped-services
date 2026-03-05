@@ -25,6 +25,8 @@ import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Optional;
 
+import static com.looped.communities.CommunityVisibilityRules.isUserVisible;
+
 @Service
 public class AnonProfilesService {
     private final UserRepository users;
@@ -126,6 +128,9 @@ public class AnonProfilesService {
         if (communityId != null) {
             var community = communities.findById(communityId);
             if (community.isEmpty()) return UpdateDisplayCommunityResult.communityNotFound();
+            if (!isUserVisible(community.get().kind, community.get().specializationType)) {
+                return UpdateDisplayCommunityResult.communityNotFound();
+            }
             var verified = proofs.verifyActionScoped(anonProof, "anon_display_community", anonProfileId, communityId);
             if (verified.status() != AnonProofService.Status.OK) return UpdateDisplayCommunityResult.invalidAnonProof();
             profiles.updateDisplayCommunity(anonProfileId, communityId, anonProof.anonCertKid());
@@ -167,6 +172,7 @@ public class AnonProfilesService {
         }
         var community = communities.findById(profile.displayCommunityId);
         if (community.isEmpty()) return null;
+        if (!isUserVisible(community.get().kind, community.get().specializationType)) return null;
         return new DisplayCommunity(
                 community.get().id,
                 community.get().name,
@@ -256,7 +262,7 @@ public class AnonProfilesService {
     private String normalizeSpecializationType(String specializationType) {
         if (specializationType == null) return null;
         String v = specializationType.trim().toLowerCase(java.util.Locale.ROOT);
-        return (v.equals("major") || v.equals("field")) ? v : null;
+        return (v.equals("field")) ? v : null;
     }
 
     private boolean anonProfileIdEquals(long expected, long provided) {

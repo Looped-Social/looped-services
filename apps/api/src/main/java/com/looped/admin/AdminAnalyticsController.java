@@ -532,7 +532,7 @@ public class AdminAnalyticsController {
 
         List<String> requestedKinds;
         if (kinds == null || kinds.isBlank()) {
-            requestedKinds = List.of("company", "school");
+            requestedKinds = List.of("company");
         } else {
             requestedKinds = java.util.Arrays.stream(kinds.split(","))
                     .map(String::trim)

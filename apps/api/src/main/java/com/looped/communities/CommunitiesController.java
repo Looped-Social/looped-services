@@ -14,6 +14,9 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.HashMap;
 import java.util.Map;
 
+import static com.looped.communities.CommunityVisibilityRules.isFieldSpecialization;
+import static com.looped.communities.CommunityVisibilityRules.isUserVisible;
+
 @RestController
 @RequestMapping("/v1/communities")
 public class CommunitiesController {
@@ -65,6 +68,11 @@ public class CommunitiesController {
             ));
         }
         var community = communityOpt.get();
+        if (!isUserVisible(community.kind, community.specializationType)) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of(
+                    "error", "community_not_found"
+            ));
+        }
         Map<String, Object> out = new HashMap<>();
         Boolean specializationJoined = null;
         SpecializationMembershipService.JoinLimitSnapshot joinLimitSnapshot = null;
@@ -81,12 +89,10 @@ public class CommunitiesController {
             if (icon != null) out.put("icon", icon);
         }
         out.put("is_following", follows.exists(actor.get().id, id));
-        if ("specialization".equalsIgnoreCase(community.kind)) {
-            String t = community.specializationType == null ? "" : community.specializationType.trim().toLowerCase(java.util.Locale.ROOT);
-            if (t.equals("major") || t.equals("field")) {
+        if (isFieldSpecialization(community.kind, community.specializationType)) {
                 specializationJoined = specializationJoins.exists(actor.get().id, id);
                 out.put("is_joined", specializationJoined);
-                joinLimitSnapshot = specializationMemberships.joinLimitSnapshotForUserId(actor.get().id, t);
+                joinLimitSnapshot = specializationMemberships.joinLimitSnapshotForUserId(actor.get().id, "field");
                 var snap = joinLimitSnapshot;
                 Map<String, Object> joinLimit = new HashMap<>();
                 joinLimit.put("specialization_type", snap.specializationType());
@@ -106,7 +112,6 @@ public class CommunitiesController {
                 String joinBlocked = joinBlockedReason(snap.blockedReason());
                 if (joinBlocked != null) joinLimit.put("join_blocked_reason", joinBlocked);
                 out.put("join_limit", joinLimit);
-            }
         }
         out.put("viewer", viewerState.payload(actor.get().id, community, specializationJoined, joinLimitSnapshot));
         return ResponseEntity.ok(out);

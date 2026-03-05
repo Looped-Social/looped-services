@@ -14,6 +14,9 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.HashMap;
 import java.util.Map;
 
+import static com.looped.communities.CommunityVisibilityRules.isFieldSpecialization;
+import static com.looped.communities.CommunityVisibilityRules.isUserVisible;
+
 @RestController
 @RequestMapping("/v1/specializations")
 public class SpecializationsDetailsController {
@@ -60,6 +63,11 @@ public class SpecializationsDetailsController {
                     "error", "specialization_not_found"
             ));
         }
+        if (!isUserVisible(communityOpt.get().kind, communityOpt.get().specializationType)) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of(
+                    "error", "specialization_not_found"
+            ));
+        }
 
         if (communityBans.isBanned(actor.get().id, id)) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
@@ -85,11 +93,10 @@ public class SpecializationsDetailsController {
 
         out.put("is_following", follows.exists(actor.get().id, id));
 
-        String t = community.specializationType == null ? "" : community.specializationType.trim().toLowerCase(java.util.Locale.ROOT);
-        if (t.equals("major") || t.equals("field")) {
+        if (isFieldSpecialization(community.kind, community.specializationType)) {
             specializationJoined = specializationJoins.exists(actor.get().id, id);
             out.put("is_joined", specializationJoined);
-            joinLimitSnapshot = specializationMemberships.joinLimitSnapshotForUserId(actor.get().id, t);
+            joinLimitSnapshot = specializationMemberships.joinLimitSnapshotForUserId(actor.get().id, "field");
             var snap = joinLimitSnapshot;
             Map<String, Object> joinLimit = new HashMap<>();
             joinLimit.put("specialization_type", snap.specializationType());

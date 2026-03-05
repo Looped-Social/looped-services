@@ -101,7 +101,9 @@ public class CommunitiesRepository {
         String like = "%" + q.toLowerCase(Locale.ROOT) + "%";
 
         String sql = "SELECT " + BASE_COLUMNS + " FROM communities c " +
-                "WHERE (LOWER(c.name) LIKE ? OR LOWER(COALESCE(c.description,'')) LIKE ?) ";
+                "WHERE (LOWER(c.name) LIKE ? OR LOWER(COALESCE(c.description,'')) LIKE ?) " +
+                "AND lower(c.kind) <> 'school' " +
+                "AND NOT (c.kind = 'specialization' AND lower(COALESCE(c.specialization_type, '')) = 'major') ";
         List<Object> args = new ArrayList<>();
         args.add(like);
         args.add(like);
@@ -124,7 +126,8 @@ public class CommunitiesRepository {
                                                  OffsetDateTime cursorCreatedAt,
                                                  Long cursorId,
                                                  int limit) {
-        String sql = "SELECT " + BASE_COLUMNS + " FROM communities c WHERE 1=1 ";
+        String sql = "SELECT " + BASE_COLUMNS + " FROM communities c WHERE lower(c.kind) <> 'school' " +
+                "AND NOT (c.kind = 'specialization' AND lower(COALESCE(c.specialization_type, '')) = 'major') ";
         List<Object> args = new ArrayList<>();
         if (kind != null && !kind.isBlank()) {
             sql += "AND c.kind = ? ";
@@ -215,7 +218,9 @@ public class CommunitiesRepository {
                         "), t AS (SELECT ?::timestamptz AS as_of) " +
                         "SELECT " + BASE_COLUMNS + ", " + scoreExpr + " AS score " +
                         "FROM communities c CROSS JOIN q CROSS JOIN t " +
-                        "WHERE " + match;
+                        "WHERE " + match +
+                        " AND lower(c.kind) <> 'school' " +
+                        " AND NOT (c.kind = 'specialization' AND lower(COALESCE(c.specialization_type, '')) = 'major') ";
 
         String like = "%" + (query == null ? "" : query.trim().toLowerCase(Locale.ROOT)) + "%";
 
@@ -658,6 +663,8 @@ public class CommunitiesRepository {
                            ON c.kind = 'specialization'
                           AND mjs.specialization_type = c.specialization_type
                     WHERE c.created_at <= me.as_of
+                      AND lower(c.kind) <> 'school'
+                      AND NOT (c.kind = 'specialization' AND lower(COALESCE(c.specialization_type, '')) = 'major')
                 )
                 SELECT *
                 FROM ranked

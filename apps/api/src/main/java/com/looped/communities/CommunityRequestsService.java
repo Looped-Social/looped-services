@@ -111,10 +111,10 @@ public class CommunityRequestsService {
         String normalized = raw.trim().toLowerCase(Locale.ROOT);
         if (normalized.isBlank()) return null;
         if (normalized.equals("workplace")) normalized = "company";
-        if (!normalized.equals("company") && !normalized.equals("school") && !normalized.equals("major") && !normalized.equals("field")) {
+        if (!normalized.equals("company") && !normalized.equals("field")) {
             return null;
         }
-        if (normalized.equals("major") || normalized.equals("field")) {
+        if (normalized.equals("field")) {
             return new KindInfo(normalized, "specialization", normalized);
         }
         return new KindInfo(normalized, normalized, null);

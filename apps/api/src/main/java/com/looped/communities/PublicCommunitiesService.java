@@ -11,9 +11,11 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
+import static com.looped.communities.CommunityVisibilityRules.isUserVisible;
+
 @Service
 public class PublicCommunitiesService {
-    private static final Set<String> SHAREABLE_KINDS = Set.of("company", "school", "sector", "specialization");
+    private static final Set<String> SHAREABLE_KINDS = Set.of("company", "sector", "specialization");
 
     private final CommunitiesRepository communities;
     private final CommunityMemberCountService memberCounts;
@@ -82,6 +84,7 @@ public class PublicCommunitiesService {
         if (row.name == null || row.name.isBlank()) return false;
         if (row.kind == null || row.kind.isBlank()) return false;
         String normalizedKind = row.kind.trim().toLowerCase(Locale.ROOT);
+        if (!isUserVisible(row.kind, row.specializationType)) return false;
         return SHAREABLE_KINDS.contains(normalizedKind);
     }
 

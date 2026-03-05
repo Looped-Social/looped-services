@@ -9,6 +9,8 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 
+import static com.looped.communities.CommunityVisibilityRules.isUserVisible;
+
 @Service
 public class CommunityFollowsService {
     private final UserRepository users;
@@ -96,6 +98,9 @@ public class CommunityFollowsService {
         if (actor.isEmpty()) return FollowResult.userNotProvisioned();
         var communityOpt = communities.findById(communityId);
         if (communityOpt.isEmpty()) return FollowResult.notFound();
+        if (!isUserVisible(communityOpt.get().kind, communityOpt.get().specializationType)) {
+            return FollowResult.notFound();
+        }
         if (follows.exists(actor.get().id, communityId)) {
             return FollowResult.ok(true, false);
         }
@@ -106,7 +111,10 @@ public class CommunityFollowsService {
     public FollowResult unfollow(String firebaseUid, long communityId) {
         var actor = provisionedUser(firebaseUid);
         if (actor.isEmpty()) return FollowResult.userNotProvisioned();
-        if (communities.findById(communityId).isEmpty()) return FollowResult.notFound();
+        var community = communities.findById(communityId);
+        if (community.isEmpty() || !isUserVisible(community.get().kind, community.get().specializationType)) {
+            return FollowResult.notFound();
+        }
         boolean deleted = follows.delete(actor.get().id, communityId);
         return FollowResult.ok(false, deleted);
     }

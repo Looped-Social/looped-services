@@ -14,6 +14,8 @@ import java.security.spec.X509EncodedKeySpec;
 import java.util.Base64;
 import java.util.Optional;
 
+import static com.looped.communities.CommunityVisibilityRules.isUserVisible;
+
 @Service
 public class AnonProofService {
     private final AnonymousProfilesRepository profiles;
@@ -162,6 +164,7 @@ public class AnonProofService {
 
         var community = communities.findById(communityId).orElse(null);
         if (community == null || community.kind == null) return Optional.empty();
+        if (!isUserVisible(community.kind, community.specializationType)) return Optional.empty();
         if ("specialization".equalsIgnoreCase(community.kind)) {
             if (!requiresSpecializationJoin(community.specializationType)) return Optional.of(entitlement);
             return specializationJoins.exists(entitlement.userId(), communityId) ? Optional.of(entitlement) : Optional.empty();
@@ -172,7 +175,7 @@ public class AnonProofService {
     private boolean requiresSpecializationJoin(String specializationType) {
         if (specializationType == null) return false;
         String type = specializationType.trim().toLowerCase(java.util.Locale.ROOT);
-        return "major".equals(type) || "field".equals(type);
+        return "field".equals(type);
     }
 
     private RSAPublicKey parseRsaPublicKey(byte[] encoded) {

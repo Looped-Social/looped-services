@@ -314,7 +314,7 @@ public class CommentsService {
     private boolean requiresSpecializationJoin(String specializationType) {
         if (specializationType == null) return false;
         String t = specializationType.trim().toLowerCase(java.util.Locale.ROOT);
-        return t.equals("major") || t.equals("field");
+        return t.equals("field");
     }
 
     private enum AccessStatus { OK, NOT_VERIFIED, SPECIALIZATION_NOT_JOINED }

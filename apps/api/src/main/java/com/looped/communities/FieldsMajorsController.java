@@ -39,7 +39,9 @@ public class FieldsMajorsController {
     @GetMapping("/majors")
     public ResponseEntity<?> majors(@AuthenticationPrincipal Jwt jwt,
                                     jakarta.servlet.http.HttpServletRequest request) {
-        return listSpecializations("major", request);
+        ResponseEntity.BodyBuilder builder = ResponseEntity.ok().cacheControl(CACHE_CONTROL);
+        builder.header(HttpHeaders.VARY, HttpHeaders.AUTHORIZATION);
+        return builder.body(Map.of("items", List.of()));
     }
 
     private ResponseEntity<?> listSpecializations(String specializationType,

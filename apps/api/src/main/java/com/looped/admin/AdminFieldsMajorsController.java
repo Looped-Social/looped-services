@@ -59,7 +59,10 @@ public class AdminFieldsMajorsController {
     public ResponseEntity<?> updateMajor(@AuthenticationPrincipal Jwt jwt,
                                          @PathVariable("majorId") long majorId,
                                          @Valid @RequestBody UpdateSpecializationRequest body) {
-        return updateSpecialization(jwt, majorId, "major", body);
+        return ResponseEntity.status(HttpStatus.GONE).body(Map.of(
+                "error", "major_not_supported",
+                "message", "Majors are no longer supported"
+        ));
     }
 
     private ResponseEntity<?> updateSpecialization(Jwt jwt,

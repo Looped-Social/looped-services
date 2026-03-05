@@ -19,6 +19,8 @@ import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.*;
 
+import static com.looped.communities.CommunityVisibilityRules.isUserVisible;
+
 @Service
 public class PollsService {
     private static final Duration MAX_CLOSES_AT = Duration.ofDays(30);
@@ -190,6 +192,9 @@ public class PollsService {
             var community = communities.findById(pollWithPost.get().communityId);
             if (community.isEmpty()) return VoteResult.forbidden();
             var c = community.get();
+            if (!isUserVisible(c.kind, c.specializationType)) {
+                return VoteResult.forbidden();
+            }
             if ("specialization".equalsIgnoreCase(c.kind)) {
                 if (requiresSpecializationJoin(c.specializationType)
                         && !specializationJoins.exists(userId, pollWithPost.get().communityId)) {
@@ -241,7 +246,7 @@ public class PollsService {
     private boolean requiresSpecializationJoin(String specializationType) {
         if (specializationType == null) return false;
         String t = specializationType.trim().toLowerCase(java.util.Locale.ROOT);
-        return t.equals("major") || t.equals("field");
+        return t.equals("field");
     }
 
     @Transactional
