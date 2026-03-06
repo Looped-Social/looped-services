@@ -30,6 +30,7 @@ email_configuration_set = "looped-email-events"
 email_verify_base_url   = "https://looped-social.com/verify"
 email_community_request_from = "no-reply@looped-social.com"
 share_base_url          = "https://looped-social.com"
+media_public_domain     = "media.looped-social.com"
 app_minimum_supported_version = "1.0.3"
 app_minimum_supported_version_message = ""
 app_minimum_supported_version_update_url = "https://apps.apple.com/us/app/looped-social/id6758413180"
@@ -58,7 +59,7 @@ auth_jwks_uri = "https://www.googleapis.com/service_accounts/v1/jwk/securetoken@
 # Optional: custom media domain (CloudFront)
 # 1) Request ACM cert for media.looped-social.com in us-east-1 (DNS validate via Cloudflare)
 # 2) Set media.looped-social.com CNAME -> cloudfront_domain_name output
-media_cloudfront_aliases = ["media.looped-social.com"]
+media_cloudfront_aliases = ["media.mylooped.app", "media.looped-social.com"]
 media_cloudfront_acm_certificate_arn = "arn:aws:acm:us-east-1:179388324981:certificate/REPLACE_ME"
 
 moderation_enabled                    = true

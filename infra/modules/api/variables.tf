@@ -91,7 +91,8 @@ variable "cors_allowed_origins" {
 }
 
 variable "cloudfront_domain" {
-  type = string
+  type        = string
+  description = "Public CDN/media domain emitted by the API for cdn_url values."
 }
 
 variable "s3_media_bucket" {

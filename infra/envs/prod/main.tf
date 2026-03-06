@@ -95,7 +95,7 @@ module "api" {
 
   cors_allowed_origins = var.cors_allowed_origins
 
-  cloudfront_domain      = module.storage.cloudfront_domain_name
+  cloudfront_domain      = trimspace(var.media_public_domain) != "" ? trimspace(var.media_public_domain) : module.storage.cloudfront_domain_name
   s3_media_bucket        = module.storage.media_bucket_name
   s3_verification_bucket = module.storage.verification_bucket_name
   s3_dm_bucket           = module.storage.dm_bucket_name

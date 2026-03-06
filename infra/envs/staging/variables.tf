@@ -114,6 +114,12 @@ variable "share_base_url" {
   default     = "https://looped-social.com"
 }
 
+variable "media_public_domain" {
+  type        = string
+  description = "Optional public media host to emit in API responses (for example media.looped-social.com). Defaults to the CloudFront distribution hostname when empty."
+  default     = ""
+}
+
 variable "app_minimum_supported_version" {
   type        = string
   description = "Soft minimum app version exposed via /v1/app-config."
