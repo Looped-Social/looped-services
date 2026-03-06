@@ -110,7 +110,7 @@ class WidgetSummaryIntegrationTest extends PostgresTestBase {
                 Long.class
         );
         long specializationId = jdbc.queryForObject(
-                "INSERT INTO communities(kind, name, specialization_type) VALUES ('specialization', 'iOS Engineer', 'major') RETURNING id",
+                "INSERT INTO communities(kind, name, specialization_type) VALUES ('specialization', 'iOS Engineer', 'field') RETURNING id",
                 Long.class
         );
         jdbc.update("UPDATE users SET display_community_id = ?, display_specialization_id = ? WHERE id = ?", communityId, specializationId, userId);

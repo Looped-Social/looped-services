@@ -58,7 +58,7 @@ class DisplayCommunityIntegrationTest extends PostgresTestBase {
     void set_display_community_requires_verification() throws Exception {
         long companyId = jdbc.queryForObject("INSERT INTO companies(name, domain) VALUES ('DisplayCo','display.co') RETURNING id", Long.class);
         jdbc.update("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?)", "uid-display", "displayuser", companyId);
-        long communityId = jdbc.queryForObject("INSERT INTO communities(kind, name) VALUES ('school', 'DisplayU') RETURNING id", Long.class);
+        long communityId = jdbc.queryForObject("INSERT INTO communities(kind, name) VALUES ('company', 'DisplayCo') RETURNING id", Long.class);
 
         String auth = "Bearer " + token("uid-display");
 
@@ -79,7 +79,7 @@ class DisplayCommunityIntegrationTest extends PostgresTestBase {
                         .content("{\"communityId\":" + communityId + "}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.display_community.id").value((int) communityId))
-                .andExpect(jsonPath("$.display_community.kind").value("school"));
+                .andExpect(jsonPath("$.display_community.kind").value("company"));
     }
 
     @Test

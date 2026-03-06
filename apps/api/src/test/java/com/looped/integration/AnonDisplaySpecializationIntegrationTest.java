@@ -77,7 +77,7 @@ class AnonDisplaySpecializationIntegrationTest extends PostgresTestBase {
     void anon_can_set_display_specialization() throws Exception {
         long companyId = jdbc.queryForObject("INSERT INTO companies(name, domain) VALUES ('AnonSpecCo','anon.spec.co') RETURNING id", Long.class);
         long specializationId = jdbc.queryForObject(
-                "INSERT INTO communities(kind, specialization_type, name) VALUES ('specialization','major','Computer Science') RETURNING id",
+                "INSERT INTO communities(kind, specialization_type, name) VALUES ('specialization','field','Computer Science') RETURNING id",
                 Long.class
         );
         long userId = jdbc.queryForObject(
@@ -137,7 +137,7 @@ class AnonDisplaySpecializationIntegrationTest extends PostgresTestBase {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.display_specialization.id").value((int) specializationId))
                 .andExpect(jsonPath("$.display_specialization.kind").value("specialization"))
-                .andExpect(jsonPath("$.display_specialization.specialization_type").value("major"));
+                .andExpect(jsonPath("$.display_specialization.specialization_type").value("field"));
     }
 
     @Test
@@ -197,11 +197,11 @@ class AnonDisplaySpecializationIntegrationTest extends PostgresTestBase {
     void anon_set_display_specialization_requires_joined_cert_scope() throws Exception {
         long companyId = jdbc.queryForObject("INSERT INTO companies(name, domain) VALUES ('AnonSpecJoin','anon.spec.join') RETURNING id", Long.class);
         long specializationA = jdbc.queryForObject(
-                "INSERT INTO communities(kind, specialization_type, name) VALUES ('specialization','major','A') RETURNING id",
+                "INSERT INTO communities(kind, specialization_type, name) VALUES ('specialization','field','A') RETURNING id",
                 Long.class
         );
         long specializationB = jdbc.queryForObject(
-                "INSERT INTO communities(kind, specialization_type, name) VALUES ('specialization','major','B') RETURNING id",
+                "INSERT INTO communities(kind, specialization_type, name) VALUES ('specialization','field','B') RETURNING id",
                 Long.class
         );
 
@@ -261,7 +261,7 @@ class AnonDisplaySpecializationIntegrationTest extends PostgresTestBase {
                 Long.class
         );
         long specializationId = jdbc.queryForObject(
-                "INSERT INTO communities(kind, specialization_type, name) VALUES ('specialization','major','Computer Science') RETURNING id",
+                "INSERT INTO communities(kind, specialization_type, name) VALUES ('specialization','field','Computer Science') RETURNING id",
                 Long.class
         );
 
@@ -300,6 +300,6 @@ class AnonDisplaySpecializationIntegrationTest extends PostgresTestBase {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.author_display_specialization.id").value((int) specializationId))
                 .andExpect(jsonPath("$.author_display_specialization.kind").value("specialization"))
-                .andExpect(jsonPath("$.author_display_specialization.specialization_type").value("major"));
+                .andExpect(jsonPath("$.author_display_specialization.specialization_type").value("field"));
     }
 }

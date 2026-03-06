@@ -62,7 +62,7 @@ class CommunityDetailsIntegrationTest extends PostgresTestBase {
                 Long.class, "uid-community-detail", "communitydetail", companyId
         );
         long communityId = jdbc.queryForObject(
-                "INSERT INTO communities(kind, name, description) VALUES ('school', 'UNC Chapel Hill', 'Public university') RETURNING id",
+                "INSERT INTO communities(kind, name, description) VALUES ('company', 'DetailCo', 'Company community') RETURNING id",
                 Long.class
         );
         jdbc.update(
@@ -102,10 +102,10 @@ class CommunityDetailsIntegrationTest extends PostgresTestBase {
                         .header("Authorization", auth))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value((int) communityId))
-                .andExpect(jsonPath("$.kind").value("school"))
-                .andExpect(jsonPath("$.name").value("UNC Chapel Hill"))
+                .andExpect(jsonPath("$.kind").value("company"))
+                .andExpect(jsonPath("$.name").value("DetailCo"))
                 .andExpect(jsonPath("$.short_name").value("UNC"))
-                .andExpect(jsonPath("$.description").value("Public university"))
+                .andExpect(jsonPath("$.description").value("Company community"))
                 .andExpect(jsonPath("$.image_url").value("https://cdn.example.com/unc.png"))
                 .andExpect(jsonPath("$.member_count").value(2))
                 .andExpect(jsonPath("$.is_following").value(true))
@@ -124,59 +124,59 @@ class CommunityDetailsIntegrationTest extends PostgresTestBase {
                 "speclimits",
                 companyId
         );
-        long schoolId = jdbc.queryForObject(
-                "INSERT INTO communities(kind, name) VALUES ('school', 'Test University') RETURNING id",
+        long companyCommunityId = jdbc.queryForObject(
+                "INSERT INTO communities(kind, name) VALUES ('company', 'SpecLimitCo') RETURNING id",
                 Long.class
         );
         jdbc.update(
                 "INSERT INTO community_verifications(user_id, community_id, method, verified, expires_at) VALUES (?,?,?,?, NULL)",
-                userId, schoolId, "manual", true
+                userId, companyCommunityId, "manual", true
         );
-        long majorId = jdbc.queryForObject(
-                "INSERT INTO communities(kind, specialization_type, name) VALUES ('specialization','major','Computer Science') RETURNING id",
+        long fieldId = jdbc.queryForObject(
+                "INSERT INTO communities(kind, specialization_type, name) VALUES ('specialization','field','Computer Science') RETURNING id",
                 Long.class
         );
 
         String auth = "Bearer " + token("uid-spec-limits");
 
-        mockMvc.perform(post("/v1/specializations/" + majorId + "/join")
+        mockMvc.perform(post("/v1/specializations/" + fieldId + "/join")
                         .header("Authorization", auth))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.joined").value(true));
 
-        mockMvc.perform(get("/v1/communities/" + majorId)
+        mockMvc.perform(get("/v1/communities/" + fieldId)
                         .header("Authorization", auth))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.kind").value("specialization"))
-                .andExpect(jsonPath("$.specialization_type").value("major"))
+                .andExpect(jsonPath("$.specialization_type").value("field"))
                 .andExpect(jsonPath("$.is_joined").value(true))
-                .andExpect(jsonPath("$.join_limit.specialization_type").value("major"))
+                .andExpect(jsonPath("$.join_limit.specialization_type").value("field"))
                 .andExpect(jsonPath("$.join_limit.limit").value(2))
                 .andExpect(jsonPath("$.join_limit.joined_count").value(1))
                 .andExpect(jsonPath("$.join_limit.remaining").value(1))
                 .andExpect(jsonPath("$.join_limit.cooldown_active").value(false))
                 .andExpect(jsonPath("$.join_limit.can_join").value(true))
-                .andExpect(jsonPath("$.join_limit.required_verification_kind").value("school"))
+                .andExpect(jsonPath("$.join_limit.required_verification_kind").value("company"))
                 .andExpect(jsonPath("$.viewer.verification_status").value("none"))
                 .andExpect(jsonPath("$.viewer.can_post").value(true));
 
-        mockMvc.perform(get("/v1/me/specializations/join-limits?type=major")
+        mockMvc.perform(get("/v1/me/specializations/join-limits?type=field")
                         .header("Authorization", auth))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.items[0].specialization_type").value("major"))
+                .andExpect(jsonPath("$.items[0].specialization_type").value("field"))
                 .andExpect(jsonPath("$.items[0].limit").value(2))
                 .andExpect(jsonPath("$.items[0].joined_count").value(1))
                 .andExpect(jsonPath("$.items[0].remaining").value(1))
                 .andExpect(jsonPath("$.items[0].cooldown_active").value(false))
                 .andExpect(jsonPath("$.items[0].can_join").value(true))
-                .andExpect(jsonPath("$.items[0].required_verification_kind").value("school"));
+                .andExpect(jsonPath("$.items[0].required_verification_kind").value("company"));
 
-        mockMvc.perform(delete("/v1/specializations/" + majorId + "/join")
+        mockMvc.perform(delete("/v1/specializations/" + fieldId + "/join")
                         .header("Authorization", auth))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.joined").value(false));
 
-        mockMvc.perform(get("/v1/me/specializations/join-limits?type=major")
+        mockMvc.perform(get("/v1/me/specializations/join-limits?type=field")
                         .header("Authorization", auth))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items[0].joined_count").value(0))

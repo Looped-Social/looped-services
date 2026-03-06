@@ -319,7 +319,7 @@ class OnboardingV2IntegrationTest extends PostgresTestBase {
     void photo_branch_requires_pending_request_then_completes() throws Exception {
         long companyId = company("PhotoCo", "photoco.com");
         long userId = user("uid-onb-v2-photo", "photoflow", companyId);
-        long orgId = community("school", "Photo University");
+        long orgId = community("company", "PhotoCo");
 
         String auth = auth("uid-onb-v2-photo");
 
@@ -445,7 +445,7 @@ class OnboardingV2IntegrationTest extends PostgresTestBase {
         jdbc.update(
                 "INSERT INTO community_requests(user_id, kind, name, description, status) VALUES (?,?,?,?, 'pending')",
                 userId,
-                "school",
+                "company",
                 "UNC",
                 "Need this community"
         );
@@ -588,7 +588,7 @@ class OnboardingV2IntegrationTest extends PostgresTestBase {
     void undo_skip_to_photo_id_from_skip_explainer_returns_ok() throws Exception {
         long companyId = company("UndoSkipPhotoCo", "undoskipphoto.com");
         user("uid-onb-v2-undo-skip-photo", "undoskipphoto", companyId);
-        long orgId = community("school", "Undo Skip Photo Org");
+        long orgId = community("company", "Undo Skip Photo Org");
         String auth = auth("uid-onb-v2-undo-skip-photo");
 
         mockMvc.perform(post("/v1/users/me/onboarding-v2/info-screen/viewed").header("Authorization", auth))
@@ -710,9 +710,9 @@ class OnboardingV2IntegrationTest extends PostgresTestBase {
         long skipOtherVerifiedCompany = community("company", "Skip Other Verified Company");
         long fieldId = specialization("field", "Onboarding Blocked Field");
 
-        long photoSelectedOrgId = community("school", "Photo Selected Org");
-        long photoOtherVerifiedSchool = community("school", "Photo Other Verified School");
-        long majorId = specialization("major", "Onboarding Blocked Major");
+        long photoSelectedOrgId = community("company", "Photo Selected Org");
+        long photoOtherVerifiedCompany = community("company", "Photo Other Verified Company");
+        long photoFieldId = specialization("field", "Onboarding Blocked Field Two");
 
         String skipAuth = auth("uid-onb-v2-skip-block");
         mockMvc.perform(post("/v1/users/me/onboarding-v2/info-screen/viewed").header("Authorization", skipAuth)).andExpect(status().isOk());
@@ -765,15 +765,15 @@ class OnboardingV2IntegrationTest extends PostgresTestBase {
         jdbc.update(
                 "INSERT INTO community_verifications(user_id, community_id, method, verified, verified_at) VALUES (?,?,?,?,now())",
                 photoUserId,
-                photoOtherVerifiedSchool,
+                photoOtherVerifiedCompany,
                 "manual",
                 true
         );
 
-        mockMvc.perform(post("/v1/specializations/" + majorId + "/join").header("Authorization", photoAuth))
+        mockMvc.perform(post("/v1/specializations/" + photoFieldId + "/join").header("Authorization", photoAuth))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.error", equalTo("specialization_verification_required")))
-                .andExpect(jsonPath("$.required_verification_kind", equalTo("school")));
+                .andExpect(jsonPath("$.required_verification_kind", equalTo("company")));
     }
 
     @Test

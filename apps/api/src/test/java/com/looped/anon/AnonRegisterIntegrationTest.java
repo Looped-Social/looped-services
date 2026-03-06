@@ -48,9 +48,8 @@ class AnonRegisterIntegrationTest extends PostgresTestBase {
                 "INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?) RETURNING id",
                 Long.class, "uid-anon-register-cs", "anonregistercs", companyId
         );
-        jdbc.update("INSERT INTO communities(kind, name) VALUES ('school', 'UNC')");
         long csId = jdbc.queryForObject(
-                "INSERT INTO communities(kind, specialization_type, name) VALUES ('specialization','major','CS') RETURNING id",
+                "INSERT INTO communities(kind, specialization_type, name) VALUES ('specialization','field','Engineering') RETURNING id",
                 Long.class
         );
         jdbc.update("INSERT INTO specialization_joins(user_id, specialization_id) VALUES (?,?)", userId, csId);
@@ -109,11 +108,11 @@ class AnonRegisterIntegrationTest extends PostgresTestBase {
                 Long.class, "uid-anon-register-mismatch", "anonregistermismatch", companyId
         );
         long uncId = jdbc.queryForObject(
-                "INSERT INTO communities(kind, name) VALUES ('school', 'UNC') RETURNING id",
+                "INSERT INTO communities(kind, name) VALUES ('company', 'UNC') RETURNING id",
                 Long.class
         );
         long csId = jdbc.queryForObject(
-                "INSERT INTO communities(kind, specialization_type, name) VALUES ('specialization','major','CS') RETURNING id",
+                "INSERT INTO communities(kind, specialization_type, name) VALUES ('specialization','field','Engineering') RETURNING id",
                 Long.class
         );
 

@@ -56,7 +56,7 @@ class DisplaySpecializationIntegrationTest extends PostgresTestBase {
     }
 
     @Test
-    void set_display_specialization_allows_major_or_field() throws Exception {
+    void set_display_specialization_allows_field() throws Exception {
         long companyId = jdbc.queryForObject("INSERT INTO companies(name, domain) VALUES ('SpecCo','spec.co') RETURNING id", Long.class);
         long userId = jdbc.queryForObject(
                 "INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?) RETURNING id",
@@ -65,16 +65,16 @@ class DisplaySpecializationIntegrationTest extends PostgresTestBase {
                 "displayspec",
                 companyId
         );
-        long schoolId = jdbc.queryForObject(
-                "INSERT INTO communities(kind, name) VALUES ('school', 'Spec School') RETURNING id",
+        long companyCommunityId = jdbc.queryForObject(
+                "INSERT INTO communities(kind, name) VALUES ('company', 'SpecCo') RETURNING id",
                 Long.class
         );
         jdbc.update(
                 "INSERT INTO community_verifications(user_id, community_id, method, verified, expires_at) VALUES (?,?,?,?, NULL)",
-                userId, schoolId, "manual", true
+                userId, companyCommunityId, "manual", true
         );
         long specializationId = jdbc.queryForObject(
-                "INSERT INTO communities(kind, specialization_type, name) VALUES ('specialization', 'major', 'Data Science') RETURNING id",
+                "INSERT INTO communities(kind, specialization_type, name) VALUES ('specialization', 'field', 'Data Science') RETURNING id",
                 Long.class
         );
 
@@ -91,7 +91,7 @@ class DisplaySpecializationIntegrationTest extends PostgresTestBase {
                         .content("{\"specializationId\":" + specializationId + "}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.display_specialization.id").value((int) specializationId))
-                .andExpect(jsonPath("$.display_specialization.specialization_type").value("major"));
+                .andExpect(jsonPath("$.display_specialization.specialization_type").value("field"));
     }
 
     @Test
@@ -148,7 +148,7 @@ class DisplaySpecializationIntegrationTest extends PostgresTestBase {
                 Long.class
         );
         long specializationId = jdbc.queryForObject(
-                "INSERT INTO communities(kind, specialization_type, name) VALUES ('specialization', 'major', 'Computer Science') RETURNING id",
+                "INSERT INTO communities(kind, specialization_type, name) VALUES ('specialization', 'field', 'Computer Science') RETURNING id",
                 Long.class
         );
         jdbc.update("UPDATE users SET display_specialization_id = ? WHERE id = ?", specializationId, authorId);
@@ -164,6 +164,6 @@ class DisplaySpecializationIntegrationTest extends PostgresTestBase {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.author_display_specialization.id").value((int) specializationId))
                 .andExpect(jsonPath("$.author_display_specialization.kind").value("specialization"))
-                .andExpect(jsonPath("$.author_display_specialization.specialization_type").value("major"));
+                .andExpect(jsonPath("$.author_display_specialization.specialization_type").value("field"));
     }
 }

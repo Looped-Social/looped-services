@@ -54,9 +54,9 @@ class SpecializationPrerequisitesIntegrationTest extends PostgresTestBase {
     }
 
     @Test
-    void joining_major_requires_verified_school() throws Exception {
+    void joining_major_is_not_supported() throws Exception {
         long companyId = jdbc.queryForObject("INSERT INTO companies(name, domain) VALUES ('MajCo','maj.co') RETURNING id", Long.class);
-        long userId = jdbc.queryForObject(
+        jdbc.queryForObject(
                 "INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?) RETURNING id",
                 Long.class, "uid-major-prereq", "majorprereq", companyId
         );
@@ -67,23 +67,8 @@ class SpecializationPrerequisitesIntegrationTest extends PostgresTestBase {
 
         String auth = "Bearer " + token("uid-major-prereq");
         mockMvc.perform(post("/v1/specializations/" + majorId + "/join").header("Authorization", auth))
-                .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.error", equalTo("specialization_verification_required")))
-                .andExpect(jsonPath("$.specialization_type", equalTo("major")))
-                .andExpect(jsonPath("$.required_verification_kind", equalTo("school")));
-
-        long schoolId = jdbc.queryForObject(
-                "INSERT INTO communities(kind, name) VALUES ('school', 'Maj University') RETURNING id",
-                Long.class
-        );
-        jdbc.update(
-                "INSERT INTO community_verifications(user_id, community_id, method, verified, expires_at) VALUES (?,?,?,?, NULL)",
-                userId, schoolId, "manual", true
-        );
-
-        mockMvc.perform(post("/v1/specializations/" + majorId + "/join").header("Authorization", auth))
-                .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.joined").value(true));
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.error", equalTo("invalid_specialization")));
     }
 
     @Test

@@ -66,10 +66,6 @@ class PostableCommunitiesIntegrationTest extends PostgresTestBase {
                 "INSERT INTO communities(kind, name) VALUES ('company', 'Picker Workplace') RETURNING id",
                 Long.class
         );
-        long schoolId = jdbc.queryForObject(
-                "INSERT INTO communities(kind, name) VALUES ('school', 'Picker School') RETURNING id",
-                Long.class
-        );
         long hiddenUnverifiedId = jdbc.queryForObject(
                 "INSERT INTO communities(kind, name) VALUES ('company', 'Hidden') RETURNING id",
                 Long.class
@@ -78,30 +74,18 @@ class PostableCommunitiesIntegrationTest extends PostgresTestBase {
                 "INSERT INTO communities(kind, specialization_type, name) VALUES ('specialization', 'field', 'Engineering') RETURNING id",
                 Long.class
         );
-        long majorId = jdbc.queryForObject(
-                "INSERT INTO communities(kind, specialization_type, name) VALUES ('specialization', 'major', 'Economics') RETURNING id",
-                Long.class
-        );
 
         jdbc.update(
                 "INSERT INTO community_verifications(user_id, community_id, method, verified, expires_at) VALUES (?,?,?,?, NULL)",
                 userId, workplaceId, "manual", true
         );
         jdbc.update(
-                "INSERT INTO community_verifications(user_id, community_id, method, verified, expires_at) VALUES (?,?,?,?, NULL)",
-                userId, schoolId, "manual", true
-        );
-        jdbc.update(
                 "INSERT INTO specialization_joins(user_id, specialization_id) VALUES (?,?)",
                 userId, fieldId
         );
         jdbc.update(
-                "INSERT INTO specialization_joins(user_id, specialization_id) VALUES (?,?)",
-                userId, majorId
-        );
-        jdbc.update(
                 "INSERT INTO community_follows(user_id, community_id, is_pinned, sort_order) VALUES (?,?,?,?)",
-                userId, schoolId, true, 1
+                userId, fieldId, true, 1
         );
         jdbc.update(
                 "INSERT INTO community_follows(user_id, community_id, is_pinned, sort_order) VALUES (?,?,?,?)",
@@ -112,13 +96,11 @@ class PostableCommunitiesIntegrationTest extends PostgresTestBase {
 
         mockMvc.perform(get("/v1/me/postable-communities").header("Authorization", auth))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.items", hasSize(4)))
-                .andExpect(jsonPath("$.items[0].id", equalTo((int) schoolId)))
+                .andExpect(jsonPath("$.items", hasSize(2)))
+                .andExpect(jsonPath("$.items[0].id", equalTo((int) fieldId)))
                 .andExpect(jsonPath("$.items[0].canPost", equalTo(true)))
                 .andExpect(jsonPath("$.items[1].id", equalTo((int) workplaceId)))
                 .andExpect(jsonPath("$.items[1].canPost", equalTo(true)))
-                .andExpect(jsonPath("$.items[*].id").value(org.hamcrest.Matchers.hasItem((int) fieldId)))
-                .andExpect(jsonPath("$.items[*].id").value(org.hamcrest.Matchers.hasItem((int) majorId)))
                 .andExpect(jsonPath("$.items[*].id").value(org.hamcrest.Matchers.not(org.hamcrest.Matchers.hasItem((int) hiddenUnverifiedId))));
     }
 }

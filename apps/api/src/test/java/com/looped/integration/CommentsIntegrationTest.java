@@ -199,7 +199,7 @@ class CommentsIntegrationTest extends PostgresTestBase {
     }
 
     @Test
-    void comment_in_major_returns_verify_parent_then_join_context() throws Exception {
+    void comment_in_field_returns_verify_parent_then_join_context() throws Exception {
         long companyId = jdbc.queryForObject("INSERT INTO companies(name, domain) VALUES ('CommentMajorCo','comment-major.co') RETURNING id", Long.class);
         long authorId = jdbc.queryForObject(
                 "INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?) RETURNING id",
@@ -210,18 +210,18 @@ class CommentsIntegrationTest extends PostgresTestBase {
                 Long.class, "uid-cm-viewer", "cmviewer", companyId
         );
         long authorPrincipal = jdbc.queryForObject("INSERT INTO principals(kind, user_id) VALUES ('user', ?) RETURNING id", Long.class, authorId);
-        long majorId = jdbc.queryForObject(
-                "INSERT INTO communities(kind, specialization_type, name) VALUES ('specialization','major','History') RETURNING id",
+        long fieldId = jdbc.queryForObject(
+                "INSERT INTO communities(kind, specialization_type, name) VALUES ('specialization','field','History') RETURNING id",
                 Long.class
         );
-        long schoolId = jdbc.queryForObject(
-                "INSERT INTO communities(kind, name) VALUES ('school', 'Comment Major University') RETURNING id",
+        long companyCommunityId = jdbc.queryForObject(
+                "INSERT INTO communities(kind, name) VALUES ('company', 'CommentMajorCo') RETURNING id",
                 Long.class
         );
-        jdbc.update("INSERT INTO specialization_joins(user_id, specialization_id) VALUES (?,?)", authorId, majorId);
+        jdbc.update("INSERT INTO specialization_joins(user_id, specialization_id) VALUES (?,?)", authorId, fieldId);
         long postId = jdbc.queryForObject(
                 "INSERT INTO posts(author_id, author_principal_id, company_id, community_id, content) VALUES (?,?,?,?,?) RETURNING id",
-                Long.class, authorId, authorPrincipal, companyId, majorId, "major post"
+                Long.class, authorId, authorPrincipal, companyId, fieldId, "field post"
         );
 
         mockMvc.perform(post("/v1/posts/" + postId + "/comments")
@@ -231,12 +231,12 @@ class CommentsIntegrationTest extends PostgresTestBase {
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.error").value("specialization_verification_required"))
                 .andExpect(jsonPath("$.error_code").value("specialization_verification_required"))
-                .andExpect(jsonPath("$.lockContext.requiredVerificationKind").value("school"))
-                .andExpect(jsonPath("$.lockContext.verifyTargetCommunityId").value((int) schoolId))
-                .andExpect(jsonPath("$.lockContext.verifyTargetCommunityName").value("Comment Major University"))
+                .andExpect(jsonPath("$.lockContext.requiredVerificationKind").value("company"))
+                .andExpect(jsonPath("$.lockContext.verifyTargetCommunityId").value((int) companyCommunityId))
+                .andExpect(jsonPath("$.lockContext.verifyTargetCommunityName").value("CommentMajorCo"))
                 .andExpect(jsonPath("$.primaryUnlockAction.type").value("VERIFY_PARENT_THEN_JOIN"))
-                .andExpect(jsonPath("$.primaryUnlockAction.communityId").value((int) schoolId))
-                .andExpect(jsonPath("$.primaryUnlockAction.specializationId").value((int) majorId));
+                .andExpect(jsonPath("$.primaryUnlockAction.communityId").value((int) companyCommunityId))
+                .andExpect(jsonPath("$.primaryUnlockAction.specializationId").value((int) fieldId));
     }
 
     @Test

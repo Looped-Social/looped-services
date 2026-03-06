@@ -130,7 +130,7 @@ class LikesIntegrationTest extends PostgresTestBase {
     }
 
     @Test
-    void like_in_major_returns_verify_parent_then_join_context() throws Exception {
+    void like_in_field_returns_verify_parent_then_join_context() throws Exception {
         long companyId = jdbc.queryForObject("INSERT INTO companies(name, domain) VALUES ('MajorLikeCo','majorlike.co') RETURNING id", Long.class);
         long authorId = jdbc.queryForObject(
                 "INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?) RETURNING id",
@@ -141,18 +141,18 @@ class LikesIntegrationTest extends PostgresTestBase {
                 Long.class, "uid-like-major-viewer", "likemajorviewer", companyId
         );
         long authorPrincipal = jdbc.queryForObject("INSERT INTO principals(kind, user_id) VALUES ('user', ?) RETURNING id", Long.class, authorId);
-        long majorId = jdbc.queryForObject(
-                "INSERT INTO communities(kind, specialization_type, name) VALUES ('specialization','major','Economics') RETURNING id",
+        long fieldId = jdbc.queryForObject(
+                "INSERT INTO communities(kind, specialization_type, name) VALUES ('specialization','field','Economics') RETURNING id",
                 Long.class
         );
-        long schoolId = jdbc.queryForObject(
-                "INSERT INTO communities(kind, name) VALUES ('school', 'MajorLike University') RETURNING id",
+        long companyCommunityId = jdbc.queryForObject(
+                "INSERT INTO communities(kind, name) VALUES ('company', 'MajorLikeCo') RETURNING id",
                 Long.class
         );
-        jdbc.update("INSERT INTO specialization_joins(user_id, specialization_id) VALUES (?,?)", authorId, majorId);
+        jdbc.update("INSERT INTO specialization_joins(user_id, specialization_id) VALUES (?,?)", authorId, fieldId);
         long postId = jdbc.queryForObject(
                 "INSERT INTO posts(author_id, author_principal_id, company_id, community_id, content) VALUES (?,?,?,?,?) RETURNING id",
-                Long.class, authorId, authorPrincipal, companyId, majorId, "major locked post"
+                Long.class, authorId, authorPrincipal, companyId, fieldId, "field locked post"
         );
 
         mockMvc.perform(post("/v1/posts/" + postId + "/like")
@@ -160,11 +160,11 @@ class LikesIntegrationTest extends PostgresTestBase {
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.error", equalTo("specialization_verification_required")))
                 .andExpect(jsonPath("$.error_code", equalTo("specialization_verification_required")))
-                .andExpect(jsonPath("$.lockContext.requiredVerificationKind", equalTo("school")))
-                .andExpect(jsonPath("$.lockContext.verifyTargetCommunityId", equalTo((int) schoolId)))
-                .andExpect(jsonPath("$.lockContext.verifyTargetCommunityName", equalTo("MajorLike University")))
+                .andExpect(jsonPath("$.lockContext.requiredVerificationKind", equalTo("company")))
+                .andExpect(jsonPath("$.lockContext.verifyTargetCommunityId", equalTo((int) companyCommunityId)))
+                .andExpect(jsonPath("$.lockContext.verifyTargetCommunityName", equalTo("MajorLikeCo")))
                 .andExpect(jsonPath("$.primaryUnlockAction.type", equalTo("VERIFY_PARENT_THEN_JOIN")))
-                .andExpect(jsonPath("$.primaryUnlockAction.communityId", equalTo((int) schoolId)))
-                .andExpect(jsonPath("$.primaryUnlockAction.specializationId", equalTo((int) majorId)));
+                .andExpect(jsonPath("$.primaryUnlockAction.communityId", equalTo((int) companyCommunityId)))
+                .andExpect(jsonPath("$.primaryUnlockAction.specializationId", equalTo((int) fieldId)));
     }
 }

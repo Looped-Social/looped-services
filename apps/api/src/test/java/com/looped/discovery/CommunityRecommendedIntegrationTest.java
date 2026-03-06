@@ -100,11 +100,7 @@ class CommunityRecommendedIntegrationTest extends PostgresTestBase {
                         .param("kind", "major")
                         .header("Authorization", auth))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.items", hasSize(1)))
-                .andExpect(jsonPath("$.items[0].kind", equalTo("specialization")))
-                .andExpect(jsonPath("$.items[0].specialization_type", equalTo("major")))
-                .andExpect(jsonPath("$.items[0].name", equalTo("Data Science")))
-                .andExpect(jsonPath("$.items[0].member_count", equalTo(2)));
+                .andExpect(jsonPath("$.items", hasSize(0)));
     }
 
     @Test
@@ -169,25 +165,26 @@ class CommunityRecommendedIntegrationTest extends PostgresTestBase {
                 "uid-rec-affinity", "affinity", companyId);
         long userId = jdbc.queryForObject("SELECT id FROM users WHERE firebase_uid = ?", Long.class, "uid-rec-affinity");
 
-        long schoolA = jdbc.queryForObject(
-                "INSERT INTO communities(kind, name, member_count, created_at) VALUES ('school','Affinity School A', 100, '2025-01-01T00:00:00Z') RETURNING id",
+        long fieldA = jdbc.queryForObject(
+                "INSERT INTO communities(kind, specialization_type, name, member_count, created_at) VALUES ('specialization','field','Affinity Field A', 100, '2025-01-01T00:00:00Z') RETURNING id",
                 Long.class);
-        jdbc.update(
-                "INSERT INTO communities(kind, name, member_count, created_at) VALUES ('school','Affinity School B', 100, '2025-01-01T00:00:00Z')"
+        long fieldB = jdbc.queryForObject(
+                "INSERT INTO communities(kind, specialization_type, name, member_count, created_at) VALUES ('specialization','field','Affinity Field B', 100, '2025-01-01T00:00:00Z') RETURNING id",
+                Long.class
         );
         jdbc.update(
                 "INSERT INTO communities(kind, name, member_count, created_at) VALUES ('company','Affinity Company', 100, '2025-01-01T00:00:00Z')"
         );
-
-        jdbc.update("INSERT INTO community_follows(user_id, community_id) VALUES (?, ?)", userId, schoolA);
+        jdbc.update("INSERT INTO community_follows(user_id, community_id) VALUES (?, ?)", userId, fieldA);
+        jdbc.update("INSERT INTO specialization_joins(user_id, specialization_id) VALUES (?, ?)", userId, fieldA);
 
         String auth = "Bearer " + token("uid-rec-affinity");
         mockMvc.perform(get("/v1/communities/recommended")
                         .param("limit", "3")
                         .header("Authorization", auth))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.items", hasSize(3)))
-                .andExpect(jsonPath("$.items[0].kind", equalTo("school")))
-                .andExpect(jsonPath("$.items[0].name", equalTo("Affinity School B")));
+                .andExpect(jsonPath("$.items", hasSize(2)))
+                .andExpect(jsonPath("$.items[0].kind", equalTo("specialization")))
+                .andExpect(jsonPath("$.items[0].id", equalTo((int) fieldB)));
     }
 }

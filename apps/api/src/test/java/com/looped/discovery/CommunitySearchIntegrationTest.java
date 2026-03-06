@@ -94,10 +94,7 @@ class CommunitySearchIntegrationTest extends PostgresTestBase {
                         .param("kind", "major")
                         .header("Authorization", auth))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.items", hasSize(1)))
-                .andExpect(jsonPath("$.items[0].kind", equalTo("specialization")))
-                .andExpect(jsonPath("$.items[0].specialization_type", equalTo("major")))
-                .andExpect(jsonPath("$.items[0].name", equalTo("Data Science")));
+                .andExpect(jsonPath("$.items", hasSize(0)));
     }
 
     @Test

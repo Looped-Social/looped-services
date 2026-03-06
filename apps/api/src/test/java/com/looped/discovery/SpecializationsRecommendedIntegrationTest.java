@@ -65,8 +65,7 @@ class SpecializationsRecommendedIntegrationTest extends PostgresTestBase {
                         .param("type", "major")
                         .header("Authorization", auth))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.items", hasSize(1)))
-                .andExpect(jsonPath("$.items[0].specialization_type", equalTo("major")));
+                .andExpect(jsonPath("$.items", hasSize(0)));
     }
 
     @Test
@@ -85,9 +84,7 @@ class SpecializationsRecommendedIntegrationTest extends PostgresTestBase {
                         .param("type", "all")
                         .header("Authorization", auth))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.majors", hasSize(1)))
-                .andExpect(jsonPath("$.majors[0].kind", equalTo("specialization")))
-                .andExpect(jsonPath("$.majors[0].specialization_type", equalTo("major")))
+                .andExpect(jsonPath("$.majors", hasSize(0)))
                 .andExpect(jsonPath("$.fields", hasSize(1)))
                 .andExpect(jsonPath("$.fields[0].kind", equalTo("specialization")))
                 .andExpect(jsonPath("$.fields[0].specialization_type", equalTo("field")));

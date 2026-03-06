@@ -43,7 +43,7 @@ class AnonEntitlementEnforcementIntegrationTest extends PostgresTestBase {
                 Long.class, "uid-anon-entitlement-verify", "anonentverify", companyId
         );
         long communityId = jdbc.queryForObject(
-                "INSERT INTO communities(kind, name) VALUES ('school', 'UNC') RETURNING id",
+                "INSERT INTO communities(kind, name) VALUES ('company', 'AnonEntitlementCo') RETURNING id",
                 Long.class
         );
         jdbc.update(
@@ -96,7 +96,7 @@ class AnonEntitlementEnforcementIntegrationTest extends PostgresTestBase {
                 Long.class, "uid-anon-entitlement-spec", "anonentspec", companyId
         );
         long communityId = jdbc.queryForObject(
-                "INSERT INTO communities(kind, specialization_type, name) VALUES ('specialization','major','CS') RETURNING id",
+                "INSERT INTO communities(kind, specialization_type, name) VALUES ('specialization','field','Engineering') RETURNING id",
                 Long.class
         );
         jdbc.update("INSERT INTO specialization_joins(user_id, specialization_id) VALUES (?,?)", userId, communityId);

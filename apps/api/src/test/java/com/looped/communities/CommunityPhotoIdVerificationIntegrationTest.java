@@ -78,11 +78,11 @@ class CommunityPhotoIdVerificationIntegrationTest extends PostgresTestBase {
                 companyId
         );
         long communityA = jdbc.queryForObject(
-                "INSERT INTO communities(kind, name, description) VALUES ('school','UNC','UNC') RETURNING id",
+                "INSERT INTO communities(kind, name, description) VALUES ('company','UNC','UNC') RETURNING id",
                 Long.class
         );
         long communityB = jdbc.queryForObject(
-                "INSERT INTO communities(kind, name, description) VALUES ('school','USC','USC') RETURNING id",
+                "INSERT INTO communities(kind, name, description) VALUES ('company','USC','USC') RETURNING id",
                 Long.class
         );
 
@@ -174,7 +174,7 @@ class CommunityPhotoIdVerificationIntegrationTest extends PostgresTestBase {
                 companyId
         );
         long communityId = jdbc.queryForObject(
-                "INSERT INTO communities(kind, name, description) VALUES ('school','Duke','Duke') RETURNING id",
+                "INSERT INTO communities(kind, name, description) VALUES ('company','Duke','Duke') RETURNING id",
                 Long.class
         );
         jdbc.update(
@@ -205,7 +205,7 @@ class CommunityPhotoIdVerificationIntegrationTest extends PostgresTestBase {
                 companyId
         );
         long communityId = jdbc.queryForObject(
-                "INSERT INTO communities(kind, name, description) VALUES ('school','Unverify U','Unverify U') RETURNING id",
+                "INSERT INTO communities(kind, name, description) VALUES ('company','Unverify U','Unverify U') RETURNING id",
                 Long.class
         );
         jdbc.update(

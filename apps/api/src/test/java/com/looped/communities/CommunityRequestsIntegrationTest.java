@@ -164,7 +164,7 @@ class CommunityRequestsIntegrationTest extends PostgresTestBase {
         String auth = "Bearer " + token("uid-community-request-legacy");
         String body = """
                 {
-                  "type": "school",
+                  "type": "field",
                   "name": "UNC Chapel Hill",
                   "about": "Need this for alumni\\nPreferred contact email: UNC.Requests@Example.edu",
                   "notify_when_available": true
@@ -181,7 +181,7 @@ class CommunityRequestsIntegrationTest extends PostgresTestBase {
                         .header("Authorization", auth))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items", hasSize(1)))
-                .andExpect(jsonPath("$.items[0].kind", equalTo("school")))
+                .andExpect(jsonPath("$.items[0].kind", equalTo("field")))
                 .andExpect(jsonPath("$.items[0].description", equalTo("Need this for alumni")))
                 .andExpect(jsonPath("$.items[0].contact_email", equalTo("unc.requests@example.edu")))
                 .andExpect(jsonPath("$.items[0].notify_when_available", equalTo(true)));

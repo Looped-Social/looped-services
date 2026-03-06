@@ -128,35 +128,11 @@ class SpecializationsBrowseIntegrationTest extends PostgresTestBase {
 
         String auth = "Bearer " + token("uid-browse-1");
 
-        var r1 = mockMvc.perform(get("/v1/specializations/browse")
-                        .param("type", "major")
-                        .param("limit", "2")
-                        .header("Authorization", auth))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.items", hasSize(2)))
-                .andExpect(jsonPath("$.items[0].name", equalTo("Popular Major")))
-                .andExpect(jsonPath("$.items[0].member_count", equalTo(4)))
-                .andExpect(jsonPath("$.items[0].specialization_type", equalTo("major")))
-                .andExpect(jsonPath("$.items[0].is_joined", equalTo(true)))
-                .andExpect(jsonPath("$.items[1].name", equalTo("Tie B")))
-                .andExpect(jsonPath("$.items[1].member_count", equalTo(2)))
-                .andExpect(jsonPath("$.next_cursor", notNullValue()))
-                .andReturn();
-
-        String next = new com.fasterxml.jackson.databind.ObjectMapper()
-                .readTree(r1.getResponse().getContentAsString())
-                .get("next_cursor").asText();
-
         mockMvc.perform(get("/v1/specializations/browse")
                         .param("type", "major")
-                        .param("limit", "2")
-                        .param("cursor", next)
                         .header("Authorization", auth))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.items", hasSize(1)))
-                .andExpect(jsonPath("$.items[0].name", equalTo("Tie A")))
-                .andExpect(jsonPath("$.items[0].member_count", equalTo(2)))
-                .andExpect(jsonPath("$.items[0].is_following", equalTo(true)))
+                .andExpect(jsonPath("$.items", hasSize(0)))
                 .andExpect(jsonPath("$.next_cursor").doesNotExist());
     }
 

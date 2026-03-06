@@ -138,29 +138,29 @@ class CommunityFollowsIntegrationTest extends PostgresTestBase {
                 Long.class);
         jdbc.update("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?)",
                 "uid-specialization-1", "mara", companyId);
-        long majorOne = jdbc.queryForObject(
-                "INSERT INTO communities(kind, specialization_type, name) VALUES ('specialization','major','Data Science') RETURNING id",
+        long fieldOne = jdbc.queryForObject(
+                "INSERT INTO communities(kind, specialization_type, name) VALUES ('specialization','field','Data Science') RETURNING id",
                 Long.class);
-        long majorTwo = jdbc.queryForObject(
-                "INSERT INTO communities(kind, specialization_type, name) VALUES ('specialization','major','Statistics') RETURNING id",
+        long fieldTwo = jdbc.queryForObject(
+                "INSERT INTO communities(kind, specialization_type, name) VALUES ('specialization','field','Statistics') RETURNING id",
                 Long.class);
-        long majorThree = jdbc.queryForObject(
-                "INSERT INTO communities(kind, specialization_type, name) VALUES ('specialization','major','Mathematics') RETURNING id",
+        long fieldThree = jdbc.queryForObject(
+                "INSERT INTO communities(kind, specialization_type, name) VALUES ('specialization','field','Mathematics') RETURNING id",
                 Long.class);
 
         String auth = "Bearer " + token("uid-specialization-1");
 
-        mockMvc.perform(post("/v1/communities/" + majorOne + "/follow")
+        mockMvc.perform(post("/v1/communities/" + fieldOne + "/follow")
                         .header("Authorization", auth))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.following").value(true));
 
-        mockMvc.perform(post("/v1/communities/" + majorTwo + "/follow")
+        mockMvc.perform(post("/v1/communities/" + fieldTwo + "/follow")
                         .header("Authorization", auth))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.following").value(true));
 
-        mockMvc.perform(post("/v1/communities/" + majorThree + "/follow")
+        mockMvc.perform(post("/v1/communities/" + fieldThree + "/follow")
                         .header("Authorization", auth))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.following").value(true));
@@ -174,53 +174,53 @@ class CommunityFollowsIntegrationTest extends PostgresTestBase {
         jdbc.update("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?)",
                 "uid-specialization-2", "nina", companyId);
         long userId = jdbc.queryForObject("SELECT id FROM users WHERE firebase_uid=?", Long.class, "uid-specialization-2");
-        long schoolId = jdbc.queryForObject(
-                "INSERT INTO communities(kind, name) VALUES ('school', 'Echo University') RETURNING id",
+        long companyCommunityId = jdbc.queryForObject(
+                "INSERT INTO communities(kind, name) VALUES ('company', 'Echo') RETURNING id",
                 Long.class
         );
         jdbc.update(
                 "INSERT INTO community_verifications(user_id, community_id, method, verified, expires_at) VALUES (?,?,?,?, NULL)",
-                userId, schoolId, "manual", true
+                userId, companyCommunityId, "manual", true
         );
-        long majorOne = jdbc.queryForObject(
-                "INSERT INTO communities(kind, specialization_type, name) VALUES ('specialization','major','Economics') RETURNING id",
+        long fieldOne = jdbc.queryForObject(
+                "INSERT INTO communities(kind, specialization_type, name) VALUES ('specialization','field','Economics') RETURNING id",
                 Long.class);
-        long majorTwo = jdbc.queryForObject(
-                "INSERT INTO communities(kind, specialization_type, name) VALUES ('specialization','major','Finance') RETURNING id",
+        long fieldTwo = jdbc.queryForObject(
+                "INSERT INTO communities(kind, specialization_type, name) VALUES ('specialization','field','Finance') RETURNING id",
                 Long.class);
-        long majorThree = jdbc.queryForObject(
-                "INSERT INTO communities(kind, specialization_type, name) VALUES ('specialization','major','Accounting') RETURNING id",
+        long fieldThree = jdbc.queryForObject(
+                "INSERT INTO communities(kind, specialization_type, name) VALUES ('specialization','field','Accounting') RETURNING id",
                 Long.class);
 
         String auth = "Bearer " + token("uid-specialization-2");
 
-        mockMvc.perform(post("/v1/specializations/" + majorOne + "/join")
+        mockMvc.perform(post("/v1/specializations/" + fieldOne + "/join")
                         .header("Authorization", auth))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.joined").value(true));
 
-        mockMvc.perform(post("/v1/specializations/" + majorTwo + "/join")
+        mockMvc.perform(post("/v1/specializations/" + fieldTwo + "/join")
                         .header("Authorization", auth))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.joined").value(true));
 
-        mockMvc.perform(post("/v1/specializations/" + majorThree + "/join")
+        mockMvc.perform(post("/v1/specializations/" + fieldThree + "/join")
                         .header("Authorization", auth))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.error", equalTo("specialization_join_limit")))
-                .andExpect(jsonPath("$.specialization_type", equalTo("major")))
+                .andExpect(jsonPath("$.specialization_type", equalTo("field")))
                 .andExpect(jsonPath("$.limit", equalTo(2)));
 
-        mockMvc.perform(delete("/v1/specializations/" + majorOne + "/join")
+        mockMvc.perform(delete("/v1/specializations/" + fieldOne + "/join")
                         .header("Authorization", auth))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.joined").value(false));
 
-        mockMvc.perform(post("/v1/specializations/" + majorThree + "/join")
+        mockMvc.perform(post("/v1/specializations/" + fieldThree + "/join")
                         .header("Authorization", auth))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.error", equalTo("specialization_join_cooldown")))
-                .andExpect(jsonPath("$.specialization_type", equalTo("major")));
+                .andExpect(jsonPath("$.specialization_type", equalTo("field")));
     }
 
     @Test
@@ -236,21 +236,21 @@ class CommunityFollowsIntegrationTest extends PostgresTestBase {
         long userOneId = jdbc.queryForObject("SELECT id FROM users WHERE firebase_uid=?", Long.class, "uid-members-1");
         long userTwoId = jdbc.queryForObject("SELECT id FROM users WHERE firebase_uid=?", Long.class, "uid-members-2");
 
-        long schoolId = jdbc.queryForObject(
-                "INSERT INTO communities(kind, name) VALUES ('school', 'Member University') RETURNING id",
+        long companyCommunityId = jdbc.queryForObject(
+                "INSERT INTO communities(kind, name) VALUES ('company', 'MemberCo') RETURNING id",
                 Long.class
         );
         jdbc.update(
                 "INSERT INTO community_verifications(user_id, community_id, method, verified, expires_at) VALUES (?,?,?,?, NULL)",
-                userOneId, schoolId, "manual", true
+                userOneId, companyCommunityId, "manual", true
         );
         jdbc.update(
                 "INSERT INTO community_verifications(user_id, community_id, method, verified, expires_at) VALUES (?,?,?,?, NULL)",
-                userTwoId, schoolId, "manual", true
+                userTwoId, companyCommunityId, "manual", true
         );
 
         long economics = jdbc.queryForObject(
-                "INSERT INTO communities(kind, specialization_type, name) VALUES ('specialization','major','Economics') RETURNING id",
+                "INSERT INTO communities(kind, specialization_type, name) VALUES ('specialization','field','Economics') RETURNING id",
                 Long.class);
 
         String authOne = "Bearer " + token("uid-members-1");
@@ -272,7 +272,7 @@ class CommunityFollowsIntegrationTest extends PostgresTestBase {
                 .andExpect(jsonPath("$.member_count").value(2));
 
         mockMvc.perform(get("/v1/specializations/recommended")
-                        .param("type", "major")
+                        .param("type", "field")
                         .param("limit", "10")
                         .header("Authorization", authOne))
                 .andExpect(status().isOk())
