@@ -41,7 +41,7 @@ public abstract class PostgresTestBase {
             s.execute("TRUNCATE TABLE conversation_messages, conversation_message_requests, channel_messages, notifications, comment_likes, comments, " +
                     "telemetry_events, " +
                     "principal_follows, principal_blocks, principal_saved_posts, post_likes, post_shares, post_reposts, follows, saved_posts, likes, principal_settings, " +
-                    "post_share_nudge_state, " +
+                    "post_share_nudge_state, user_notice_state, " +
                     "conversation_participants, conversations, channel_members, channels, posts, devices, reports, media_assets, " +
                     "poll_vote_options, poll_votes, poll_options, polls, " +
                     "anon_enrollment_sanctions, anon_backup_blobs, anon_revocations, anon_cert_entitlements, anon_issue_tokens, anon_issuers, anon_handle_counters, anonymous_profiles, " +

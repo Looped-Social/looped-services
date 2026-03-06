@@ -20,10 +20,12 @@ public class MeController {
 
     private final UsersService users;
     private final AppConfigService appConfig;
+    private final MeNoticesService meNotices;
 
-    public MeController(UsersService users, AppConfigService appConfig) {
+    public MeController(UsersService users, AppConfigService appConfig, MeNoticesService meNotices) {
         this.users = users;
         this.appConfig = appConfig;
+        this.meNotices = meNotices;
     }
 
     @GetMapping("/v1/me")
@@ -83,6 +85,7 @@ public class MeController {
                 onboarding.onboardingComplete(),
                 profile.get()
         )));
+        resp.put("notices", meNotices.pendingNoticesForUserId(profile.get().id()));
         if (!onboarding.onboardingComplete()) {
             var allowedNextStagesV2 = OnboardingV2Stages.allowedNextStages(onboardingV2.onboardingStageV2());
             resp.put("error", "onboarding_incomplete");

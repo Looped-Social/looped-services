@@ -24,7 +24,8 @@ class MeControllerClaimsTest {
     void me_includes_sign_in_provider_from_firebase_claim() {
         UsersService users = mock(UsersService.class);
         AppConfigService appConfig = mock(AppConfigService.class);
-        MeController controller = new MeController(users, appConfig);
+        MeNoticesService notices = mock(MeNoticesService.class);
+        MeController controller = new MeController(users, appConfig, notices);
 
         when(users.onLogin("uid", "test@example.com", null)).thenReturn(UsersService.LoginStatus.ACTIVE);
         doNothing().when(users).syncEmail(anyString(), anyString());
@@ -55,7 +56,8 @@ class MeControllerClaimsTest {
     void me_sign_in_provider_is_null_when_firebase_claim_missing() {
         UsersService users = mock(UsersService.class);
         AppConfigService appConfig = mock(AppConfigService.class);
-        MeController controller = new MeController(users, appConfig);
+        MeNoticesService notices = mock(MeNoticesService.class);
+        MeController controller = new MeController(users, appConfig, notices);
 
         when(users.onLogin("uid", null, null)).thenReturn(UsersService.LoginStatus.ACTIVE);
         when(users.onboardingState("uid")).thenReturn(new UsersService.OnboardingState(false, "verification"));
