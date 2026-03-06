@@ -162,13 +162,13 @@ class AdminUserAccessIntegrationTest extends PostgresTestBase {
         org.junit.jupiter.api.Assertions.assertEquals(0, cooldownRows.intValue());
         org.junit.jupiter.api.Assertions.assertEquals(0, joinRows.intValue());
 
-        long schoolId = jdbc.queryForObject(
-                "INSERT INTO communities(kind, name) VALUES ('school', 'Reset U') RETURNING id",
+        long companyCommunityId = jdbc.queryForObject(
+                "INSERT INTO communities(kind, name) VALUES ('company', 'Reset Company Community') RETURNING id",
                 Long.class
         );
         jdbc.update(
                 "INSERT INTO community_verifications(user_id, community_id, method, verified, expires_at) VALUES (?,?,?,?, NULL)",
-                userId, schoolId, "manual", true
+                userId, companyCommunityId, "manual", true
         );
 
         String userAuth = "Bearer " + userToken("uid-reset");
