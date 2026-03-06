@@ -104,7 +104,7 @@ WHERE ap.display_specialization_id IN (
 );
 
 -- Clear onboarding selections for deprecated kinds.
-UPDATE onboarding_v2_state ov
+UPDATE user_onboarding_v2 ov
 SET selected_org_id = NULL,
     selected_org_kind = NULL
 WHERE lower(COALESCE(ov.selected_org_kind, '')) = 'school'
@@ -112,7 +112,7 @@ WHERE lower(COALESCE(ov.selected_org_kind, '')) = 'school'
        SELECT id FROM communities WHERE lower(kind) = 'school'
    );
 
-UPDATE onboarding_v2_state ov
+UPDATE user_onboarding_v2 ov
 SET selected_specialization_id = NULL
 WHERE ov.selected_specialization_id IN (
     SELECT id
