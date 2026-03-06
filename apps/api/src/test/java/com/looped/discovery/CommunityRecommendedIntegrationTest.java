@@ -183,7 +183,7 @@ class CommunityRecommendedIntegrationTest extends PostgresTestBase {
                         .param("limit", "3")
                         .header("Authorization", auth))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.items", hasSize(2)))
+                .andExpect(jsonPath("$.items", hasSize(3)))
                 .andExpect(jsonPath("$.items[0].kind", equalTo("specialization")))
                 .andExpect(jsonPath("$.items[0].id", equalTo((int) fieldB)));
     }

@@ -70,7 +70,7 @@ class AdminCommunitiesListIntegrationTest extends PostgresTestBase {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items", hasSize(2)))
                 .andExpect(jsonPath("$.next_cursor", notNullValue()))
-                .andExpect(jsonPath("$.total_count", equalTo(3)));
+                .andExpect(jsonPath("$.total_count", equalTo(2)));
     }
 
     @Test
@@ -99,12 +99,12 @@ class AdminCommunitiesListIntegrationTest extends PostgresTestBase {
 
         jdbc.update("INSERT INTO communities(kind, name) VALUES ('company', 'Northwind')");
         jdbc.update("INSERT INTO communities(kind, name) VALUES ('school', 'State University')");
-        jdbc.update("INSERT INTO communities(kind, specialization_type, name) VALUES ('specialization', 'major', 'Economics')");
+        jdbc.update("INSERT INTO communities(kind, specialization_type, name) VALUES ('specialization', 'field', 'Economics')");
         jdbc.update("INSERT INTO communities(kind, specialization_type, name) VALUES ('specialization', 'field', 'Finance')");
 
         var page1 = mockMvc.perform(get("/v1/admin/communities")
                         .header("Authorization", auth)
-                        .param("kinds", "company,school,major,field")
+                        .param("kinds", "company,school,field")
                         .param("limit", "2"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items", hasSize(2)))
@@ -119,7 +119,7 @@ class AdminCommunitiesListIntegrationTest extends PostgresTestBase {
 
         mockMvc.perform(get("/v1/admin/communities")
                         .header("Authorization", auth)
-                        .param("kinds", "company,school,major,field")
+                        .param("kinds", "company,school,field")
                         .param("limit", "2")
                         .param("cursor", next))
                 .andExpect(status().isOk())

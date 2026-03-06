@@ -238,7 +238,7 @@ class AnonContentIntegrationTest extends PostgresTestBase {
         completeOnboarding(otherUserId);
 
         long communityId = jdbc.queryForObject(
-                "INSERT INTO communities(kind, name) VALUES ('school','Anon Review School') RETURNING id",
+                "INSERT INTO communities(kind, name) VALUES ('company','Anon Review Company') RETURNING id",
                 Long.class
         );
         jdbc.update(

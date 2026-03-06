@@ -132,27 +132,27 @@ class AdminUserAccessIntegrationTest extends PostgresTestBase {
                 "INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?) RETURNING id",
                 Long.class, "uid-reset", "resetuser", companyId
         );
-        long majorId = jdbc.queryForObject(
-                "INSERT INTO communities(kind, specialization_type, name) VALUES ('specialization','major','Biology') RETURNING id",
+        long fieldId = jdbc.queryForObject(
+                "INSERT INTO communities(kind, specialization_type, name) VALUES ('specialization','field','Biology') RETURNING id",
                 Long.class
         );
-        jdbc.update("INSERT INTO specialization_joins(user_id, specialization_id) VALUES (?,?)", userId, majorId);
+        jdbc.update("INSERT INTO specialization_joins(user_id, specialization_id) VALUES (?,?)", userId, fieldId);
         jdbc.update(
                 "INSERT INTO user_specialization_limits(user_id, specialization_type, scope, last_changed_at) VALUES (?,?,?, now())",
-                userId, "major", "join"
+                userId, "field", "join"
         );
 
         mockMvc.perform(post("/v1/admin/users/" + userId + "/specializations/join-limits/reset")
                         .header("Authorization", adminAuth)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"specialization_type\":\"major\",\"clear_joins\":true}"))
+                        .content("{\"specialization_type\":\"field\",\"clear_joins\":true}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status", equalTo("reset")))
                 .andExpect(jsonPath("$.cooldowns_cleared", equalTo(1)))
                 .andExpect(jsonPath("$.joins_removed", equalTo(1)));
 
         Integer cooldownRows = jdbc.queryForObject(
-                "SELECT COUNT(*) FROM user_specialization_limits WHERE user_id=? AND specialization_type='major' AND scope='join'",
+                "SELECT COUNT(*) FROM user_specialization_limits WHERE user_id=? AND specialization_type='field' AND scope='join'",
                 Integer.class, userId
         );
         Integer joinRows = jdbc.queryForObject(
@@ -172,10 +172,10 @@ class AdminUserAccessIntegrationTest extends PostgresTestBase {
         );
 
         String userAuth = "Bearer " + userToken("uid-reset");
-        mockMvc.perform(get("/v1/me/specializations/join-limits?type=major")
+        mockMvc.perform(get("/v1/me/specializations/join-limits?type=field")
                         .header("Authorization", userAuth))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.items[0].specialization_type").value("major"))
+                .andExpect(jsonPath("$.items[0].specialization_type").value("field"))
                 .andExpect(jsonPath("$.items[0].joined_count").value(0))
                 .andExpect(jsonPath("$.items[0].cooldown_active").value(false))
                 .andExpect(jsonPath("$.items[0].can_join").value(true));
