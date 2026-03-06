@@ -36,6 +36,12 @@ variable "acm_certificate_arn" {
   description = "ACM certificate ARN for HTTPS on the ALB."
 }
 
+variable "additional_acm_certificate_arns" {
+  type        = list(string)
+  description = "Additional ACM certificate ARNs to attach to the ALB HTTPS listener for legacy hostnames during migration."
+  default     = []
+}
+
 variable "ecr_repository_name" {
   type        = string
   description = "ECR repo name containing the API image."
@@ -93,6 +99,18 @@ variable "email_verify_base_url" {
   type        = string
   description = "Base URL used in verification emails. Should be a URL (e.g. https://www.mylooped.app/verify). Empty disables link generation."
   default     = ""
+}
+
+variable "email_community_request_from" {
+  type        = string
+  description = "From address used for community request emails."
+  default     = "no-reply@looped-social.com"
+}
+
+variable "share_base_url" {
+  type        = string
+  description = "Base URL used for public share links."
+  default     = "https://looped-social.com"
 }
 
 variable "app_minimum_supported_version" {

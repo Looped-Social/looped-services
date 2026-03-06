@@ -210,7 +210,7 @@ email:
   display-name: ${EMAIL_DISPLAY_NAME:Looped Social}
   from: ${EMAIL_FROM:}
   admin-from: ${EMAIL_ADMIN_FROM:}
-  community-request-from: ${EMAIL_COMMUNITY_REQUEST_FROM:no-reply@mylooped.app}
+  community-request-from: ${EMAIL_COMMUNITY_REQUEST_FROM:no-reply@looped-social.com}
   reply-to: ${EMAIL_REPLY_TO:}
   verify-base-url: ${EMAIL_VERIFY_BASE_URL:}
   configuration-set: ${EMAIL_CONFIGURATION_SET:}
@@ -224,7 +224,7 @@ app-config:
   minimum-supported-version-update-url: ${APP_MINIMUM_SUPPORTED_VERSION_UPDATE_URL:}
 
 share:
-  base-url: ${SHARE_BASE_URL:https://mylooped.app}
+  base-url: ${SHARE_BASE_URL:https://looped-social.com}
 
 universal-links:
   apple-team-id: ${UL_APPLE_TEAM_ID:REPLACE_TEAM_ID}

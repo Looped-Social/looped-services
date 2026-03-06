@@ -33,6 +33,12 @@ variable "acm_certificate_arn" {
   default     = ""
 }
 
+variable "additional_acm_certificate_arns" {
+  type        = list(string)
+  description = "Additional ACM cert ARNs to attach to the HTTPS listener for SNI-based multi-domain support during migrations."
+  default     = []
+}
+
 variable "ecr_image" {
   type = string
 }
@@ -127,6 +133,18 @@ variable "email_configuration_set" {
 variable "email_verify_base_url" {
   type        = string
   description = "Base URL used in verification emails. Should be a URL (e.g. https://www.mylooped.app/verify). Empty disables link generation (codes still included)."
+  default     = ""
+}
+
+variable "email_community_request_from" {
+  type        = string
+  description = "From address used for community request emails."
+  default     = ""
+}
+
+variable "share_base_url" {
+  type        = string
+  description = "Base URL used for public share links (for example https://looped-social.com)."
   default     = ""
 }
 

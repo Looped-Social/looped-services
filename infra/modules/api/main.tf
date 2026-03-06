@@ -137,6 +137,16 @@ resource "aws_lb_listener" "https" {
   }
 }
 
+resource "aws_lb_listener_certificate" "additional_https" {
+  for_each = local.https_enabled ? {
+    for arn in var.additional_acm_certificate_arns : arn => arn
+    if arn != null && trimspace(arn) != "" && trimspace(arn) != trimspace(var.acm_certificate_arn)
+  } : {}
+
+  listener_arn    = aws_lb_listener.https[0].arn
+  certificate_arn = each.value
+}
+
 resource "aws_cloudwatch_log_group" "api" {
   name              = "/ecs/${local.name}-api"
   retention_in_days = 30
@@ -446,6 +456,8 @@ resource "aws_ecs_task_definition" "api" {
           { name = "EMAIL_REPLY_TO", value = var.email_reply_to },
           { name = "EMAIL_CONFIGURATION_SET", value = var.email_configuration_set },
           { name = "EMAIL_VERIFY_BASE_URL", value = var.email_verify_base_url },
+          { name = "EMAIL_COMMUNITY_REQUEST_FROM", value = var.email_community_request_from },
+          { name = "SHARE_BASE_URL", value = var.share_base_url },
           { name = "APP_MINIMUM_SUPPORTED_VERSION", value = var.app_minimum_supported_version },
           { name = "APP_MINIMUM_SUPPORTED_VERSION_MESSAGE", value = var.app_minimum_supported_version_message },
           { name = "APP_MINIMUM_SUPPORTED_VERSION_UPDATE_URL", value = var.app_minimum_supported_version_update_url },

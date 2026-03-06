@@ -83,6 +83,7 @@ module "api" {
 
   domain_name         = var.domain_name
   acm_certificate_arn = var.acm_certificate_arn
+  additional_acm_certificate_arns = var.additional_acm_certificate_arns
 
   ecr_image = "${data.aws_ecr_repository.api.repository_url}:${var.image_tag}"
 
@@ -104,6 +105,8 @@ module "api" {
   email_reply_to                                   = var.email_reply_to
   email_configuration_set                          = var.email_configuration_set
   email_verify_base_url                            = var.email_verify_base_url
+  email_community_request_from                     = var.email_community_request_from
+  share_base_url                                   = var.share_base_url
   app_minimum_supported_version                    = var.app_minimum_supported_version
   app_minimum_supported_version_message            = var.app_minimum_supported_version_message
   app_minimum_supported_version_update_url         = var.app_minimum_supported_version_update_url
