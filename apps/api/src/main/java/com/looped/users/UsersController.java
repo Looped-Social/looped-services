@@ -279,6 +279,13 @@ public class UsersController {
                     "operation_id", res.operationId() == null ? "" : res.operationId().toString()
             ));
         }
+        if (res.status() == UsersService.DeleteStatus.LOCAL_DELETE_FAILED) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
+                    "error", "local_delete_failed",
+                    "deletion_status", deletionStatus(res.operationState()),
+                    "operation_id", res.operationId() == null ? "" : res.operationId().toString()
+            ));
+        }
         if (deleteMode == UsersService.DeleteMode.SOFT) {
             return ResponseEntity.noContent().build();
         }
@@ -330,6 +337,13 @@ public class UsersController {
         if (res.status() == UsersService.DeleteStatus.FIREBASE_DELETE_SKIPPED) {
             return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(Map.of(
                     "error", "firebase_admin_not_configured",
+                    "deletion_status", deletionStatus(res.operationState()),
+                    "operation_id", res.operationId() == null ? "" : res.operationId().toString()
+            ));
+        }
+        if (res.status() == UsersService.DeleteStatus.LOCAL_DELETE_FAILED) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
+                    "error", "local_delete_failed",
                     "deletion_status", deletionStatus(res.operationState()),
                     "operation_id", res.operationId() == null ? "" : res.operationId().toString()
             ));

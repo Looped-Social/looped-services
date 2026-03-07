@@ -27,7 +27,7 @@ import static org.mockito.Mockito.*;
 class UsersServiceDeleteTest {
 
     @Test
-    void hard_delete_falls_back_to_self_deleted_when_local_delete_fails() {
+    void hard_delete_marks_failed_when_local_delete_fails() {
         UserRepository users = mock(UserRepository.class);
         UserDeletionOperationRepository deletionOps = mock(UserDeletionOperationRepository.class);
         FirebaseAdminService firebaseAdmin = mock(FirebaseAdminService.class);
@@ -43,13 +43,13 @@ class UsersServiceDeleteTest {
 
         var res = service.deleteMe("uid-zombie", UsersService.DeleteMode.HARD);
 
-        assertThat(res.status()).isEqualTo(UsersService.DeleteStatus.OK);
-        assertThat(res.error()).isEqualTo("local_delete_pending");
-        assertThat(res.operationState()).isEqualTo(UsersService.DeleteOperationState.PENDING);
+        assertThat(res.status()).isEqualTo(UsersService.DeleteStatus.LOCAL_DELETE_FAILED);
+        assertThat(res.error()).isEqualTo("local_delete_failed");
+        assertThat(res.operationState()).isEqualTo(UsersService.DeleteOperationState.FAILED);
         verify(users).repairMissingAuthorIdsForUser(7L);
         verify(users).markDeletedSelf(7L, 7L, "hard_delete_failed");
         verify(users, never()).insertTombstone(any());
-        verify(deletionOps).markPending(any(), eq("local_delete_pending"), any());
+        verify(deletionOps).markFailed(any(), eq("local_delete_failed"), any());
     }
 
     @Test
@@ -68,6 +68,28 @@ class UsersServiceDeleteTest {
 
         assertThat(status).isEqualTo(UsersService.LoginStatus.PURGED);
         verify(users, never()).reactivate(anyLong());
+    }
+
+    @Test
+    void delete_status_treats_legacy_hard_delete_failure_as_failed() {
+        UserRepository users = mock(UserRepository.class);
+        UserDeletionOperationRepository deletionOps = mock(UserDeletionOperationRepository.class);
+        FirebaseAdminService firebaseAdmin = mock(FirebaseAdminService.class);
+        UsersService service = newService(users, deletionOps, firebaseAdmin);
+
+        var row = userRow(12L, "uid-legacy-failed");
+        row.deletedAt = OffsetDateTime.now().minusMinutes(5);
+        row.deletedSource = "self";
+        row.deletedReason = "hard_delete_failed";
+
+        when(deletionOps.latestByFirebaseUid("uid-legacy-failed")).thenReturn(Optional.empty());
+        when(users.isFirebaseUidTombstoned("uid-legacy-failed")).thenReturn(false);
+        when(users.findByFirebaseUidIncludingDeleted("uid-legacy-failed")).thenReturn(Optional.of(row));
+
+        var status = service.deleteStatus("uid-legacy-failed");
+
+        assertThat(status.state()).isEqualTo(UsersService.DeleteOperationState.FAILED);
+        assertThat(status.errorCode()).isEqualTo("local_delete_failed");
     }
 
     private UsersService newService(UserRepository users,

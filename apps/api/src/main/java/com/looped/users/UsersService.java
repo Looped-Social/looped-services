@@ -1076,7 +1076,7 @@ public class UsersService {
                 && existing.get().deletedAt != null
                 && "self".equalsIgnoreCase(existing.get().deletedSource)
                 && "hard_delete_failed".equalsIgnoreCase(existing.get().deletedReason)) {
-            return DeleteOperationStatusResult.legacyPending(existing.get().deletedAt);
+            return DeleteOperationStatusResult.legacyFailed(existing.get().deletedAt);
         }
         return DeleteOperationStatusResult.none();
     }
@@ -1119,10 +1119,10 @@ public class UsersService {
             return DeleteResult.ok(firebaseHandled.firebaseStatus, firebaseHandled.error, operationId, DeleteOperationState.COMPLETED);
         } catch (DataAccessException e) {
             users.markDeletedSelf(user.id, user.id, "hard_delete_failed");
-            deletionOperations.markPending(operationId, "local_delete_pending", e.getMessage());
+            deletionOperations.markFailed(operationId, "local_delete_failed", e.getMessage());
             log.error("hard_delete_failed_fallback_to_self_deleted uid={} user_id={} error={}",
                     firebaseUid, user.id, e.getMessage());
-            return DeleteResult.ok(firebaseHandled.firebaseStatus, "local_delete_pending", operationId, DeleteOperationState.PENDING);
+            return DeleteResult.localDeleteFailed(firebaseHandled.firebaseStatus, "local_delete_failed", operationId);
         }
     }
 
@@ -1153,7 +1153,7 @@ public class UsersService {
 
     public enum DeleteMode { HARD, SOFT }
 
-    public enum DeleteStatus { OK, FIREBASE_DELETE_FAILED, FIREBASE_DELETE_SKIPPED }
+    public enum DeleteStatus { OK, FIREBASE_DELETE_FAILED, FIREBASE_DELETE_SKIPPED, LOCAL_DELETE_FAILED }
 
     public enum FirebaseDeleteStatus { OK, SKIPPED, FAILED, NOT_REQUESTED }
 
@@ -1173,6 +1173,9 @@ public class UsersService {
         static DeleteResult firebaseDeleteSkipped(String error, UUID operationId) {
             return new DeleteResult(DeleteStatus.FIREBASE_DELETE_SKIPPED, FirebaseDeleteStatus.SKIPPED, error, operationId, DeleteOperationState.FAILED);
         }
+        static DeleteResult localDeleteFailed(FirebaseDeleteStatus firebaseStatus, String error, UUID operationId) {
+            return new DeleteResult(DeleteStatus.LOCAL_DELETE_FAILED, firebaseStatus, error, operationId, DeleteOperationState.FAILED);
+        }
     }
 
     public record DeleteOperationStatusResult(DeleteOperationState state,
@@ -1189,8 +1192,8 @@ public class UsersService {
             return new DeleteOperationStatusResult(DeleteOperationState.COMPLETED, null, null, null, null, null);
         }
 
-        static DeleteOperationStatusResult legacyPending(OffsetDateTime deletedAt) {
-            return new DeleteOperationStatusResult(DeleteOperationState.PENDING, null, deletedAt, deletedAt, null, "local_delete_pending");
+        static DeleteOperationStatusResult legacyFailed(OffsetDateTime deletedAt) {
+            return new DeleteOperationStatusResult(DeleteOperationState.FAILED, null, deletedAt, deletedAt, null, "local_delete_failed");
         }
     }
 

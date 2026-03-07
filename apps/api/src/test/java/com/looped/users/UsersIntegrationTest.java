@@ -294,6 +294,60 @@ class UsersIntegrationTest extends PostgresTestBase {
     }
 
     @Test
+    void delete_me_hard_deletes_multi_asset_post_attachments() throws Exception {
+        long companyId = jdbc.queryForObject("INSERT INTO companies(name, domain) VALUES ('DelMedia','delmedia.co') RETURNING id", Long.class);
+        long userId = jdbc.queryForObject(
+                "INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?) RETURNING id",
+                Long.class,
+                "uid-delete-media",
+                "dora_media",
+                companyId
+        );
+        long principalId = jdbc.queryForObject(
+                "INSERT INTO principals(kind, user_id) VALUES ('user', ?) RETURNING id",
+                Long.class,
+                userId
+        );
+        long postId = jdbc.queryForObject(
+                "INSERT INTO posts(author_id, author_principal_id, company_id, content) VALUES (?,?,?,?) RETURNING id",
+                Long.class,
+                userId,
+                principalId,
+                companyId,
+                "post with attachments"
+        );
+        long mediaId = jdbc.queryForObject(
+                "INSERT INTO media_assets(owner_id, s3_key, mime_type) VALUES (?,?,?) RETURNING id",
+                Long.class,
+                userId,
+                "media/original/delete-media-1",
+                "image/jpeg"
+        );
+        jdbc.update(
+                "INSERT INTO post_media_assets(post_id, media_asset_id, sort_order) VALUES (?,?,0)",
+                postId,
+                mediaId
+        );
+
+        String auth = "Bearer " + token("uid-delete-media");
+
+        mockMvc.perform(delete("/v1/users/me")
+                        .header("Authorization", auth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status", equalTo("deleted")))
+                .andExpect(jsonPath("$.deletion_status", equalTo("completed")));
+
+        Integer userCount = jdbc.queryForObject("SELECT COUNT(*) FROM users WHERE id = ?", Integer.class, userId);
+        Integer postCount = jdbc.queryForObject("SELECT COUNT(*) FROM posts WHERE id = ?", Integer.class, postId);
+        Integer mediaCount = jdbc.queryForObject("SELECT COUNT(*) FROM media_assets WHERE id = ?", Integer.class, mediaId);
+        Integer linkCount = jdbc.queryForObject("SELECT COUNT(*) FROM post_media_assets WHERE post_id = ?", Integer.class, postId);
+        org.junit.jupiter.api.Assertions.assertEquals(0, userCount.intValue());
+        org.junit.jupiter.api.Assertions.assertEquals(0, postCount.intValue());
+        org.junit.jupiter.api.Assertions.assertEquals(0, mediaCount.intValue());
+        org.junit.jupiter.api.Assertions.assertEquals(0, linkCount.intValue());
+    }
+
+    @Test
     void delete_me_soft_marks_deleted() throws Exception {
         long companyId = jdbc.queryForObject("INSERT INTO companies(name, domain) VALUES ('SoftCo','soft.co') RETURNING id", Long.class);
         jdbc.update("INSERT INTO users(firebase_uid, handle, company_id) VALUES (?,?,?)", "uid-delete-soft", "sara", companyId);
