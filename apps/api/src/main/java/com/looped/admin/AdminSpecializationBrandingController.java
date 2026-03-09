@@ -1,6 +1,7 @@
 package com.looped.admin;
 
 import com.looped.communities.CommunitiesRepository;
+import com.looped.communities.SpecializationBrandingAssetsRepository;
 import com.looped.communities.SpecializationBrandingMediaService;
 import com.looped.communities.SpecializationBrandingPayloads;
 import com.looped.communities.SpecializationIcons;
@@ -16,6 +17,7 @@ import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -24,6 +26,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -33,6 +36,7 @@ import java.util.Set;
 public class AdminSpecializationBrandingController {
     private final AdminAuthService auth;
     private final CommunitiesRepository communities;
+    private final SpecializationBrandingAssetsRepository brandingAssets;
     private final SpecializationBrandingMediaService brandingMedia;
     private final MediaService mediaService;
     private final AdminAuditRepository audit;
@@ -41,6 +45,7 @@ public class AdminSpecializationBrandingController {
 
     public AdminSpecializationBrandingController(AdminAuthService auth,
                                                  CommunitiesRepository communities,
+                                                 SpecializationBrandingAssetsRepository brandingAssets,
                                                  SpecializationBrandingMediaService brandingMedia,
                                                  MediaService mediaService,
                                                  AdminAuditRepository audit,
@@ -48,6 +53,7 @@ public class AdminSpecializationBrandingController {
                                                  @Value("${media.callbackSecret:}") String callbackSecret) {
         this.auth = auth;
         this.communities = communities;
+        this.brandingAssets = brandingAssets;
         this.brandingMedia = brandingMedia;
         this.mediaService = mediaService;
         this.audit = audit;
@@ -58,20 +64,20 @@ public class AdminSpecializationBrandingController {
     @GetMapping("/{id}/specialization-branding")
     public ResponseEntity<?> get(@AuthenticationPrincipal Jwt jwt,
                                  @PathVariable("id") long id) {
-        var authorized = requireAdmin(jwt);
-        if (authorized != null) return authorized;
+        var authRes = requireAdmin(jwt);
+        if (authRes.error() != null) return authRes.error();
 
         var community = loadSpecialization(id);
         if (community.error() != null) return community.error();
-        return ResponseEntity.ok(payload(community.row()));
+        return ResponseEntity.ok(payload(community.row(), brandingAssets.listByCommunity(id)));
     }
 
     @PostMapping("/{id}/specialization-branding/presign")
     public ResponseEntity<?> presign(@AuthenticationPrincipal Jwt jwt,
                                      @PathVariable("id") long id,
                                      @Valid @RequestBody PresignRequest body) {
-        var authorized = requireAdmin(jwt);
-        if (authorized != null) return authorized;
+        var authRes = requireAdmin(jwt);
+        if (authRes.error() != null) return authRes.error();
 
         var community = loadSpecialization(id);
         if (community.error() != null) return community.error();
@@ -111,8 +117,8 @@ public class AdminSpecializationBrandingController {
                                       @PathVariable("id") long id,
                                       @RequestHeader(value = "X-Media-Signature", required = false) String signature,
                                       @Valid @RequestBody CallbackRequest body) {
-        var authorized = requireAdmin(jwt);
-        if (authorized != null) return authorized;
+        var authRes = requireAdmin(jwt);
+        if (authRes.error() != null) return authRes.error();
 
         if (callbackSecret != null && !callbackSecret.isBlank()) {
             String expected = MediaService.hmacSha256Base64(callbackSecret, body.key());
@@ -144,6 +150,7 @@ public class AdminSpecializationBrandingController {
             ));
         }
 
+        brandingAssets.insert(id, asset.mediaAssetId(), asset.slot().pathSegment());
         String imageUrl = cdnUrl(asset.processedKey());
         boolean updated = communities.updateSpecializationBranding(id, asset.slot().pathSegment(), imageUrl, asset.mediaAssetId());
         if (!updated) {
@@ -154,26 +161,99 @@ public class AdminSpecializationBrandingController {
         if (updatedCommunity.isEmpty()) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "not_found"));
         }
-        audit.log(adminId(jwt), "specialization.branding.update", "community", id,
+        List<SpecializationBrandingAssetsRepository.BrandingAssetRow> uploads = brandingAssets.listByCommunity(id);
+        Long uploadId = findUploadId(asset.slot().pathSegment(), asset.mediaAssetId(), uploads);
+
+        audit.log(authRes.admin().id, "specialization.branding.upload", "community", id,
                 "slot=" + asset.slot().pathSegment() + ",media_asset_id=" + asset.mediaAssetId());
 
-        Map<String, Object> out = payload(updatedCommunity.get());
-        out.put("status", "updated");
+        Map<String, Object> out = payload(updatedCommunity.get(), uploads);
+        out.put("status", "created");
         out.put("slot", asset.slot().pathSegment());
         out.put("media_asset_id", asset.mediaAssetId());
+        if (uploadId != null) out.put("upload_id", uploadId);
+        if (uploadId != null) out.put("selected_upload_id", uploadId);
         out.put("processed_key", asset.processedKey());
         return ResponseEntity.status(HttpStatus.CREATED).body(out);
     }
 
-    @DeleteMapping("/{id}/specialization-branding/{slot}")
-    public ResponseEntity<?> delete(@AuthenticationPrincipal Jwt jwt,
+    @PatchMapping("/{id}/specialization-branding")
+    public ResponseEntity<?> select(@AuthenticationPrincipal Jwt jwt,
                                     @PathVariable("id") long id,
-                                    @PathVariable("slot") String slot) {
-        var authorized = requireAdmin(jwt);
-        if (authorized != null) return authorized;
+                                    @Valid @RequestBody UpdateSelectionRequest body) {
+        var authRes = requireAdmin(jwt);
+        if (authRes.error() != null) return authRes.error();
 
-        SpecializationBrandingMediaService.AssetSlot assetSlot = SpecializationBrandingMediaService.AssetSlot.from(slot);
-        if (assetSlot == null) {
+        var community = loadSpecialization(id);
+        if (community.error() != null) return community.error();
+
+        String slot = normalizeSlot(body.slot());
+        if (slot == null) {
+            return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of(
+                    "error", "invalid_slot",
+                    "message", "slot must be icon or banner"
+            ));
+        }
+        boolean hasUploadId = body.uploadId() != null;
+        boolean hasMediaAssetId = body.mediaAssetId() != null;
+        if (hasUploadId == hasMediaAssetId) {
+            return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of(
+                    "error", "invalid_selection",
+                    "message", "Provide exactly one of uploadId or mediaAssetId"
+            ));
+        }
+
+        SpecializationBrandingAssetsRepository.BrandingAssetRow upload;
+        if (hasUploadId) {
+            upload = brandingAssets.findByIdAndCommunity(body.uploadId(), id).orElse(null);
+            if (upload == null) {
+                return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "upload_not_found"));
+            }
+            if (!slot.equals(upload.slot)) {
+                return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of(
+                        "error", "invalid_selection",
+                        "message", "Upload does not belong to the requested slot"
+                ));
+            }
+        } else {
+            upload = brandingAssets.findByCommunitySlotAndMediaAssetId(id, slot, body.mediaAssetId()).orElse(null);
+            if (upload == null) {
+                return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "upload_not_found"));
+            }
+        }
+
+        boolean updated = communities.updateSpecializationBranding(id, slot, cdnUrl(upload.s3Key), upload.mediaAssetId);
+        if (!updated) {
+            return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of("error", "invalid_specialization"));
+        }
+
+        var updatedCommunity = communities.findById(id);
+        if (updatedCommunity.isEmpty()) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "not_found"));
+        }
+        List<SpecializationBrandingAssetsRepository.BrandingAssetRow> uploads = brandingAssets.listByCommunity(id);
+
+        audit.log(authRes.admin().id, "specialization.branding.select", "community", id,
+                "slot=" + slot + ",upload_id=" + upload.id + ",media_asset_id=" + upload.mediaAssetId);
+
+        Map<String, Object> out = payload(updatedCommunity.get(), uploads);
+        out.put("status", "updated");
+        out.put("slot", slot);
+        out.put("upload_id", upload.id);
+        out.put("selected_upload_id", upload.id);
+        out.put("media_asset_id", upload.mediaAssetId);
+        return ResponseEntity.ok(out);
+    }
+
+    @DeleteMapping("/{id}/specialization-branding/{slot}")
+    public ResponseEntity<?> clearSlot(@AuthenticationPrincipal Jwt jwt,
+                                       @PathVariable("id") long id,
+                                       @PathVariable("slot") String slot) {
+        var authRes = requireAdmin(jwt);
+        if (authRes.error() != null) return authRes.error();
+
+        String normalizedSlot = normalizeSlot(slot);
+        if (normalizedSlot == null) {
             return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of(
                     "error", "invalid_slot",
                     "message", "slot must be icon or banner"
@@ -183,40 +263,75 @@ public class AdminSpecializationBrandingController {
         var community = loadSpecialization(id);
         if (community.error() != null) return community.error();
 
-        boolean hadAsset = switch (assetSlot) {
-            case ICON -> community.row().specializationIconMediaAssetId != null
-                    || community.row().specializationIconImageUrl != null;
-            case BANNER -> community.row().specializationBannerMediaAssetId != null
-                    || community.row().specializationBannerImageUrl != null;
-        };
-        communities.updateSpecializationBranding(id, assetSlot.pathSegment(), null, null);
+        boolean hadAsset = "icon".equals(normalizedSlot)
+                ? community.row().specializationIconMediaAssetId != null || community.row().specializationIconImageUrl != null
+                : community.row().specializationBannerMediaAssetId != null || community.row().specializationBannerImageUrl != null;
+        communities.updateSpecializationBranding(id, normalizedSlot, null, null);
 
         var updatedCommunity = communities.findById(id);
         if (updatedCommunity.isEmpty()) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "not_found"));
         }
-        audit.log(adminId(jwt), "specialization.branding.delete", "community", id,
-                "slot=" + assetSlot.pathSegment());
+        List<SpecializationBrandingAssetsRepository.BrandingAssetRow> uploads = brandingAssets.listByCommunity(id);
 
-        Map<String, Object> out = payload(updatedCommunity.get());
+        audit.log(authRes.admin().id, "specialization.branding.clear", "community", id,
+                "slot=" + normalizedSlot);
+
+        Map<String, Object> out = payload(updatedCommunity.get(), uploads);
         out.put("status", "deleted");
-        out.put("slot", assetSlot.pathSegment());
+        out.put("slot", normalizedSlot);
         out.put("cleared", hadAsset);
         return ResponseEntity.ok(out);
     }
 
-    private ResponseEntity<?> requireAdmin(Jwt jwt) {
+    @DeleteMapping("/{id}/specialization-branding/uploads/{uploadId}")
+    public ResponseEntity<?> deleteUpload(@AuthenticationPrincipal Jwt jwt,
+                                          @PathVariable("id") long id,
+                                          @PathVariable("uploadId") long uploadId) {
+        var authRes = requireAdmin(jwt);
+        if (authRes.error() != null) return authRes.error();
+
+        var community = loadSpecialization(id);
+        if (community.error() != null) return community.error();
+
+        var upload = brandingAssets.findByIdAndCommunity(uploadId, id).orElse(null);
+        if (upload == null) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "upload_not_found"));
+        }
+
+        boolean clearedSelectedSlot = isCurrentlySelected(community.row(), upload);
+        if (clearedSelectedSlot) {
+            communities.updateSpecializationBranding(id, upload.slot, null, null);
+        }
+        boolean deleted = brandingAssets.deleteByIdAndCommunity(uploadId, id);
+        if (!deleted) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "upload_not_found"));
+        }
+
+        var updatedCommunity = communities.findById(id);
+        if (updatedCommunity.isEmpty()) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "not_found"));
+        }
+        List<SpecializationBrandingAssetsRepository.BrandingAssetRow> uploads = brandingAssets.listByCommunity(id);
+
+        audit.log(authRes.admin().id, "specialization.branding.delete_upload", "community", id,
+                "slot=" + upload.slot + ",upload_id=" + uploadId + ",media_asset_id=" + upload.mediaAssetId);
+
+        Map<String, Object> out = payload(updatedCommunity.get(), uploads);
+        out.put("status", "deleted");
+        out.put("upload_id", uploadId);
+        out.put("slot", upload.slot);
+        out.put("cleared_selected_slot", clearedSelectedSlot);
+        return ResponseEntity.ok(out);
+    }
+
+    private AuthResult requireAdmin(Jwt jwt) {
         String email = jwt.getClaimAsString("email");
         var authRes = auth.requirePermission(jwt.getSubject(), email, AdminPermissions.CREATE_COMMUNITY);
         if (authRes.status() != AdminAuthService.Status.OK) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "forbidden"));
+            return new AuthResult(null, ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "forbidden")));
         }
-        return null;
-    }
-
-    private long adminId(Jwt jwt) {
-        String email = jwt.getClaimAsString("email");
-        return auth.requirePermission(jwt.getSubject(), email, AdminPermissions.CREATE_COMMUNITY).admin().id;
+        return new AuthResult(authRes, null);
     }
 
     private LoadedSpecialization loadSpecialization(long id) {
@@ -236,7 +351,8 @@ public class AdminSpecializationBrandingController {
         return new LoadedSpecialization(community, null);
     }
 
-    private Map<String, Object> payload(CommunitiesRepository.CommunityRow row) {
+    private Map<String, Object> payload(CommunitiesRepository.CommunityRow row,
+                                        List<SpecializationBrandingAssetsRepository.BrandingAssetRow> uploads) {
         Map<String, Object> out = new HashMap<>();
         out.put("community_id", row.id);
         out.put("kind", row.kind);
@@ -247,12 +363,66 @@ public class AdminSpecializationBrandingController {
         SpecializationBrandingPayloads.putPayload(out, row.specializationIconImageUrl, row.specializationBannerImageUrl);
         if (row.specializationIconMediaAssetId != null) out.put("icon_media_asset_id", row.specializationIconMediaAssetId);
         if (row.specializationBannerMediaAssetId != null) out.put("banner_media_asset_id", row.specializationBannerMediaAssetId);
+
+        Long selectedIconUploadId = findUploadId("icon", row.specializationIconMediaAssetId, uploads);
+        Long selectedBannerUploadId = findUploadId("banner", row.specializationBannerMediaAssetId, uploads);
+        if (selectedIconUploadId != null) out.put("selected_icon_upload_id", selectedIconUploadId);
+        if (selectedBannerUploadId != null) out.put("selected_banner_upload_id", selectedBannerUploadId);
+
+        List<Map<String, Object>> uploadItems = uploads.stream().map(upload -> {
+            Map<String, Object> item = new HashMap<>();
+            item.put("id", upload.id);
+            item.put("upload_id", upload.id);
+            item.put("media_asset_id", upload.mediaAssetId);
+            item.put("slot", upload.slot);
+            item.put("key", upload.s3Key);
+            item.put("mime_type", upload.mimeType);
+            if (upload.width != null) item.put("width", upload.width);
+            if (upload.height != null) item.put("height", upload.height);
+            if (upload.createdAt != null) item.put("created_at", upload.createdAt);
+            String cdnUrl = cdnUrl(upload.s3Key);
+            if (cdnUrl != null) item.put("cdn_url", cdnUrl);
+            item.put("selected_for_icon", row.specializationIconMediaAssetId != null && row.specializationIconMediaAssetId.equals(upload.mediaAssetId));
+            item.put("selected_for_banner", row.specializationBannerMediaAssetId != null && row.specializationBannerMediaAssetId.equals(upload.mediaAssetId));
+            return item;
+        }).toList();
+        out.put("uploads", uploadItems);
         return out;
     }
 
+    private boolean isCurrentlySelected(CommunitiesRepository.CommunityRow row,
+                                        SpecializationBrandingAssetsRepository.BrandingAssetRow upload) {
+        if ("icon".equals(upload.slot)) {
+            return row.specializationIconMediaAssetId != null && row.specializationIconMediaAssetId.equals(upload.mediaAssetId);
+        }
+        return row.specializationBannerMediaAssetId != null && row.specializationBannerMediaAssetId.equals(upload.mediaAssetId);
+    }
+
+    private Long findUploadId(String slot,
+                              Long mediaAssetId,
+                              List<SpecializationBrandingAssetsRepository.BrandingAssetRow> uploads) {
+        if (slot == null || mediaAssetId == null || uploads == null) return null;
+        for (var upload : uploads) {
+            if (slot.equals(upload.slot) && mediaAssetId.equals(upload.mediaAssetId)) {
+                return upload.id;
+            }
+        }
+        return null;
+    }
+
+    private String normalizeSlot(String raw) {
+        if (raw == null) return null;
+        String normalized = raw.trim().toLowerCase(java.util.Locale.ROOT);
+        if ("icon".equals(normalized) || "banner".equals(normalized)) return normalized;
+        return null;
+    }
+
     private String cdnUrl(String key) {
+        if (cloudfrontDomain == null || cloudfrontDomain.isBlank() || key == null || key.isBlank()) return null;
         return "https://" + cloudfrontDomain + "/" + key;
     }
+
+    private record AuthResult(AdminAuthService.AuthResult auth, ResponseEntity<?> error) {}
 
     private record LoadedSpecialization(CommunitiesRepository.CommunityRow row, ResponseEntity<?> error) {}
 
@@ -266,5 +436,11 @@ public class AdminSpecializationBrandingController {
             @NotBlank String slot,
             @NotBlank String key,
             @NotBlank String mimeType
+    ) {}
+
+    public record UpdateSelectionRequest(
+            @NotBlank String slot,
+            Long uploadId,
+            Long mediaAssetId
     ) {}
 }
