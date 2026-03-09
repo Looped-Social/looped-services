@@ -65,6 +65,7 @@ public class FieldsMajorsController {
             if (r.shortName() != null && !r.shortName().isBlank()) out.put("short_name", r.shortName());
             Map<String, Object> icon = SpecializationIcons.payloadOrNull(r.iconKind(), r.iconValue());
             if (icon != null) out.put("icon", icon);
+            SpecializationBrandingPayloads.putPayload(out, r.iconImageUrl(), r.bannerImageUrl());
             return out;
         }).toList();
 

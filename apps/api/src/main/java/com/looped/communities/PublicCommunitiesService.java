@@ -51,6 +51,13 @@ public class PublicCommunitiesService {
         if (row.specializationType != null && !row.specializationType.isBlank()) {
             payload.put("specialization_type", row.specializationType);
         }
+        if ("specialization".equalsIgnoreCase(row.kind)) {
+            SpecializationBrandingPayloads.putPayload(
+                    payload,
+                    row.specializationIconImageUrl,
+                    row.specializationBannerImageUrl
+            );
+        }
         return Result.ok(payload);
     }
 

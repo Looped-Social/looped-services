@@ -73,14 +73,22 @@ public class MediaService {
     }
 
     public PresignResult presignImage(String contentType, long sizeBytes, String prefix) {
+        return presignCustom(contentType, sizeBytes, prefix, ALLOWED_IMAGE, maxImageBytes);
+    }
+
+    public PresignResult presignCustom(String contentType,
+                                       long sizeBytes,
+                                       String prefix,
+                                       Set<String> allowedMimeTypes,
+                                       long maxBytes) {
         if (contentType == null || contentType.isBlank()) {
             return PresignResult.badRequest("content_type_required");
         }
         String normalized = normalizeMimeType(contentType);
-        if (!ALLOWED_IMAGE.contains(normalized)) {
+        if (allowedMimeTypes == null || !allowedMimeTypes.contains(normalized)) {
             return PresignResult.badRequest("unsupported_content_type");
         }
-        if (sizeBytes <= 0 || sizeBytes > maxImageBytes) {
+        if (sizeBytes <= 0 || sizeBytes > maxBytes) {
             return PresignResult.badRequest("size_exceeds_limit");
         }
         String resolvedPrefix = normalizePrefix(prefix);

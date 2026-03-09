@@ -246,6 +246,7 @@ public class SpecializationsController {
         }
         Map<String, Object> icon = SpecializationIcons.payloadOrNull(row.iconKind(), row.iconValue());
         if (icon != null) out.put("icon", icon);
+        SpecializationBrandingPayloads.putPayload(out, row.iconImageUrl(), row.bannerImageUrl());
         out.put("member_count", memberCounts.getOrDefault(row.specializationId(), 0));
         if (row.specializationType() != null) out.put("specialization_type", row.specializationType());
         out.put("joined_at", row.createdAt());

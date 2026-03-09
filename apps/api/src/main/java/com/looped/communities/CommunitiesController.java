@@ -87,6 +87,11 @@ public class CommunitiesController {
         if ("specialization".equalsIgnoreCase(community.kind)) {
             Map<String, Object> icon = SpecializationIcons.payloadOrNull(community.iconKind, community.iconValue);
             if (icon != null) out.put("icon", icon);
+            SpecializationBrandingPayloads.putPayload(
+                    out,
+                    community.specializationIconImageUrl,
+                    community.specializationBannerImageUrl
+            );
         }
         out.put("is_following", follows.exists(actor.get().id, id));
         if (isFieldSpecialization(community.kind, community.specializationType)) {

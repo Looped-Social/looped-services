@@ -90,6 +90,11 @@ public class SpecializationsDetailsController {
 
         Map<String, Object> icon = SpecializationIcons.payloadOrNull(community.iconKind, community.iconValue);
         if (icon != null) out.put("icon", icon);
+        SpecializationBrandingPayloads.putPayload(
+                out,
+                community.specializationIconImageUrl,
+                community.specializationBannerImageUrl
+        );
 
         out.put("is_following", follows.exists(actor.get().id, id));
 

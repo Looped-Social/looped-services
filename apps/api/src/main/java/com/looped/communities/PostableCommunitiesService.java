@@ -96,6 +96,13 @@ public class PostableCommunitiesService {
                 payload.put("specialization_type", row.specializationType);
                 payload.put("specializationType", row.specializationType);
             }
+            if ("specialization".equalsIgnoreCase(row.kind)) {
+                SpecializationBrandingPayloads.putPayload(
+                        payload,
+                        row.specializationIconImageUrl,
+                        row.specializationBannerImageUrl
+                );
+            }
             payload.put("member_count", memberCount);
             payload.put("memberCount", memberCount);
             payload.put("can_post", true);

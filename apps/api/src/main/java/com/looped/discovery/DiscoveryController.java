@@ -386,6 +386,11 @@ public class DiscoveryController {
         if ("specialization".equalsIgnoreCase(row.kind)) {
             Map<String, Object> icon = com.looped.communities.SpecializationIcons.payloadOrNull(row.iconKind, row.iconValue);
             if (icon != null) map.put("icon", icon);
+            com.looped.communities.SpecializationBrandingPayloads.putPayload(
+                    map,
+                    row.specializationIconImageUrl,
+                    row.specializationBannerImageUrl
+            );
         }
         String fallback = fallbacks != null ? fallbacks.get(row.id) : logos.resolve(row.id, row.kind, row.imageUrl);
         CommunityImageSlots.putPayload(map, row.imageUrl, row.profileImageUrl, fallback);
@@ -415,6 +420,11 @@ public class DiscoveryController {
         if ("specialization".equalsIgnoreCase(row.kind)) {
             Map<String, Object> icon = com.looped.communities.SpecializationIcons.payloadOrNull(row.iconKind, row.iconValue);
             if (icon != null) map.put("icon", icon);
+            com.looped.communities.SpecializationBrandingPayloads.putPayload(
+                    map,
+                    row.specializationIconImageUrl,
+                    row.specializationBannerImageUrl
+            );
         }
         String fallback = fallbacks != null ? fallbacks.get(row.id) : logos.resolve(row.id, row.kind, row.imageUrl);
         CommunityImageSlots.putPayload(map, row.imageUrl, row.profileImageUrl, fallback);

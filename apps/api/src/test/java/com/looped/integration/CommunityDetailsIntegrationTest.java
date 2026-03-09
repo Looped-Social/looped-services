@@ -133,8 +133,12 @@ class CommunityDetailsIntegrationTest extends PostgresTestBase {
                 userId, companyCommunityId, "manual", true
         );
         long fieldId = jdbc.queryForObject(
-                "INSERT INTO communities(kind, specialization_type, name) VALUES ('specialization','field','Computer Science') RETURNING id",
+                "INSERT INTO communities(kind, specialization_type, name, specialization_icon_image_url, specialization_banner_image_url) " +
+                        "VALUES ('specialization','field','Computer Science', ?, ?) RETURNING id",
                 Long.class
+                ,
+                "https://cdn.example.com/specializations/icon-compsci.png",
+                "https://cdn.example.com/specializations/banner-compsci.png"
         );
 
         String auth = "Bearer " + token("uid-spec-limits");
@@ -149,6 +153,10 @@ class CommunityDetailsIntegrationTest extends PostgresTestBase {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.kind").value("specialization"))
                 .andExpect(jsonPath("$.specialization_type").value("field"))
+                .andExpect(jsonPath("$.iconImageUrl").value("https://cdn.example.com/specializations/icon-compsci.png"))
+                .andExpect(jsonPath("$.icon_image_url").value("https://cdn.example.com/specializations/icon-compsci.png"))
+                .andExpect(jsonPath("$.bannerImageUrl").value("https://cdn.example.com/specializations/banner-compsci.png"))
+                .andExpect(jsonPath("$.banner_image_url").value("https://cdn.example.com/specializations/banner-compsci.png"))
                 .andExpect(jsonPath("$.is_joined").value(true))
                 .andExpect(jsonPath("$.join_limit.specialization_type").value("field"))
                 .andExpect(jsonPath("$.join_limit.limit").value(2))

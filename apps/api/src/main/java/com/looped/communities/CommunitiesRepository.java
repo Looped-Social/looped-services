@@ -24,7 +24,8 @@ public class CommunitiesRepository {
     }
 
     private static final String BASE_COLUMNS =
-            "id, kind, name, description, member_count, image_url, profile_image_url, specialization_type, created_at, verification_ttl_days, short_name, specialization_join_cooldown_months, icon_kind, icon_value, icon_updated_at";
+            "id, kind, name, description, member_count, image_url, profile_image_url, specialization_type, created_at, verification_ttl_days, short_name, specialization_join_cooldown_months, icon_kind, icon_value, icon_updated_at, " +
+                    "specialization_icon_media_asset_id, specialization_banner_media_asset_id, specialization_icon_image_url, specialization_banner_image_url";
 
     private static final RowMapper<CommunityRow> MAPPER = new RowMapper<>() {
         @Override
@@ -47,6 +48,10 @@ public class CommunitiesRepository {
             row.iconKind = rs.getString("icon_kind");
             row.iconValue = rs.getString("icon_value");
             row.iconUpdatedAt = rs.getObject("icon_updated_at", OffsetDateTime.class);
+            row.specializationIconMediaAssetId = rs.getObject("specialization_icon_media_asset_id", Long.class);
+            row.specializationBannerMediaAssetId = rs.getObject("specialization_banner_media_asset_id", Long.class);
+            row.specializationIconImageUrl = rs.getString("specialization_icon_image_url");
+            row.specializationBannerImageUrl = rs.getString("specialization_banner_image_url");
             return row;
         }
     };
@@ -161,14 +166,18 @@ public class CommunitiesRepository {
                     SELECT c.id, c.kind, c.name, c.description,
                            COUNT(j.user_id) FILTER (WHERE u.deleted_at IS NULL) AS member_count,
                            c.image_url, c.profile_image_url, c.specialization_type, c.created_at, c.verification_ttl_days, c.short_name, c.specialization_join_cooldown_months,
-                           c.icon_kind, c.icon_value, c.icon_updated_at
+                           c.icon_kind, c.icon_value, c.icon_updated_at,
+                           c.specialization_icon_media_asset_id, c.specialization_banner_media_asset_id,
+                           c.specialization_icon_image_url, c.specialization_banner_image_url
                     FROM communities c
                     LEFT JOIN specialization_joins j ON j.specialization_id = c.id AND j.created_at <= ?
                     LEFT JOIN users u ON u.id = j.user_id
                     WHERE c.kind = 'specialization' AND c.specialization_type = ? AND c.created_at <= ?
                     GROUP BY c.id, c.kind, c.name, c.description,
                              c.image_url, c.profile_image_url, c.specialization_type, c.created_at, c.verification_ttl_days, c.short_name, c.specialization_join_cooldown_months,
-                             c.icon_kind, c.icon_value, c.icon_updated_at
+                             c.icon_kind, c.icon_value, c.icon_updated_at,
+                             c.specialization_icon_media_asset_id, c.specialization_banner_media_asset_id,
+                             c.specialization_icon_image_url, c.specialization_banner_image_url
                 )
                 SELECT * FROM base
                 """;
@@ -629,6 +638,8 @@ public class CommunitiesRepository {
                 ranked AS (
                     SELECT c.id, c.kind, c.name, c.short_name, c.description, c.member_count, c.image_url, c.profile_image_url, c.specialization_type,
                            c.verification_ttl_days, c.created_at, c.icon_kind, c.icon_value, c.icon_updated_at,
+                           c.specialization_icon_media_asset_id, c.specialization_banner_media_asset_id,
+                           c.specialization_icon_image_url, c.specialization_banner_image_url,
                            CASE WHEN cf.user_id IS NULL THEN false ELSE true END AS is_following,
                            CASE WHEN sj.user_id IS NULL THEN false ELSE true END AS is_joined,
                            CAST(FLOOR(
@@ -715,6 +726,10 @@ public class CommunitiesRepository {
                     row.iconKind = rs.getString("icon_kind");
                     row.iconValue = rs.getString("icon_value");
                     row.iconUpdatedAt = rs.getObject("icon_updated_at", OffsetDateTime.class);
+                    row.specializationIconMediaAssetId = rs.getObject("specialization_icon_media_asset_id", Long.class);
+                    row.specializationBannerMediaAssetId = rs.getObject("specialization_banner_media_asset_id", Long.class);
+                    row.specializationIconImageUrl = rs.getString("specialization_icon_image_url");
+                    row.specializationBannerImageUrl = rs.getString("specialization_banner_image_url");
                     row.isFollowing = rs.getBoolean("is_following");
                     row.isJoined = rs.getBoolean("is_joined");
                     row.score = rs.getLong("score");
@@ -769,6 +784,10 @@ public class CommunitiesRepository {
         public String iconKind;
         public String iconValue;
         public OffsetDateTime iconUpdatedAt;
+        public Long specializationIconMediaAssetId;
+        public Long specializationBannerMediaAssetId;
+        public String specializationIconImageUrl;
+        public String specializationBannerImageUrl;
     }
 
     public record KindFilter(String kind, String specializationType) {}
@@ -795,13 +814,17 @@ public class CommunitiesRepository {
         public String iconKind;
         public String iconValue;
         public OffsetDateTime iconUpdatedAt;
+        public Long specializationIconMediaAssetId;
+        public Long specializationBannerMediaAssetId;
+        public String specializationIconImageUrl;
+        public String specializationBannerImageUrl;
         public long score;
     }
 
     public List<SpecializationFilterRow> listSpecializationsForFilters(String specializationType) {
         if (specializationType == null || specializationType.isBlank()) return List.of();
         return jdbc.query(
-                "SELECT id, name, short_name, icon_kind, icon_value " +
+                "SELECT id, name, short_name, icon_kind, icon_value, specialization_icon_image_url, specialization_banner_image_url " +
                         "FROM communities " +
                         "WHERE kind = 'specialization' AND specialization_type = ? " +
                         "ORDER BY lower(name) ASC, id ASC",
@@ -810,7 +833,9 @@ public class CommunitiesRepository {
                         rs.getString("name"),
                         rs.getString("short_name"),
                         rs.getString("icon_kind"),
-                        rs.getString("icon_value")
+                        rs.getString("icon_value"),
+                        rs.getString("specialization_icon_image_url"),
+                        rs.getString("specialization_banner_image_url")
                 ),
                 specializationType
         );
@@ -829,7 +854,9 @@ public class CommunitiesRepository {
                       name,
                       COALESCE(short_name,''),
                       COALESCE(icon_kind,''),
-                      COALESCE(icon_value,'')
+                      COALESCE(icon_value,''),
+                      COALESCE(specialization_icon_image_url,''),
+                      COALESCE(specialization_banner_image_url,'')
                     ),
                     ';' ORDER BY lower(name), id
                   ), '')) AS etag,
@@ -881,9 +908,39 @@ public class CommunitiesRepository {
         return rows > 0;
     }
 
-    public record SpecializationFilterRow(long id, String name, String shortName, String iconKind, String iconValue) {}
+    public record SpecializationFilterRow(long id,
+                                          String name,
+                                          String shortName,
+                                          String iconKind,
+                                          String iconValue,
+                                          String iconImageUrl,
+                                          String bannerImageUrl) {}
 
     public record SpecializationsCacheInfo(String etagMd5, OffsetDateTime lastModified) {}
+
+    public boolean updateSpecializationBranding(long communityId,
+                                                String slot,
+                                                String imageUrl,
+                                                Long mediaAssetId) {
+        String normalizedSlot = slot == null ? null : slot.trim().toLowerCase(Locale.ROOT);
+        String urlColumn;
+        String mediaColumn;
+        if ("icon".equals(normalizedSlot)) {
+            urlColumn = "specialization_icon_image_url";
+            mediaColumn = "specialization_icon_media_asset_id";
+        } else if ("banner".equals(normalizedSlot)) {
+            urlColumn = "specialization_banner_image_url";
+            mediaColumn = "specialization_banner_media_asset_id";
+        } else {
+            return false;
+        }
+        int rows = jdbc.update(
+                "UPDATE communities SET " + urlColumn + " = ?, " + mediaColumn + " = ?, icon_updated_at = now() " +
+                        "WHERE id = ? AND kind = 'specialization'",
+                imageUrl, mediaAssetId, communityId
+        );
+        return rows > 0;
+    }
 
     public boolean updateVerificationTtlDays(long communityId, Integer ttlDays) {
         int rows = jdbc.update(

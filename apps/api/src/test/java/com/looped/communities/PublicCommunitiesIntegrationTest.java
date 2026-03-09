@@ -48,9 +48,11 @@ class PublicCommunitiesIntegrationTest extends PostgresTestBase {
                 companyId
         );
         long communityId = jdbc.queryForObject(
-                "INSERT INTO communities(kind, name, short_name, description, image_url, specialization_type) " +
-                        "VALUES ('specialization', 'Public Community', 'pubcomm', 'Public desc', 'https://cdn.example.com/community.jpg', 'field') RETURNING id",
-                Long.class
+                "INSERT INTO communities(kind, name, short_name, description, image_url, specialization_type, specialization_icon_image_url, specialization_banner_image_url) " +
+                        "VALUES ('specialization', 'Public Community', 'pubcomm', 'Public desc', 'https://cdn.example.com/community.jpg', 'field', ?, ?) RETURNING id",
+                Long.class,
+                "https://cdn.example.com/public-community-icon.png",
+                "https://cdn.example.com/public-community-banner.png"
         );
         jdbc.update(
                 "INSERT INTO specialization_joins(user_id, specialization_id) VALUES (?,?)",
@@ -65,6 +67,10 @@ class PublicCommunitiesIntegrationTest extends PostgresTestBase {
                 .andExpect(jsonPath("$.short_name", equalTo("pubcomm")))
                 .andExpect(jsonPath("$.description", equalTo("Public desc")))
                 .andExpect(jsonPath("$.image_url", equalTo("https://cdn.example.com/community.jpg")))
+                .andExpect(jsonPath("$.iconImageUrl", equalTo("https://cdn.example.com/public-community-icon.png")))
+                .andExpect(jsonPath("$.icon_image_url", equalTo("https://cdn.example.com/public-community-icon.png")))
+                .andExpect(jsonPath("$.bannerImageUrl", equalTo("https://cdn.example.com/public-community-banner.png")))
+                .andExpect(jsonPath("$.banner_image_url", equalTo("https://cdn.example.com/public-community-banner.png")))
                 .andExpect(jsonPath("$.member_count", equalTo(1)))
                 .andExpect(jsonPath("$.kind", equalTo("specialization")))
                 .andExpect(jsonPath("$.specialization_type", equalTo("field")));

@@ -258,10 +258,10 @@ public class AdminCommunitiesController {
                 }
             }
             if (iconProvided) {
-                if (!"specialization".equals(kind) || !"field".equals(specializationType)) {
+                if (!"specialization".equals(kind) || (!"field".equals(specializationType) && !"major".equals(specializationType))) {
                     return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of(
-                            "error", "invalid_specialization",
-                            "message", "icon can only be set for fields"
+                        "error", "invalid_specialization",
+                        "message", "icon can only be set for fields or majors"
                     ));
                 }
             }
@@ -501,6 +501,11 @@ public class AdminCommunitiesController {
         if ("specialization".equalsIgnoreCase(row.kind)) {
             Map<String, Object> icon = com.looped.communities.SpecializationIcons.payloadOrNull(row.iconKind, row.iconValue);
             if (icon != null) map.put("icon", icon);
+            com.looped.communities.SpecializationBrandingPayloads.putPayload(
+                    map,
+                    row.specializationIconImageUrl,
+                    row.specializationBannerImageUrl
+            );
         }
         String fallback = fallbacks != null ? fallbacks.get(row.id) : logos.resolve(row.id, row.kind, row.imageUrl);
         CommunityImageSlots.putPayload(map, row.imageUrl, row.profileImageUrl, fallback);
