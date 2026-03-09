@@ -20,6 +20,7 @@ import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.S3Exception;
 
 import javax.imageio.ImageIO;
+import javax.xml.parsers.DocumentBuilderFactory;
 import java.awt.Graphics2D;
 import java.awt.RenderingHints;
 import java.awt.image.BufferedImage;
@@ -28,6 +29,8 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.util.Set;
 import java.util.UUID;
+
+import org.xml.sax.InputSource;
 
 @Service
 public class SpecializationBrandingMediaService {
@@ -83,7 +86,7 @@ public class SpecializationBrandingMediaService {
 
         byte[] sourceBytes = readObjectBytes(sourceKey);
         BufferedImage sourceImage = "image/svg+xml".equals(normalizedMimeType)
-                ? decodeSvg(sourceBytes)
+                ? decodeSvg(sourceBytes, assetSlot)
                 : decodePng(sourceBytes);
         BufferedImage processed = switch (assetSlot) {
             case ICON -> renderIcon(sourceImage);
@@ -160,9 +163,12 @@ public class SpecializationBrandingMediaService {
         }
     }
 
-    private BufferedImage decodeSvg(byte[] bytes) {
+    private BufferedImage decodeSvg(byte[] bytes, AssetSlot assetSlot) {
         try {
+            SvgRasterSize rasterSize = svgRasterSize(bytes, assetSlot);
             BufferedImageTranscoder transcoder = new BufferedImageTranscoder();
+            transcoder.addTranscodingHint(ImageTranscoder.KEY_WIDTH, (float) rasterSize.width());
+            transcoder.addTranscodingHint(ImageTranscoder.KEY_HEIGHT, (float) rasterSize.height());
             transcoder.transcode(new TranscoderInput(new ByteArrayInputStream(bytes)), null);
             BufferedImage image = transcoder.image();
             if (image == null || image.getWidth() <= 0 || image.getHeight() <= 0) {
@@ -171,6 +177,83 @@ public class SpecializationBrandingMediaService {
             return image;
         } catch (TranscoderException e) {
             throw new InvalidAssetException("invalid_image", "SVG file could not be rasterized");
+        }
+    }
+
+    private SvgRasterSize svgRasterSize(byte[] bytes, AssetSlot assetSlot) {
+        double[] intrinsicSize = readSvgIntrinsicSize(bytes);
+        double intrinsicWidth = intrinsicSize[0];
+        double intrinsicHeight = intrinsicSize[1];
+        if (intrinsicWidth <= 0 || intrinsicHeight <= 0) {
+            return switch (assetSlot) {
+                case ICON -> new SvgRasterSize(ICON_SIZE, ICON_SIZE);
+                case BANNER -> new SvgRasterSize(BANNER_WIDTH, BANNER_HEIGHT);
+            };
+        }
+
+        double targetWidth = assetSlot == AssetSlot.ICON ? ICON_SIZE : BANNER_WIDTH;
+        double targetHeight = assetSlot == AssetSlot.ICON ? ICON_SIZE : BANNER_HEIGHT;
+        double scale = Math.min(targetWidth / intrinsicWidth, targetHeight / intrinsicHeight);
+        int width = Math.max(1, (int) Math.round(intrinsicWidth * scale));
+        int height = Math.max(1, (int) Math.round(intrinsicHeight * scale));
+        return new SvgRasterSize(width, height);
+    }
+
+    private double[] readSvgIntrinsicSize(byte[] bytes) {
+        try {
+            DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+            factory.setNamespaceAware(true);
+            factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
+            factory.setFeature("http://xml.org/sax/features/external-general-entities", false);
+            factory.setFeature("http://xml.org/sax/features/external-parameter-entities", false);
+            factory.setExpandEntityReferences(false);
+
+            var builder = factory.newDocumentBuilder();
+            var document = builder.parse(new InputSource(new ByteArrayInputStream(bytes)));
+            var root = document.getDocumentElement();
+            if (root == null) return new double[]{0d, 0d};
+
+            Double width = parseSvgDimension(root.getAttribute("width"));
+            Double height = parseSvgDimension(root.getAttribute("height"));
+            if (width != null && width > 0 && height != null && height > 0) {
+                return new double[]{width, height};
+            }
+
+            String viewBox = root.getAttribute("viewBox");
+            if (viewBox != null && !viewBox.isBlank()) {
+                String[] parts = viewBox.trim().split("[,\\s]+");
+                if (parts.length == 4) {
+                    double vbWidth = Double.parseDouble(parts[2]);
+                    double vbHeight = Double.parseDouble(parts[3]);
+                    if (vbWidth > 0 && vbHeight > 0) {
+                        return new double[]{vbWidth, vbHeight};
+                    }
+                }
+            }
+        } catch (Exception ignored) {
+            return new double[]{0d, 0d};
+        }
+        return new double[]{0d, 0d};
+    }
+
+    private Double parseSvgDimension(String raw) {
+        if (raw == null) return null;
+        String value = raw.trim();
+        if (value.isBlank() || value.contains("%")) return null;
+        int end = 0;
+        while (end < value.length()) {
+            char c = value.charAt(end);
+            if ((c >= '0' && c <= '9') || c == '.' || c == '-' || c == '+') {
+                end++;
+            } else {
+                break;
+            }
+        }
+        if (end == 0) return null;
+        try {
+            return Double.parseDouble(value.substring(0, end));
+        } catch (NumberFormatException e) {
+            return null;
         }
     }
 
@@ -233,6 +316,8 @@ public class SpecializationBrandingMediaService {
                                  Long mediaAssetId,
                                  int width,
                                  int height) {}
+
+    private record SvgRasterSize(int width, int height) {}
 
     public enum AssetSlot {
         ICON("icon"),
