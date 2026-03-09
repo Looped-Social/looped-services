@@ -164,7 +164,7 @@ public class AdminSpecializationBrandingController {
         List<SpecializationBrandingAssetsRepository.BrandingAssetRow> uploads = brandingAssets.listByCommunity(id);
         Long uploadId = findUploadId(asset.slot().pathSegment(), asset.mediaAssetId(), uploads);
 
-        audit.log(authRes.admin().id, "specialization.branding.upload", "community", id,
+        audit.log(authRes.auth().admin().id, "specialization.branding.upload", "community", id,
                 "slot=" + asset.slot().pathSegment() + ",media_asset_id=" + asset.mediaAssetId());
 
         Map<String, Object> out = payload(updatedCommunity.get(), uploads);
@@ -233,7 +233,7 @@ public class AdminSpecializationBrandingController {
         }
         List<SpecializationBrandingAssetsRepository.BrandingAssetRow> uploads = brandingAssets.listByCommunity(id);
 
-        audit.log(authRes.admin().id, "specialization.branding.select", "community", id,
+        audit.log(authRes.auth().admin().id, "specialization.branding.select", "community", id,
                 "slot=" + slot + ",upload_id=" + upload.id + ",media_asset_id=" + upload.mediaAssetId);
 
         Map<String, Object> out = payload(updatedCommunity.get(), uploads);
@@ -274,7 +274,7 @@ public class AdminSpecializationBrandingController {
         }
         List<SpecializationBrandingAssetsRepository.BrandingAssetRow> uploads = brandingAssets.listByCommunity(id);
 
-        audit.log(authRes.admin().id, "specialization.branding.clear", "community", id,
+        audit.log(authRes.auth().admin().id, "specialization.branding.clear", "community", id,
                 "slot=" + normalizedSlot);
 
         Map<String, Object> out = payload(updatedCommunity.get(), uploads);
@@ -314,7 +314,7 @@ public class AdminSpecializationBrandingController {
         }
         List<SpecializationBrandingAssetsRepository.BrandingAssetRow> uploads = brandingAssets.listByCommunity(id);
 
-        audit.log(authRes.admin().id, "specialization.branding.delete_upload", "community", id,
+        audit.log(authRes.auth().admin().id, "specialization.branding.delete_upload", "community", id,
                 "slot=" + upload.slot + ",upload_id=" + uploadId + ",media_asset_id=" + upload.mediaAssetId);
 
         Map<String, Object> out = payload(updatedCommunity.get(), uploads);
@@ -422,7 +422,7 @@ public class AdminSpecializationBrandingController {
         return "https://" + cloudfrontDomain + "/" + key;
     }
 
-    private record AuthResult(AdminAuthService.AuthResult auth, ResponseEntity<?> error) {}
+    private record AuthResult(AdminAuthService.AdminCheckResult auth, ResponseEntity<?> error) {}
 
     private record LoadedSpecialization(CommunitiesRepository.CommunityRow row, ResponseEntity<?> error) {}
 
