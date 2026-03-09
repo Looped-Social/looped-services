@@ -182,30 +182,12 @@ public class SpecializationBrandingMediaService {
 
     private BufferedImage renderBanner(BufferedImage source) {
         BufferedImage canvas = new BufferedImage(BANNER_WIDTH, BANNER_HEIGHT, BufferedImage.TYPE_INT_ARGB);
-        drawCovered(source, canvas);
+        drawContained(source, canvas);
         return canvas;
     }
 
     private void drawContained(BufferedImage source, BufferedImage canvas) {
         double scale = Math.min(
-                (double) canvas.getWidth() / (double) source.getWidth(),
-                (double) canvas.getHeight() / (double) source.getHeight()
-        );
-        int drawWidth = Math.max(1, (int) Math.round(source.getWidth() * scale));
-        int drawHeight = Math.max(1, (int) Math.round(source.getHeight() * scale));
-        int x = (canvas.getWidth() - drawWidth) / 2;
-        int y = (canvas.getHeight() - drawHeight) / 2;
-        Graphics2D graphics = canvas.createGraphics();
-        try {
-            applyQualityHints(graphics);
-            graphics.drawImage(source, x, y, drawWidth, drawHeight, null);
-        } finally {
-            graphics.dispose();
-        }
-    }
-
-    private void drawCovered(BufferedImage source, BufferedImage canvas) {
-        double scale = Math.max(
                 (double) canvas.getWidth() / (double) source.getWidth(),
                 (double) canvas.getHeight() / (double) source.getHeight()
         );
