@@ -455,7 +455,6 @@ resource "aws_ecs_task_definition" "api" {
           { name = "EMAIL_ADMIN_FROM", value = var.email_admin_from },
           { name = "EMAIL_REPLY_TO", value = var.email_reply_to },
           { name = "EMAIL_CONFIGURATION_SET", value = var.email_configuration_set },
-          { name = "EMAIL_VERIFY_BASE_URL", value = var.email_verify_base_url },
           { name = "EMAIL_COMMUNITY_REQUEST_FROM", value = var.email_community_request_from },
           { name = "SHARE_BASE_URL", value = var.share_base_url },
           { name = "APP_MINIMUM_SUPPORTED_VERSION", value = var.app_minimum_supported_version },

@@ -212,7 +212,6 @@ email:
   admin-from: ${EMAIL_ADMIN_FROM:}
   community-request-from: ${EMAIL_COMMUNITY_REQUEST_FROM:no-reply@looped-social.com}
   reply-to: ${EMAIL_REPLY_TO:}
-  verify-base-url: ${EMAIL_VERIFY_BASE_URL:}
   configuration-set: ${EMAIL_CONFIGURATION_SET:}
 
 onboarding:

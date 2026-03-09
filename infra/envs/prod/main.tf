@@ -106,7 +106,6 @@ module "api" {
   email_admin_from                                 = var.email_admin_from
   email_reply_to                                   = var.email_reply_to
   email_configuration_set                          = var.email_configuration_set
-  email_verify_base_url                            = var.email_verify_base_url
   email_community_request_from                     = var.email_community_request_from
   share_base_url                                   = var.share_base_url
   app_minimum_supported_version                    = var.app_minimum_supported_version

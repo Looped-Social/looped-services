@@ -11,8 +11,6 @@ import software.amazon.awssdk.services.ses.model.Message;
 import software.amazon.awssdk.services.ses.model.SendEmailRequest;
 import software.amazon.awssdk.services.ses.model.SendEmailResponse;
 
-import java.net.URLEncoder;
-import java.nio.charset.StandardCharsets;
 import java.util.Locale;
 
 @Service
@@ -35,18 +33,16 @@ public class EmailService {
         String subject = communityName == null || communityName.isBlank()
                 ? "Verify your community email"
                 : "Verify your " + communityName + " email";
-        String link = buildVerifyLink(communityId, code);
-        String text = buildTextBody(communityName, code, link, ttlSeconds);
-        String html = buildHtmlBody(communityName, code, link, ttlSeconds);
+        String text = buildTextBody(communityName, code, ttlSeconds);
+        String html = buildHtmlBody(communityName, code, ttlSeconds);
         sendEmail(to, subject, text, html);
     }
 
     public void sendUserVerificationEmail(String to, String code, int ttlSeconds) {
         if (!isEnabled()) return;
         String subject = "Verify your Looped signup";
-        String link = buildVerifyLink(null, code);
-        String text = buildTextBody(null, code, link, ttlSeconds);
-        String html = buildHtmlBody(null, code, link, ttlSeconds);
+        String text = buildTextBody(null, code, ttlSeconds);
+        String html = buildHtmlBody(null, code, ttlSeconds);
         sendEmail(to, subject, text, html);
     }
 
@@ -286,36 +282,20 @@ public class EmailService {
                 || normalized.contains("<body");
     }
 
-    private String buildVerifyLink(Long communityId, String code) {
-        String base = props.getVerifyBaseUrl();
-        if (base == null || base.isBlank()) return null;
-        String trimmed = base.trim();
-        String sep = trimmed.contains("?") ? "&" : "?";
-        String encoded = URLEncoder.encode(code, StandardCharsets.UTF_8);
-        StringBuilder out = new StringBuilder(trimmed).append(sep).append("code=").append(encoded);
-        if (communityId != null) {
-            out.append("&communityId=").append(communityId);
-        }
-        return out.toString();
-    }
-
-    private String buildTextBody(String communityName, String code, String link, int ttlSeconds) {
+    private String buildTextBody(String communityName, String code, int ttlSeconds) {
         StringBuilder out = new StringBuilder();
-        out.append("Use the verification code ").append(code).append(" to continue. See below as well.\n\n");
+        out.append("Use the verification code ").append(code).append(" to continue.\n\n");
         if (communityName != null && !communityName.isBlank()) {
             out.append("Use this code to verify your ").append(communityName).append(" email.\n");
         } else {
             out.append("Use this code to verify your Looped signup.\n");
         }
         out.append(expirySentence(ttlSeconds)).append("\n");
-        if (link != null) {
-            out.append("\nOr click this link:\n").append(link).append("\n");
-        }
         out.append("\nIf you did not sign up for Looped, you can ignore this email.\n");
         return out.toString();
     }
 
-    private String buildHtmlBody(String communityName, String code, String link, int ttlSeconds) {
+    private String buildHtmlBody(String communityName, String code, int ttlSeconds) {
         String escapedCode = escape(code);
         StringBuilder out = new StringBuilder();
         out.append("<html><body style=\"margin:0;padding:0;background-color:#ffffff;color:#1f2937;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Helvetica,Arial,sans-serif;\">");
@@ -338,11 +318,6 @@ public class EmailService {
         out.append("</td></tr>");
         out.append("<tr><td align=\"center\" style=\"font-size:12px;color:#9ca3af;padding-bottom:20px;\">")
                 .append(escape(expirySentence(ttlSeconds))).append("</td></tr>");
-        if (link != null) {
-            out.append("<tr><td style=\"font-size:13px;color:#6b7280;padding-bottom:20px;\">Or verify using this link: ")
-                    .append("<a href=\"").append(escape(link)).append("\" style=\"color:#ea404a;text-decoration:none;\">")
-                    .append("Verify now</a></td></tr>");
-        }
         out.append("<tr><td style=\"font-size:13px;color:#6b7280;\">If you did not sign up for Looped, you can ignore this email.</td></tr>");
         out.append("</table></td></tr></table>");
         out.append("</body></html>");

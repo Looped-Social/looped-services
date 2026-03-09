@@ -95,12 +95,6 @@ variable "email_configuration_set" {
   default = "looped-email-events"
 }
 
-variable "email_verify_base_url" {
-  type        = string
-  description = "Base URL used in verification emails. Should be a URL (e.g. https://www.mylooped.app/verify). Empty disables link generation."
-  default     = ""
-}
-
 variable "email_community_request_from" {
   type        = string
   description = "From address used for community request emails."
