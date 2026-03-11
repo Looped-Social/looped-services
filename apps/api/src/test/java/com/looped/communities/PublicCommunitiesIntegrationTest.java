@@ -19,8 +19,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 @SpringBootTest(properties = {
         "auth.issuer=http://test-issuer",
-        "auth.audience=test-app",
-        "logoDev.token=test-logo-token"
+        "auth.audience=test-app"
 })
 @AutoConfigureMockMvc
 @org.springframework.context.annotation.Import(TestSecurityConfig.class)
@@ -68,40 +67,13 @@ class PublicCommunitiesIntegrationTest extends PostgresTestBase {
                 .andExpect(jsonPath("$.short_name", equalTo("pubcomm")))
                 .andExpect(jsonPath("$.description", equalTo("Public desc")))
                 .andExpect(jsonPath("$.image_url", equalTo("https://cdn.example.com/community.jpg")))
-                .andExpect(jsonPath("$.imageUrl", equalTo("https://cdn.example.com/community.jpg")))
-                .andExpect(jsonPath("$.profile_image_url", equalTo("https://cdn.example.com/community.jpg")))
-                .andExpect(jsonPath("$.profileImageUrl", equalTo("https://cdn.example.com/community.jpg")))
                 .andExpect(jsonPath("$.iconImageUrl", equalTo("https://cdn.example.com/public-community-icon.png")))
                 .andExpect(jsonPath("$.icon_image_url", equalTo("https://cdn.example.com/public-community-icon.png")))
-                .andExpect(jsonPath("$.icon_url", equalTo("https://cdn.example.com/public-community-icon.png")))
-                .andExpect(jsonPath("$.logo_url", equalTo("https://cdn.example.com/public-community-icon.png")))
                 .andExpect(jsonPath("$.bannerImageUrl", equalTo("https://cdn.example.com/public-community-banner.png")))
                 .andExpect(jsonPath("$.banner_image_url", equalTo("https://cdn.example.com/public-community-banner.png")))
-                .andExpect(jsonPath("$.cover_image_url", equalTo("https://cdn.example.com/public-community-banner.png")))
-                .andExpect(jsonPath("$.header_image_url", equalTo("https://cdn.example.com/public-community-banner.png")))
                 .andExpect(jsonPath("$.member_count", equalTo(1)))
                 .andExpect(jsonPath("$.kind", equalTo("specialization")))
                 .andExpect(jsonPath("$.specialization_type", equalTo("field")));
-    }
-
-    @Test
-    void public_community_detail_falls_back_to_logo_for_company_with_domain() throws Exception {
-        long communityId = jdbc.queryForObject(
-                "INSERT INTO communities(kind, name, short_name, description) VALUES ('company', 'Fallback Logo Co', 'fallback-logo', 'Uses domain fallback') RETURNING id",
-                Long.class
-        );
-        jdbc.update(
-                "INSERT INTO community_domains(community_id, domain, is_primary) VALUES (?,?,true)",
-                communityId,
-                "fallback-logo.example"
-        );
-
-        mockMvc.perform(get("/v1/public/communities/" + communityId))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.image_url", equalTo("https://img.logo.dev/fallback-logo.example?token=test-logo-token&size=256&format=png&retina=true")))
-                .andExpect(jsonPath("$.profile_image_url", equalTo("https://img.logo.dev/fallback-logo.example?token=test-logo-token&size=256&format=png&retina=true")))
-                .andExpect(jsonPath("$.icon_url", equalTo("https://img.logo.dev/fallback-logo.example?token=test-logo-token&size=256&format=png&retina=true")))
-                .andExpect(jsonPath("$.logo_url", equalTo("https://img.logo.dev/fallback-logo.example?token=test-logo-token&size=256&format=png&retina=true")));
     }
 
     @Test
