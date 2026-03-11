@@ -14,10 +14,18 @@ public final class SpecializationBrandingPayloads {
         if (icon != null) {
             payload.put("icon_image_url", icon);
             payload.put("iconImageUrl", icon);
+            payload.put("icon_url", icon);
+            payload.put("iconUrl", icon);
+            payload.put("logo_url", icon);
+            payload.put("logoUrl", icon);
         }
         if (banner != null) {
             payload.put("banner_image_url", banner);
             payload.put("bannerImageUrl", banner);
+            payload.put("cover_image_url", banner);
+            payload.put("coverImageUrl", banner);
+            payload.put("header_image_url", banner);
+            payload.put("headerImageUrl", banner);
         }
     }
 

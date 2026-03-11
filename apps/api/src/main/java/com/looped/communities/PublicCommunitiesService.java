@@ -19,13 +19,16 @@ public class PublicCommunitiesService {
 
     private final CommunitiesRepository communities;
     private final CommunityMemberCountService memberCounts;
+    private final CommunityLogoResolver logos;
     private final PostRepository posts;
 
     public PublicCommunitiesService(CommunitiesRepository communities,
                                     CommunityMemberCountService memberCounts,
+                                    CommunityLogoResolver logos,
                                     PostRepository posts) {
         this.communities = communities;
         this.memberCounts = memberCounts;
+        this.logos = logos;
         this.posts = posts;
     }
 
@@ -43,7 +46,8 @@ public class PublicCommunitiesService {
         if (row.description != null && !row.description.isBlank()) {
             payload.put("description", row.description);
         }
-        CommunityImageSlots.putPayload(payload, row.imageUrl, row.profileImageUrl, null);
+        String fallbackImageUrl = logos.resolve(row.id, row.kind, row.imageUrl);
+        CommunityImageSlots.putPayload(payload, row.imageUrl, row.profileImageUrl, fallbackImageUrl);
         payload.put("member_count", memberCounts.memberCount(row.id, row.kind));
         if (row.kind != null && !row.kind.isBlank()) {
             payload.put("kind", row.kind);

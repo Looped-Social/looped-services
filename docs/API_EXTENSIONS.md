@@ -32,7 +32,14 @@
     - `name` (string)
     - `short_name` (string|null, optional key when absent)
     - `description` (string|null, optional key when absent)
-    - `image_url` (string|null, optional key when absent)
+    - `image_url` / `imageUrl` (string|null, optional key when absent)
+    - `profile_image_url` / `profileImageUrl` (string|null, optional key when absent)
+    - `banner_image_url` / `bannerImageUrl` (string|null, optional key when absent)
+    - `cover_image_url` / `coverImageUrl` (string|null, optional key when absent)
+    - `header_image_url` / `headerImageUrl` (string|null, optional key when absent)
+    - `icon_url` / `iconUrl` (string|null, optional key when absent)
+    - `logo_url` / `logoUrl` (string|null, optional key when absent)
+    - `icon_image_url` / `iconImageUrl` (string|null, optional key when absent, specialization branding)
     - `member_count` (int)
     - `kind` (string, optional key when absent)
     - `specialization_type` (string, optional key when absent)
@@ -42,6 +49,7 @@
   - Semantics:
     - `404` means the community id does not exist.
     - `410` means the community exists but is not shareable via public links (unavailable/unshareable state).
+    - Company communities without an explicit image may fall back to a domain-derived logo URL when Logo.dev is configured.
   - `GET /v1/public/communities/{id}/posts?cursor=&limit=` (no auth)
   - Query params:
     - `cursor` optional opaque pagination cursor.

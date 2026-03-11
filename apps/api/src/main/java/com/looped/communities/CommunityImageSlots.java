@@ -26,9 +26,26 @@ public final class CommunityImageSlots {
                                   String fallbackImageUrl) {
         if (payload == null) return;
         Resolved resolved = resolve(bannerImageUrl, profileImageUrl, fallbackImageUrl);
-        if (resolved.bannerImageUrl() != null) payload.put("banner_image_url", resolved.bannerImageUrl());
-        if (resolved.profileImageUrl() != null) payload.put("profile_image_url", resolved.profileImageUrl());
-        if (resolved.legacyImageUrl() != null) payload.put("image_url", resolved.legacyImageUrl());
+        if (resolved.bannerImageUrl() != null) {
+            payload.put("banner_image_url", resolved.bannerImageUrl());
+            payload.put("bannerImageUrl", resolved.bannerImageUrl());
+            payload.put("cover_image_url", resolved.bannerImageUrl());
+            payload.put("coverImageUrl", resolved.bannerImageUrl());
+            payload.put("header_image_url", resolved.bannerImageUrl());
+            payload.put("headerImageUrl", resolved.bannerImageUrl());
+        }
+        if (resolved.profileImageUrl() != null) {
+            payload.put("profile_image_url", resolved.profileImageUrl());
+            payload.put("profileImageUrl", resolved.profileImageUrl());
+            payload.put("icon_url", resolved.profileImageUrl());
+            payload.put("iconUrl", resolved.profileImageUrl());
+            payload.put("logo_url", resolved.profileImageUrl());
+            payload.put("logoUrl", resolved.profileImageUrl());
+        }
+        if (resolved.legacyImageUrl() != null) {
+            payload.put("image_url", resolved.legacyImageUrl());
+            payload.put("imageUrl", resolved.legacyImageUrl());
+        }
     }
 
     private static String normalize(String raw) {

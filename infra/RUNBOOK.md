@@ -116,6 +116,20 @@ Optional (media vanity domain):
 - Set `media.mylooped.app` → CNAME → `cloudfront_domain_name` (from prod outputs).
 - Configure the alias + cert ARN via `media_cloudfront_aliases` / `media_cloudfront_acm_certificate_arn` in `infra/envs/prod/terraform.tfvars`.
 
+### Public share metadata routes
+Cloudflare WAF/rate-limit/challenge rules for `api.looped-social.com` are managed outside this repo. If the `looped-social.com` share renderer or Worker is blocked before the request reaches Spring, explicitly allow or skip security challenges for the public share endpoints only:
+
+- `GET /v1/public/profiles/*`
+- `GET /v1/public/communities/*`
+- `GET /v1/public/posts/*`
+- `POST /v1/media/resolve`
+
+Keep the exception narrow:
+
+- Scope it to these read-only share routes, not the whole API.
+- If you want to distinguish Worker traffic from general public traffic, have the renderer send a dedicated header and match that header in the Cloudflare rule.
+- A Cloudflare 403 HTML response on these routes indicates the request was blocked at the edge, not by the Spring controllers in this repo.
+
 ## 8) Smoke test
 Once DNS points at the new ALB:
 - `GET https://api.mylooped.app/actuator/health`
