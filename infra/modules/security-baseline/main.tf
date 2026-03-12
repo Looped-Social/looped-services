@@ -24,6 +24,195 @@ resource "aws_wafv2_web_acl" "alb" {
     sampled_requests_enabled   = true
   }
 
+  dynamic "rule" {
+    for_each = trimspace(var.public_share_worker_header_value) != "" ? [trimspace(var.public_share_worker_header_value)] : []
+
+    content {
+      name     = "AllowPublicShareWorker"
+      priority = 1
+
+      action {
+        allow {}
+      }
+
+      statement {
+        and_statement {
+          statement {
+            byte_match_statement {
+              search_string         = lower(rule.value)
+              positional_constraint = "EXACTLY"
+
+              field_to_match {
+                single_header {
+                  name = "cf-worker"
+                }
+              }
+
+              text_transformation {
+                priority = 0
+                type     = "LOWERCASE"
+              }
+            }
+          }
+
+          statement {
+            or_statement {
+              statement {
+                and_statement {
+                  statement {
+                    byte_match_statement {
+                      search_string         = "GET"
+                      positional_constraint = "EXACTLY"
+
+                      field_to_match {
+                        method {}
+                      }
+
+                      text_transformation {
+                        priority = 0
+                        type     = "NONE"
+                      }
+                    }
+                  }
+
+                  statement {
+                    byte_match_statement {
+                      search_string         = "/v1/public/profiles/"
+                      positional_constraint = "STARTS_WITH"
+
+                      field_to_match {
+                        uri_path {}
+                      }
+
+                      text_transformation {
+                        priority = 0
+                        type     = "NONE"
+                      }
+                    }
+                  }
+                }
+              }
+
+              statement {
+                and_statement {
+                  statement {
+                    byte_match_statement {
+                      search_string         = "GET"
+                      positional_constraint = "EXACTLY"
+
+                      field_to_match {
+                        method {}
+                      }
+
+                      text_transformation {
+                        priority = 0
+                        type     = "NONE"
+                      }
+                    }
+                  }
+
+                  statement {
+                    byte_match_statement {
+                      search_string         = "/v1/public/communities/"
+                      positional_constraint = "STARTS_WITH"
+
+                      field_to_match {
+                        uri_path {}
+                      }
+
+                      text_transformation {
+                        priority = 0
+                        type     = "NONE"
+                      }
+                    }
+                  }
+                }
+              }
+
+              statement {
+                and_statement {
+                  statement {
+                    byte_match_statement {
+                      search_string         = "GET"
+                      positional_constraint = "EXACTLY"
+
+                      field_to_match {
+                        method {}
+                      }
+
+                      text_transformation {
+                        priority = 0
+                        type     = "NONE"
+                      }
+                    }
+                  }
+
+                  statement {
+                    byte_match_statement {
+                      search_string         = "/v1/public/posts/"
+                      positional_constraint = "STARTS_WITH"
+
+                      field_to_match {
+                        uri_path {}
+                      }
+
+                      text_transformation {
+                        priority = 0
+                        type     = "NONE"
+                      }
+                    }
+                  }
+                }
+              }
+
+              statement {
+                and_statement {
+                  statement {
+                    byte_match_statement {
+                      search_string         = "POST"
+                      positional_constraint = "EXACTLY"
+
+                      field_to_match {
+                        method {}
+                      }
+
+                      text_transformation {
+                        priority = 0
+                        type     = "NONE"
+                      }
+                    }
+                  }
+
+                  statement {
+                    byte_match_statement {
+                      search_string         = "/v1/media/resolve"
+                      positional_constraint = "EXACTLY"
+
+                      field_to_match {
+                        uri_path {}
+                      }
+
+                      text_transformation {
+                        priority = 0
+                        type     = "NONE"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+
+      visibility_config {
+        cloudwatch_metrics_enabled = true
+        metric_name                = "${local.name}-share-worker-allow"
+        sampled_requests_enabled   = true
+      }
+    }
+  }
+
   rule {
     name     = "AWSManagedRulesCommonRuleSet"
     priority = 10

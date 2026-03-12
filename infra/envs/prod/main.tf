@@ -83,8 +83,8 @@ module "api" {
   public_subnet_ids  = module.network.public_subnet_ids
   private_subnet_ids = module.network.private_subnet_ids
 
-  domain_name         = var.domain_name
-  acm_certificate_arn = var.acm_certificate_arn
+  domain_name                     = var.domain_name
+  acm_certificate_arn             = var.acm_certificate_arn
   additional_acm_certificate_arns = var.additional_acm_certificate_arns
 
   ecr_image = "${data.aws_ecr_repository.api.repository_url}:${var.image_tag}"
@@ -167,8 +167,9 @@ module "security_baseline" {
 
   alb_arn = module.api.alb_arn
 
-  enable_waf              = true
-  enable_account_baseline = true
+  public_share_worker_header_value = "looped-social.com"
+  enable_waf                       = true
+  enable_account_baseline          = true
 }
 
 module "notif_worker" {

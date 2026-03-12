@@ -31,6 +31,12 @@ variable "waf_rate_limit" {
   default     = 2000
 }
 
+variable "public_share_worker_header_value" {
+  type        = string
+  description = "Optional exact CF-Worker header value allowed through WAF for public share metadata endpoints."
+  default     = ""
+}
+
 variable "enable_account_baseline" {
   type        = bool
   description = "Enable account-wide baseline services (CloudTrail, GuardDuty, Security Hub) once per account."

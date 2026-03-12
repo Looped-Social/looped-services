@@ -117,18 +117,22 @@ Optional (media vanity domain):
 - Configure the alias + cert ARN via `media_cloudfront_aliases` / `media_cloudfront_acm_certificate_arn` in `infra/envs/prod/terraform.tfvars`.
 
 ### Public share metadata routes
-Cloudflare WAF/rate-limit/challenge rules for `api.looped-social.com` are managed outside this repo. If the `looped-social.com` share renderer or Worker is blocked before the request reaches Spring, explicitly allow or skip security challenges for the public share endpoints only:
+If `api.looped-social.com` is DNS-only in Cloudflare, the most likely infrastructure block is the ALB-attached AWS WAF, not Cloudflare. In production, the `looped-prod-alb-waf` WebACL can block Worker-originated subrequests because Cloudflare Workers omit `User-Agent`, which trips `AWSManagedRulesCommonRuleSet#NoUserAgent_HEADER`.
 
-- `GET /v1/public/profiles/*`
-- `GET /v1/public/communities/*`
-- `GET /v1/public/posts/*`
-- `POST /v1/media/resolve`
+The intended fix is an allow rule ahead of the managed rules for only the share renderer traffic:
+
+- Match header `cf-worker: looped-social.com`
+- Allow only:
+  - `GET /v1/public/profiles/*`
+  - `GET /v1/public/communities/*`
+  - `GET /v1/public/posts/*`
+  - `POST /v1/media/resolve`
 
 Keep the exception narrow:
 
-- Scope it to these read-only share routes, not the whole API.
-- If you want to distinguish Worker traffic from general public traffic, have the renderer send a dedicated header and match that header in the Cloudflare rule.
-- A Cloudflare 403 HTML response on these routes indicates the request was blocked at the edge, not by the Spring controllers in this repo.
+- Scope it to those read-only share routes only.
+- Match the Cloudflare Worker header instead of disabling the managed rule globally.
+- If the API hostname is later proxied by Cloudflare, re-check both Cloudflare and ALB WAF layers before assuming the block source.
 
 ## 8) Smoke test
 Once DNS points at the new ALB:
