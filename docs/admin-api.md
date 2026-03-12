@@ -1318,6 +1318,16 @@ Request
 }
 ```
 
+Supported `contentType` values
+- `image/jpeg`
+- `image/png`
+- `image/webp`
+- `image/svg+xml`
+
+Notes
+- SVG uploads are accepted for admin community images and rasterized server-side during callback.
+- The stored/selectable asset is the processed raster image, not the original SVG.
+
 Response (200)
 ```json
 {
@@ -1340,6 +1350,10 @@ Request
   "height": 512
 }
 ```
+
+Notes
+- `mimeType` may be `image/svg+xml` for SVG uploads.
+- SVG uploads are converted to `image/png` before the asset is persisted and returned.
 
 Response (201)
 ```json

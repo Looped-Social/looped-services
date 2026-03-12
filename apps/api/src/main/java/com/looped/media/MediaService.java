@@ -76,6 +76,10 @@ public class MediaService {
         return presignCustom(contentType, sizeBytes, prefix, ALLOWED_IMAGE, maxImageBytes);
     }
 
+    public long maxImageBytes() {
+        return maxImageBytes;
+    }
+
     public PresignResult presignCustom(String contentType,
                                        long sizeBytes,
                                        String prefix,

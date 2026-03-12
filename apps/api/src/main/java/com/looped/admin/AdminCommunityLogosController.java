@@ -3,6 +3,7 @@ package com.looped.admin;
 import com.looped.communities.CommunitiesRepository;
 import com.looped.communities.CommunityImageSlots;
 import com.looped.communities.CommunityLogoAssetsRepository;
+import com.looped.communities.CommunityLogoMediaService;
 import com.looped.communities.CommunityLogoResolver;
 import com.looped.media.MediaImageSafetyService;
 import com.looped.media.MediaRepository;
@@ -41,6 +42,7 @@ public class AdminCommunityLogosController {
     private final CommunitiesRepository communities;
     private final CommunityLogoAssetsRepository logoAssets;
     private final MediaService mediaService;
+    private final CommunityLogoMediaService logoMedia;
     private final MediaImageSafetyService imageSafety;
     private final MediaRepository mediaRepository;
     private final CommunityLogoResolver logoResolver;
@@ -53,6 +55,7 @@ public class AdminCommunityLogosController {
                                          CommunitiesRepository communities,
                                          CommunityLogoAssetsRepository logoAssets,
                                          MediaService mediaService,
+                                         CommunityLogoMediaService logoMedia,
                                          MediaImageSafetyService imageSafety,
                                          MediaRepository mediaRepository,
                                          CommunityLogoResolver logoResolver,
@@ -64,6 +67,7 @@ public class AdminCommunityLogosController {
         this.communities = communities;
         this.logoAssets = logoAssets;
         this.mediaService = mediaService;
+        this.logoMedia = logoMedia;
         this.imageSafety = imageSafety;
         this.mediaRepository = mediaRepository;
         this.logoResolver = logoResolver;
@@ -152,7 +156,13 @@ public class AdminCommunityLogosController {
         if (communities.findById(id).isEmpty()) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "not_found"));
         }
-        var res = mediaService.presignImage(body.contentType(), body.sizeBytes(), LOGO_PREFIX);
+        var res = mediaService.presignCustom(
+                body.contentType(),
+                body.sizeBytes(),
+                LOGO_PREFIX,
+                logoMedia.allowedUploadMimeTypes(),
+                mediaService.maxImageBytes()
+        );
         if (res.status() == MediaService.Status.BAD_REQUEST) {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of("error", res.error()));
         }
@@ -212,10 +222,26 @@ public class AdminCommunityLogosController {
             Integer persistedHeight = body.height();
             String persistedMimeType = normalizedMimeType;
             try {
-                var normalized = imageSafety.validateAndNormalizeUploadedImage(key, normalizedMimeType, body.width(), body.height());
-                persistedMimeType = normalized.mimeType();
-                persistedWidth = normalized.width();
-                persistedHeight = normalized.height();
+                if (logoMedia.isSvgMimeType(normalizedMimeType)) {
+                    var rasterized = logoMedia.rasterizeSvgInPlace(key, normalizedMimeType);
+                    persistedMimeType = rasterized.mimeType();
+                    persistedWidth = rasterized.width();
+                    persistedHeight = rasterized.height();
+                } else {
+                    var normalized = imageSafety.validateAndNormalizeUploadedImage(key, normalizedMimeType, body.width(), body.height());
+                    persistedMimeType = normalized.mimeType();
+                    persistedWidth = normalized.width();
+                    persistedHeight = normalized.height();
+                }
+            } catch (CommunityLogoMediaService.InvalidAssetException e) {
+                return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of(
+                        "error", "invalid_image",
+                        "message", e.getMessage()
+                ));
+            } catch (CommunityLogoMediaService.MediaUnavailableException e) {
+                return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(Map.of(
+                        "error", "media_unavailable"
+                ));
             } catch (MediaImageSafetyService.InvalidImageException e) {
                 return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of(
                         "error", "invalid_image",
